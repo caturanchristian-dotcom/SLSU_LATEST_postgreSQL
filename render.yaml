@@ -1,0 +1,15 @@
+# Render Blueprint Specification for easy 1-click deployments
+services:
+  - type: web
+    name: payroll-dtr-system
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    plan: starter # Render free tier / starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: MYSQL_URL
+        value: "" # Provide your MySQL connection URL here to connect a live database (e.g. mysql://user:pass@host:port/db)

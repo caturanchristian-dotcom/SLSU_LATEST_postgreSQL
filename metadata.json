@@ -1,0 +1,6 @@
+{
+  "name": "SLSU Payroll Management System",
+  "description": "A comprehensive payroll system for SLSU-Hinunangan Campus with real-time disbursement tracking and deduction monitoring.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

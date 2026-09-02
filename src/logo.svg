@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Outer Circular Shield with Deep Blue and Gold Border -->
+  <circle cx="100" cy="100" r="95" fill="#1e3a8a" stroke="#d97706" stroke-width="6" />
+  <circle cx="100" cy="100" r="82" fill="none" stroke="#d97706" stroke-width="1.5" stroke-dasharray="4,4" />
+  
+  <!-- Golden Side Laurels representing scholastic achievement -->
+  <path d="M 50,140 Q 30,100 50,60" fill="none" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 150,140 Q 170,100 150,60" fill="none" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/>
+  
+  <!-- Academic open book at center background -->
+  <path d="M 70,110 Q 100,100 100,120 Q 100,100 130,110 L 130,135 Q 100,125 100,145 Q 100,125 70,135 Z" fill="#ffffff" stroke="#1e3a8a" stroke-width="2" />
+  <line x1="100" y1="120" x2="100" y2="145" stroke="#1e3a8a" stroke-width="2" />
+  
+  <!-- Torch handle -->
+  <path d="M 96,95 L 104,95 L 102,110 L 98,110 Z" fill="#d97706" stroke="#fbbf24" stroke-width="0.5" />
+  
+  <!-- Double flame representing knowledge and service -->
+  <path d="M 100,74 Q 88,88 100,95 Q 112,88 100,74" fill="#ef4444" />
+  <path d="M 100,81 Q 94,88 100,95 Q 106,88 100,81" fill="#fbbf24" />
+  
+  <!-- 3 Gold Stars symbolizing core missions -->
+  <polygon points="100,48 102,53 107,53 103,56 105,61 100,58 95,61 97,56 93,53 98,53" fill="#fbbf24" />
+  <polygon points="75,56 77,61 82,61 78,64 80,69 75,66 70,69 72,64 68,61 73,61" fill="#fbbf24" />
+  <polygon points="125,56 127,61 132,61 128,64 130,69 125,66 120,69 122,64 118,61 123,61" fill="#fbbf24" />
+  
+  <!-- Circular and straight typography labels -->
+  <text x="100" y="32" font-family="'Inter', system-ui, sans-serif" font-weight="800" font-size="11" fill="#ffffff" text-anchor="middle" letter-spacing="1">SLSU</text>
+  <text x="100" y="163" font-family="'Inter', system-ui, sans-serif" font-weight="700" font-size="8" fill="#fbbf24" text-anchor="middle">SOUTHERN LEYTE</text>
+  <text x="100" y="172" font-family="'Inter', system-ui, sans-serif" font-weight="700" font-size="8" fill="#fbbf24" text-anchor="middle">STATE UNIVERSITY</text>
+  <text x="100" y="183" font-family="'Inter', system-ui, sans-serif" font-weight="500" font-size="6" fill="#ffffff" text-anchor="middle" letter-spacing="1.5">EST. 2004</text>
+</svg>
