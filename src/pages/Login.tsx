@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../components/AuthProvider';
 import { LogIn, Eye, EyeOff, AlertCircle, Building2, ShieldCheck, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
@@ -15,6 +15,29 @@ const Login = () => {
   const [assignedCampusSuggestion, setAssignedCampusSuggestion] = useState<string | null>(null);
   const [showSupabaseSetupModal, setShowSupabaseSetupModal] = useState(false);
   const { login, loginWithGoogle, isSupabaseConfigured } = useAuth();
+
+  useEffect(() => {
+    // Check if there was an OAuth login error stored in sessionStorage
+    const storedError = sessionStorage.getItem('payroll_login_error');
+    if (storedError) {
+      setLoginError(storedError);
+      sessionStorage.removeItem('payroll_login_error');
+    }
+
+    const handleOAuthError = (evt: CustomEvent) => {
+      if (evt.detail?.message) {
+        setLoginError(evt.detail.message);
+        if (evt.detail.assignedCampus) {
+          setAssignedCampusSuggestion(evt.detail.assignedCampus);
+        }
+      }
+    };
+
+    window.addEventListener('payroll-login-error' as any, handleOAuthError);
+    return () => {
+      window.removeEventListener('payroll-login-error' as any, handleOAuthError);
+    };
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -396,7 +419,5 @@ const Login = () => {
     </div>
   );
 };
-
-
 
 export default Login;

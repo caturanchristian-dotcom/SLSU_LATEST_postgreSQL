@@ -138,8 +138,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         toast.success(`Welcome ${userData.displayName || userData.email}! Signed in with Google.`);
       } catch (err: any) {
-        console.error("Google OAuth login synchronization error:", err);
-        toast.error(err.message || "Failed to authenticate Google user with payroll system");
+        console.error("Google OAuth login verification error:", err);
+        sessionStorage.removeItem('payroll_pending_campus');
+        sessionStorage.removeItem('payroll_session_active');
+        localStorage.removeItem('payroll_user');
+        localStorage.removeItem('payroll_last_active');
+        
+        if (supabase) {
+          try {
+            await supabase.auth.signOut();
+          } catch (signOutErr) {
+            console.warn("Supabase sign out error:", signOutErr);
+          }
+        }
+        
+        logout(false);
+        const errorMsg = err.message || "Failed to authenticate Google user with payroll system";
+        sessionStorage.setItem('payroll_login_error', errorMsg);
+        window.dispatchEvent(new CustomEvent('payroll-login-error', { 
+          detail: { 
+            message: errorMsg, 
+            code: err.code, 
+            assignedCampus: err.assignedCampus 
+          } 
+        }));
+        toast.error(errorMsg, { duration: 6000 });
       }
     };
 

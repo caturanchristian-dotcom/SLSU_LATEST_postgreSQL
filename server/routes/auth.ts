@@ -232,30 +232,34 @@ authRouter.post("/google-login", async (req: any, res: any) => {
       }
     }
 
-    // If employee exists but no user record, create the user record
-    if (!user && employee) {
-      const id = employee.id;
-      const empName = `${employee.firstName} ${employee.lastName}`.trim();
-      await db.prepare("INSERT OR REPLACE INTO users (id, email, password, displayName, role, profileImage, campus) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-        id, employee.email, `oauth_google_${Date.now()}`, empName || displayName || cleanEmail.split('@')[0], 'employee', profileImage || employee.profileImage || '', employee.campus || campus || 'Hinunangan Campus'
+    // STRICT VALIDATION: If neither a user nor employee record exists in the database, reject login immediately
+    if (!user && !employee) {
+      await logAudit(
+        req, 
+        'USER_LOGIN_FAILED', 
+        `Google OAuth login rejected: Email "${cleanEmail}" is not registered in the employee database.`
       );
-      user = await db.prepare("SELECT * FROM users WHERE id = ?").get(id) as any;
+      return res.status(403).json({
+        error: `Login Failed: No employee record found for email "${cleanEmail}". Please ensure your email is already registered in the system before signing in with Google.`,
+        code: 'EMAIL_NOT_REGISTERED',
+        email: cleanEmail,
+      });
     }
 
-    // If still no user, auto-provision user record
-    if (!user) {
-      const isSuperAdmin = cleanEmail === 'caturanchristian@gmail.com' || cleanEmail.includes('admin');
-      const newId = `user-${Date.now()}`;
-      const newDisplayName = displayName || cleanEmail.split('@')[0];
-      const newRole = isSuperAdmin ? 'admin' : 'employee';
-      const assignedCampus = campus || 'Hinunangan Campus';
-
-      await db.prepare(`
-        INSERT INTO users (id, email, password, displayName, role, profileImage, campus)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(newId, cleanEmail, `oauth_google_${Date.now()}`, newDisplayName, newRole, profileImage || '', assignedCampus);
-
-      user = await db.prepare("SELECT * FROM users WHERE id = ?").get(newId) as any;
+    // If employee exists but no user record, create the user record linked to employee
+    if (!user && employee) {
+      const id = employee.id;
+      const empName = `${employee.firstName || ''} ${employee.lastName || ''}`.trim();
+      await db.prepare("INSERT OR REPLACE INTO users (id, email, password, displayName, role, profileImage, campus) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+        id, 
+        employee.email || cleanEmail, 
+        `oauth_google_${Date.now()}`, 
+        empName || displayName || cleanEmail.split('@')[0], 
+        'employee', 
+        profileImage || employee.profileImage || '', 
+        employee.campus || campus || 'Hinunangan Campus'
+      );
+      user = await db.prepare("SELECT * FROM users WHERE id = ?").get(id) as any;
     }
 
     // Update profile image from Google if not set
