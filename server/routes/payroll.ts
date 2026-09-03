@@ -118,16 +118,20 @@ payrollRouter.get("/payroll-cycles", async (req: any, res: any) => {
       cycles = [];
     }
 
-    // Check if any draft cycle is empty or has 0 totalNet, and auto-populate safely
+    // Check if any cycle is empty or has 0 totalNet/totalGross, and auto-populate or calculate
     for (const c of cycles) {
-      if (c && (c.status === 'draft' || !c.totalNet || Number(c.totalNet) === 0)) {
+      if (c && (!c.totalNet || Number(c.totalNet) === 0 || !c.totalGross || Number(c.totalGross) === 0)) {
         try {
           const entryCount = await db.prepare("SELECT COUNT(*) as count FROM payroll_entries WHERE cycleId = ?").get(c.id) as any;
           if (!entryCount || Number(entryCount.count) === 0) {
-            await populateCycleEmployees(c.id);
+            if (c.status === 'draft') {
+              await populateCycleEmployees(c.id);
+            }
+          } else {
+            await calculateNetSalary(c.id);
           }
         } catch (popErr) {
-          console.warn(`[Payroll] Auto-populate warning for cycle ${c.id}:`, popErr);
+          console.warn(`[Payroll] Auto-calculate warning for cycle ${c.id}:`, popErr);
         }
       }
     }
@@ -244,7 +248,7 @@ payrollRouter.get("/payroll-cycles/:id/entries", async (req: any, res: any) => {
     } else {
       try {
         const cycle = await db.prepare("SELECT * FROM payroll_cycles WHERE id = ?").get(id) as any;
-        if (cycle && cycle.status === 'draft') {
+        if (cycle && (cycle.status === 'draft' || !cycle.totalNet || Number(cycle.totalNet) === 0 || !cycle.totalGross || Number(cycle.totalGross) === 0)) {
           await calculateNetSalary(id);
         }
       } catch (calcErr) {
@@ -690,7 +694,16 @@ payrollRouter.put("/payroll-entries/:id", async (req: any, res: any) => {
       await syncPayrollDeductionsToDeductionsTable(entry.employeeId, customValues);
     }
 
-    res.json({ success: true });
+    const updatedCycle = await db.prepare('SELECT "totalGross", "totalDeductions", "totalNet" FROM payroll_cycles WHERE id = ?').get(entry.cycleId) as any;
+
+    res.json({ 
+      success: true,
+      cycleTotals: updatedCycle ? {
+        totalGross: Number(updatedCycle.totalGross || 0),
+        totalDeductions: Number(updatedCycle.totalDeductions || 0),
+        totalNet: Number(updatedCycle.totalNet || 0)
+      } : undefined
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

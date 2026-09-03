@@ -709,14 +709,24 @@ export async function calculateNetSalary(
       totalNet = Number((totalNet + net).toFixed(2));
     }
 
-    if (onlyEmployeeId) {
-      const summary = await db.prepare("SELECT SUM(grossPay) as sumGross, SUM(totalDeductions) as sumDeds, SUM(netPay) as sumNet FROM payroll_entries WHERE cycleId = ?").get(cycleId) as any;
-      totalGross = summary?.sumGross || 0;
-      totalDeductions = summary?.sumDeds || 0;
-      totalNet = summary?.sumNet || 0;
+    // Always summarize from payroll_entries to ensure 100% database consistency
+    const summary = await db.prepare(`
+      SELECT 
+        COALESCE(SUM(grossPay), 0) as sumGross, 
+        COALESCE(SUM(totalDeductions), 0) as sumDeds, 
+        COALESCE(SUM(netPay), 0) as sumNet 
+      FROM payroll_entries 
+      WHERE cycleId = ?
+    `).get(cycleId) as any;
+
+    if (summary) {
+      totalGross = Number(Number(summary.sumGross || 0).toFixed(2));
+      totalDeductions = Number(Number(summary.sumDeds || 0).toFixed(2));
+      totalNet = Number(Number(summary.sumNet || 0).toFixed(2));
     }
 
-    await db.prepare("UPDATE payroll_cycles SET totalGross = ?, totalDeductions = ?, totalNet = ? WHERE id = ?").run(totalGross, totalDeductions, totalNet, cycleId);
+    await db.prepare('UPDATE payroll_cycles SET "totalGross" = ?, "totalDeductions" = ?, "totalNet" = ? WHERE id = ?').run(totalGross, totalDeductions, totalNet, cycleId);
+    return { totalGross, totalDeductions, totalNet };
   } catch (error) {
     throw error;
   }

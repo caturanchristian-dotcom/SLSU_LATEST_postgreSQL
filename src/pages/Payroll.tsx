@@ -580,12 +580,15 @@ const Payroll = () => {
 
     // 6. Dynamic Gross Pay calculation
     if (key === 'compGross') {
-      const compPera = entry.customValues?.compPera !== undefined ? Number(entry.customValues.compPera) : 2000.00;
+      const compPera = entry.customValues?.compPera !== undefined ? Number(entry.customValues.compPera) : (entry.compPera !== undefined ? Number(entry.compPera) : 2000.00);
       const absVal = Number(entry.customValues?.absences !== undefined ? entry.customValues.absences : (entry.absences || 0));
-      const otVal = Number(entry.overtime || 0);
-      const allowVal = Number(entry.allowances || 0);
-      const bonusVal = Number(entry.bonuses || 0);
-      return Math.max(0, Number((resolvedWages + compPera - absVal + allowVal + otVal + bonusVal).toFixed(2)));
+      const otVal = Number(entry.customValues?.overtime !== undefined ? entry.customValues.overtime : (entry.overtime || 0));
+      const allowVal = Number(entry.customValues?.allowances !== undefined ? entry.customValues.allowances : (entry.allowances || 0));
+      const bonusVal = Number(entry.customValues?.bonuses !== undefined ? entry.customValues.bonuses : (entry.bonuses || 0));
+      const computed = Math.max(0, Number((resolvedWages + compPera - absVal + allowVal + otVal + bonusVal).toFixed(2)));
+      if (computed > 0) return computed;
+      if (Number(entry.grossPay || 0) > 0) return Number(entry.grossPay);
+      return 0;
     }
 
     // 7. Static/Smart defaults
@@ -623,16 +626,29 @@ const Payroll = () => {
         };
         if (key === 'compSal2nd') {
           updatedEntry.basicPay = numVal;
+          updatedEntry.compSal2nd = numVal;
         }
+        if (key === 'absences') updatedEntry.absences = numVal;
+        if (key === 'overtime') updatedEntry.overtime = numVal;
+        if (key === 'allowances') updatedEntry.allowances = numVal;
+        if (key === 'bonuses') updatedEntry.bonuses = numVal;
         return updatedEntry;
       }
       return e;
     }));
 
     try {
-      await api.payroll.updateEntry(entryId, {
+      const res = await api.payroll.updateEntry(entryId, {
         customValues: { [key]: numVal }
       });
+      if (res?.cycleTotals && selectedCycle) {
+        setSelectedCycle((prev: any) => prev ? {
+          ...prev,
+          totalGross: res.cycleTotals.totalGross,
+          totalDeductions: res.cycleTotals.totalDeductions,
+          totalNet: res.cycleTotals.totalNet
+        } : prev);
+      }
       fetchEntries();
     } catch (e: any) {
       toast.error("Failed to update: " + e.message);
@@ -680,15 +696,25 @@ const Payroll = () => {
           const updatedCustom = { ...(e.customValues || {}), ...employeeDeductionsDraft };
           return {
             ...e,
-            customValues: updatedCustom
+            customValues: updatedCustom,
+            deductions: { ...(e.deductions || {}), ...employeeDeductionsDraft }
           };
         }
         return e;
       }));
 
-      await api.payroll.updateEntry(entryId, {
+      const res = await api.payroll.updateEntry(entryId, {
         customValues: employeeDeductionsDraft
       });
+
+      if (res?.cycleTotals && selectedCycle) {
+        setSelectedCycle((prev: any) => prev ? {
+          ...prev,
+          totalGross: res.cycleTotals.totalGross,
+          totalDeductions: res.cycleTotals.totalDeductions,
+          totalNet: res.cycleTotals.totalNet
+        } : prev);
+      }
 
       toast.success(`Deductions updated and synced for ${selectedEntryForDeductions.employeeName}`);
       setSelectedEntryForDeductions(null);
@@ -2365,6 +2391,84 @@ const Payroll = () => {
     return matchesSearch && matchesStatus && matchesType && matchesManaged;
   });
 
+  const deductionCols = useMemo(() => {
+    return columnsList.filter(col => col.category === 'DEDUCTIONS');
+  }, [columnsList]);
+
+  // Real-time dynamic payroll totals calculated directly from the active entries state
+  const realTimeTotals = useMemo(() => {
+    let cycleGross = 0;
+    let cycleDeductions = 0;
+    let cycleNet = 0;
+
+    for (const entry of entries) {
+      const gross = getCellValue(entry, 'compGross');
+      const rowDed = deductionCols.reduce((sum, col) => sum + getCellValue(entry, col.key), 0);
+      const effectiveDed = rowDed > 0 ? rowDed : Number(entry.totalDeductions || entry.total_deductions || 0);
+      const effectiveGross = gross > 0 ? gross : Number(entry.grossPay || entry.gross_pay || 0);
+      const effectiveNet = Math.max(0, Number((effectiveGross - effectiveDed).toFixed(2)));
+
+      cycleGross += effectiveGross;
+      cycleDeductions += effectiveDed;
+      cycleNet += effectiveNet;
+    }
+
+    // Filtered totals (when user is searching)
+    let filteredGross = 0;
+    let filteredDeductions = 0;
+    let filteredNet = 0;
+
+    for (const entry of filteredEntries) {
+      const gross = getCellValue(entry, 'compGross');
+      const rowDed = deductionCols.reduce((sum, col) => sum + getCellValue(entry, col.key), 0);
+      const effectiveDed = rowDed > 0 ? rowDed : Number(entry.totalDeductions || entry.total_deductions || 0);
+      const effectiveGross = gross > 0 ? gross : Number(entry.grossPay || entry.gross_pay || 0);
+      const effectiveNet = Math.max(0, Number((effectiveGross - effectiveDed).toFixed(2)));
+
+      filteredGross += effectiveGross;
+      filteredDeductions += effectiveDed;
+      filteredNet += effectiveNet;
+    }
+
+    // If entries are present, use computed sums; otherwise fall back to stored cycle totals
+    const finalGross = entries.length > 0 ? cycleGross : Number(selectedCycle?.totalGross || 0);
+    const finalDeductions = entries.length > 0 ? cycleDeductions : Number(selectedCycle?.totalDeductions || 0);
+    const finalNet = entries.length > 0 ? cycleNet : Number(selectedCycle?.totalNet || 0);
+
+    return {
+      totalGross: Number(finalGross.toFixed(2)),
+      totalDeductions: Number(finalDeductions.toFixed(2)),
+      totalNet: Number(finalNet.toFixed(2)),
+      filteredGross: Number(filteredGross.toFixed(2)),
+      filteredDeductions: Number(filteredDeductions.toFixed(2)),
+      filteredNet: Number(filteredNet.toFixed(2)),
+      isFiltered: filteredEntries.length < entries.length,
+      totalCount: entries.length,
+      filteredCount: filteredEntries.length
+    };
+  }, [entries, filteredEntries, deductionCols, selectedCycle, columnsList]);
+
+  // Keep selectedCycle totals in sync with real-time calculated values
+  useEffect(() => {
+    if (selectedCycle && entries.length > 0) {
+      const curGross = Number(selectedCycle.totalGross || 0);
+      const curDeds = Number(selectedCycle.totalDeductions || 0);
+      const curNet = Number(selectedCycle.totalNet || 0);
+      if (
+        Math.abs(curGross - realTimeTotals.totalGross) > 0.01 ||
+        Math.abs(curDeds - realTimeTotals.totalDeductions) > 0.01 ||
+        Math.abs(curNet - realTimeTotals.totalNet) > 0.01
+      ) {
+        setSelectedCycle((prev: any) => prev ? {
+          ...prev,
+          totalGross: realTimeTotals.totalGross,
+          totalDeductions: realTimeTotals.totalDeductions,
+          totalNet: realTimeTotals.totalNet
+        } : prev);
+      }
+    }
+  }, [realTimeTotals.totalGross, realTimeTotals.totalDeductions, realTimeTotals.totalNet, entries.length]);
+
   const cn = (...inputs: any[]) => inputs.filter(Boolean).join(' ');
 
   return (
@@ -2726,29 +2830,93 @@ const Payroll = () => {
             </div>
           </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-sm text-neutral-500 mb-1">Total Gross Pay</p>
-              <h3 className="text-2xl font-bold">₱{formatCurrency(selectedCycle.totalGross)}</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          <Card className="bg-white border-neutral-200 shadow-sm transition-all duration-200 hover:border-neutral-300">
+            <CardContent className="pt-5 pb-5">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs text-neutral-500 font-semibold uppercase tracking-wider">Total Gross Pay</p>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                  Real-time
+                </span>
+              </div>
+              <h3 className="text-2xl font-black text-neutral-900 font-mono tracking-tight">
+                ₱{formatCurrency(realTimeTotals.totalGross)}
+              </h3>
+              {realTimeTotals.isFiltered ? (
+                <p className="text-[11px] text-neutral-500 mt-1 font-sans">
+                  Filtered ({realTimeTotals.filteredCount}): <span className="font-mono font-semibold text-neutral-800">₱{formatCurrency(realTimeTotals.filteredGross)}</span>
+                </p>
+              ) : (
+                <p className="text-[11px] text-neutral-400 mt-1 font-sans">
+                  Across all {realTimeTotals.totalCount} employees
+                </p>
+              )}
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-sm text-neutral-500 mb-1">Total Deductions</p>
-              <h3 className="text-2xl font-bold text-red-600">₱{formatCurrency(selectedCycle.totalDeductions)}</h3>
+          <Card className="bg-white border-neutral-200 shadow-sm transition-all duration-200 hover:border-neutral-300">
+            <CardContent className="pt-5 pb-5">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs text-neutral-500 font-semibold uppercase tracking-wider">Total Deductions</p>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-50 text-red-700 border border-red-200/60">
+                  Real-time
+                </span>
+              </div>
+              <h3 className="text-2xl font-black text-red-600 font-mono tracking-tight">
+                ₱{formatCurrency(realTimeTotals.totalDeductions)}
+              </h3>
+              {realTimeTotals.isFiltered ? (
+                <p className="text-[11px] text-neutral-500 mt-1 font-sans">
+                  Filtered ({realTimeTotals.filteredCount}): <span className="font-mono font-semibold text-red-700">₱{formatCurrency(realTimeTotals.filteredDeductions)}</span>
+                </p>
+              ) : (
+                <p className="text-[11px] text-neutral-400 mt-1 font-sans">
+                  Statutory & internal deductions
+                </p>
+              )}
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-sm text-neutral-500 mb-1">Total Net Pay</p>
-              <h3 className="text-2xl font-bold text-emerald-600">₱{formatCurrency(selectedCycle.totalNet)}</h3>
+          <Card className="bg-white border-neutral-200 shadow-sm transition-all duration-200 hover:border-neutral-300">
+            <CardContent className="pt-5 pb-5">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs text-neutral-500 font-semibold uppercase tracking-wider">Total Net Pay</p>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                  Real-time
+                </span>
+              </div>
+              <h3 className="text-2xl font-black text-emerald-600 font-mono tracking-tight">
+                ₱{formatCurrency(realTimeTotals.totalNet)}
+              </h3>
+              {realTimeTotals.isFiltered ? (
+                <p className="text-[11px] text-neutral-500 mt-1 font-sans">
+                  Filtered ({realTimeTotals.filteredCount}): <span className="font-mono font-semibold text-emerald-700">₱{formatCurrency(realTimeTotals.filteredNet)}</span>
+                </p>
+              ) : (
+                <p className="text-[11px] text-neutral-400 mt-1 font-sans">
+                  Net take-home disbursement
+                </p>
+              )}
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-sm text-neutral-500 mb-1">Total Entries</p>
-              <h3 className="text-2xl font-bold">{entries.length}</h3>
+          <Card className="bg-white border-neutral-200 shadow-sm transition-all duration-200 hover:border-neutral-300">
+            <CardContent className="pt-5 pb-5">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs text-neutral-500 font-semibold uppercase tracking-wider">Total Entries</p>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-neutral-100 text-neutral-700">
+                  Cycle Staff
+                </span>
+              </div>
+              <h3 className="text-2xl font-black text-neutral-900 font-mono tracking-tight">
+                {realTimeTotals.totalCount}
+              </h3>
+              {realTimeTotals.isFiltered ? (
+                <p className="text-[11px] text-neutral-500 mt-1 font-sans">
+                  Matching search: <span className="font-semibold text-neutral-800">{realTimeTotals.filteredCount}</span>
+                </p>
+              ) : (
+                <p className="text-[11px] text-neutral-400 mt-1 font-sans">
+                  Enrolled in this payroll run
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -2779,8 +2947,12 @@ const Payroll = () => {
                     </button>
                   )}
                 </div>
-                <div className="text-sm text-neutral-200 font-medium whitespace-nowrap hidden sm:block">
-                  <span className="font-bold text-white text-base">{filteredEntries.length}</span> of {entries.length} Employees
+                <div className="text-xs text-neutral-300 font-medium whitespace-nowrap hidden sm:flex items-center gap-3">
+                  <span><strong className="font-bold text-white text-sm">{filteredEntries.length}</strong> of {entries.length} Staff</span>
+                  <span className="text-neutral-600">|</span>
+                  <span>Gross: <strong className="text-emerald-400 font-mono font-bold">₱{formatCurrency(realTimeTotals.totalGross)}</strong></span>
+                  <span className="text-neutral-600">|</span>
+                  <span>Net: <strong className="text-emerald-400 font-mono font-bold">₱{formatCurrency(realTimeTotals.totalNet)}</strong></span>
                 </div>
               </div>
 
