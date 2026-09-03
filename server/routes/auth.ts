@@ -207,16 +207,7 @@ authRouter.post("/google-login", async (req: any, res: any) => {
     try {
       user = await db.prepare("SELECT * FROM users WHERE LOWER(email) = ?").get(cleanEmail) as any;
     } catch (dbErr: any) {
-      if (dbErr.message?.includes("email") || dbErr.message?.includes("does not exist")) {
-        try {
-          await db.exec("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(191)");
-          await db.exec("ALTER TABLE users ADD COLUMN IF NOT EXISTS password TEXT");
-          await db.exec("ALTER TABLE users ADD COLUMN IF NOT EXISTS \"displayName\" TEXT");
-          await db.exec("ALTER TABLE users ADD COLUMN IF NOT EXISTS profileImage TEXT");
-          await db.exec("ALTER TABLE users ADD COLUMN IF NOT EXISTS campus TEXT");
-          user = await db.prepare("SELECT * FROM users WHERE LOWER(email) = ?").get(cleanEmail) as any;
-        } catch {}
-      }
+      console.warn("User lookup error:", dbErr.message);
     }
 
     // 2. Check employee record
@@ -224,24 +215,35 @@ authRouter.post("/google-login", async (req: any, res: any) => {
     try {
       employee = await db.prepare("SELECT * FROM employees WHERE LOWER(email) = ?").get(cleanEmail) as any;
     } catch (empErr: any) {
-      if (empErr.message?.includes("email") || empErr.message?.includes("does not exist")) {
-        try {
-          await db.exec("ALTER TABLE employees ADD COLUMN IF NOT EXISTS email TEXT");
-          employee = await db.prepare("SELECT * FROM employees WHERE LOWER(email) = ?").get(cleanEmail) as any;
-        } catch {}
-      }
+      console.warn("Employee lookup error:", empErr.message);
     }
 
-    // STRICT VALIDATION: If neither a user nor employee record exists in the database, reject login immediately
-    if (!user && !employee) {
+    const isAdminUser = user && (user.role === 'admin' || user.role === 'superadmin');
+
+    // STRICT VALIDATION: Employee email MUST already have a record in the database
+    if (!employee && !isAdminUser) {
       await logAudit(
         req, 
         'USER_LOGIN_FAILED', 
-        `Google OAuth login rejected: Email "${cleanEmail}" is not registered in the employee database.`
+        `Google OAuth login rejected: Email "${cleanEmail}" is not recorded in the employee database.`
       );
       return res.status(403).json({
-        error: `Login Failed: No employee record found for email "${cleanEmail}". Please ensure your email is already registered in the system before signing in with Google.`,
+        error: `Login Failed: No employee record found for email "${cleanEmail}". Your email must already be recorded in the employee database before you can sign in with Google.`,
         code: 'EMAIL_NOT_REGISTERED',
+        email: cleanEmail,
+      });
+    }
+
+    // Check if employee account is active
+    if (employee && employee.status && employee.status.toLowerCase() !== 'active') {
+      await logAudit(
+        req,
+        'USER_LOGIN_FAILED',
+        `Google OAuth login rejected: Employee account for "${cleanEmail}" is inactive (${employee.status}).`
+      );
+      return res.status(403).json({
+        error: `Login Failed: Your employee account for "${cleanEmail}" is currently ${employee.status}. Please contact HR or administration.`,
+        code: 'ACCOUNT_INACTIVE',
         email: cleanEmail,
       });
     }

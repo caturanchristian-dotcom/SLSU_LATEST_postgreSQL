@@ -393,13 +393,28 @@ const Login = () => {
               <div className="bg-neutral-50 p-3.5 rounded-xl border border-neutral-200 space-y-1.5">
                 <p className="font-bold text-neutral-800 flex items-center gap-1.5">
                   <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px]">3</span>
-                  Authorized Redirect URL
+                  Authorized Redirect URL (Google Cloud Console)
                 </p>
                 <p className="text-[11px] text-neutral-500">
-                  Add this callback in your Google Cloud Console OAuth configuration:
+                  In Google Cloud Console under <strong>APIs &amp; Services &gt; Credentials &gt; OAuth 2.0 Client &gt; Authorized redirect URIs</strong>, add:
                 </p>
                 <div className="font-mono text-[11px] bg-white border border-neutral-300 p-2 rounded text-neutral-800 select-all break-all">
                   https://&lt;your-project-id&gt;.supabase.co/auth/v1/callback
+                </div>
+              </div>
+
+              <div className="bg-neutral-50 p-3.5 rounded-xl border border-neutral-200 space-y-1.5">
+                <p className="font-bold text-neutral-800 flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px]">4</span>
+                  Authorized JavaScript Origins (Google Cloud Console)
+                </p>
+                <p className="text-[11px] text-neutral-500">
+                  In Google Cloud Console under <strong>Authorized JavaScript origins</strong>, click <strong>+ Add URI</strong> and add these:
+                </p>
+                <div className="font-mono text-[11px] bg-white border border-neutral-300 p-2.5 rounded text-neutral-800 select-all space-y-1">
+                  <div>https://&lt;your-project-id&gt;.supabase.co</div>
+                  <div className="text-blue-700 font-semibold">{typeof window !== "undefined" ? window.location.origin : "https://ais-dev-...run.app"}</div>
+                  <div className="text-neutral-500">http://localhost:3000</div>
                 </div>
               </div>
             </div>

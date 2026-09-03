@@ -691,10 +691,10 @@ employeesRouter.get("/schedules", async (req: any, res: any) => {
     let query = "SELECT * FROM schedules";
     const params: any[] = [];
     if (employeeId) {
-      query += " WHERE (employeeId = ? OR employee_id = ? OR employeeid = ?)";
-      params.push(employeeId, employeeId, employeeId);
+      query += ' WHERE "employeeId" = ?';
+      params.push(employeeId);
     }
-    query += " ORDER BY dayOfWeek ASC, startTime ASC";
+    query += ' ORDER BY "dayOfWeek" ASC, "startTime" ASC';
     const scheds = await db.prepare(query).all(...params);
     res.json(scheds);
   } catch (err: any) {
@@ -705,7 +705,7 @@ employeesRouter.get("/schedules", async (req: any, res: any) => {
 employeesRouter.get("/schedules/employee/:employeeId", async (req: any, res: any) => {
   try {
     const { employeeId } = req.params;
-    const scheds = await db.prepare("SELECT * FROM schedules WHERE (employeeId = ? OR employee_id = ? OR employeeid = ?) ORDER BY dayOfWeek ASC, startTime ASC").all(employeeId, employeeId, employeeId);
+    const scheds = await db.prepare('SELECT * FROM schedules WHERE "employeeId" = ? ORDER BY "dayOfWeek" ASC, "startTime" ASC').all(employeeId);
     res.json(scheds);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -717,11 +717,10 @@ employeesRouter.get("/schedules/department/:departmentId", async (req: any, res:
     const { departmentId } = req.params;
     const scheds = await db.prepare(`
       SELECT s.* FROM schedules s
-      WHERE s.subject IN (SELECT code FROM subjects WHERE departmentId = ? OR department_id = ?)
-         OR s.employeeId IN (SELECT id FROM employees WHERE category = (SELECT name FROM departments WHERE id = ?))
-         OR s.employee_id IN (SELECT id FROM employees WHERE category = (SELECT name FROM departments WHERE id = ?))
-      ORDER BY s.dayOfWeek ASC, s.startTime ASC
-    `).all(departmentId, departmentId, departmentId, departmentId);
+      WHERE s.subject IN (SELECT code FROM subjects WHERE "departmentId" = ?)
+         OR s."employeeId" IN (SELECT id FROM employees WHERE category = (SELECT name FROM departments WHERE id = ?))
+      ORDER BY s."dayOfWeek" ASC, s."startTime" ASC
+    `).all(departmentId, departmentId);
     res.json(scheds);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -733,11 +732,10 @@ employeesRouter.get("/schedules/teaching-department/:teachingDepartmentId", asyn
     const { teachingDepartmentId } = req.params;
     const scheds = await db.prepare(`
       SELECT s.* FROM schedules s
-      WHERE s.subject IN (SELECT code FROM subjects WHERE teachingDepartmentId = ? OR teaching_department_id = ?)
-         OR s.employeeId IN (SELECT id FROM employees WHERE category LIKE '%Faculty%')
-         OR s.employee_id IN (SELECT id FROM employees WHERE category LIKE '%Faculty%')
-      ORDER BY s.dayOfWeek ASC, s.startTime ASC
-    `).all(teachingDepartmentId, teachingDepartmentId);
+      WHERE s.subject IN (SELECT code FROM subjects WHERE "teachingDepartmentId" = ?)
+         OR s."employeeId" IN (SELECT id FROM employees WHERE category LIKE '%Faculty%')
+      ORDER BY s."dayOfWeek" ASC, s."startTime" ASC
+    `).all(teachingDepartmentId);
     res.json(scheds);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -754,27 +752,12 @@ employeesRouter.post("/schedules", async (req: any, res: any) => {
     const eTime = endTime || tOut;
     const dWeek = dayOfWeek || "";
 
-    try {
-      await db.prepare(`
-        INSERT INTO schedules (
-          id, employeeId, dayOfWeek, startTime, endTime, timeIn, timeOut,
-          subject, room, specificDate, effectiveFrom, effectiveTo,
-          dayofweek, starttime, endtime, timein, timeout, specificdate, effectivefrom, effectiveto, employee_id, employeeid
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        id, employeeId, dWeek, sTime, eTime, tIn, tOut,
-        subject || "", room || "", specificDate || null, effectiveFrom || null, effectiveTo || null,
-        dWeek, sTime, eTime, tIn, tOut, specificDate || null, effectiveFrom || null, effectiveTo || null, employeeId, employeeId
-      );
-    } catch {
-      await db.prepare(`
-        INSERT INTO schedules (id, employeeId, dayOfWeek, startTime, endTime, timeIn, timeOut, subject, room, specificDate, effectiveFrom, effectiveTo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        id, employeeId, dWeek, sTime, eTime, tIn, tOut, subject || "", room || "", specificDate || null, effectiveFrom || null, effectiveTo || null
-      );
-    }
+    await db.prepare(`
+      INSERT INTO schedules (id, "employeeId", "dayOfWeek", "startTime", "endTime", "timeIn", "timeOut", subject, room, "specificDate", "effectiveFrom", "effectiveTo")
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id, employeeId, dWeek, sTime, eTime, tIn, tOut, subject || "", room || "", specificDate || null, effectiveFrom || null, effectiveTo || null
+    );
     res.json({ success: true, id });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -791,24 +774,11 @@ employeesRouter.put("/schedules/:id", async (req: any, res: any) => {
     const eTime = endTime || tOut;
     const dWeek = dayOfWeek || "";
 
-    try {
-      await db.prepare(`
-        UPDATE schedules
-        SET dayOfWeek = ?, startTime = ?, endTime = ?, timeIn = ?, timeOut = ?, subject = ?, room = ?, specificDate = ?, effectiveFrom = ?, effectiveTo = ?,
-            dayofweek = ?, starttime = ?, endtime = ?, timein = ?, timeout = ?, specificdate = ?, effectivefrom = ?, effectiveto = ?
-        WHERE id = ?
-      `).run(
-        dWeek, sTime, eTime, tIn, tOut, subject || "", room || "", specificDate || null, effectiveFrom || null, effectiveTo || null,
-        dWeek, sTime, eTime, tIn, tOut, specificDate || null, effectiveFrom || null, effectiveTo || null,
-        id
-      );
-    } catch {
-      await db.prepare(`
-        UPDATE schedules
-        SET dayOfWeek = ?, startTime = ?, endTime = ?, timeIn = ?, timeOut = ?, subject = ?, room = ?, specificDate = ?, effectiveFrom = ?, effectiveTo = ?
-        WHERE id = ?
-      `).run(dWeek, sTime, eTime, tIn, tOut, subject || "", room || "", specificDate || null, effectiveFrom || null, effectiveTo || null, id);
-    }
+    await db.prepare(`
+      UPDATE schedules
+      SET "dayOfWeek" = ?, "startTime" = ?, "endTime" = ?, "timeIn" = ?, "timeOut" = ?, subject = ?, room = ?, "specificDate" = ?, "effectiveFrom" = ?, "effectiveTo" = ?
+      WHERE id = ?
+    `).run(dWeek, sTime, eTime, tIn, tOut, subject || "", room || "", specificDate || null, effectiveFrom || null, effectiveTo || null, id);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

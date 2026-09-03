@@ -419,15 +419,15 @@ deductionsRouter.get("/loans", async (req: any, res: any) => {
   try {
     const { employeeId } = req.query;
     let query = `
-      SELECT l.*, e.firstName, e.lastName, e.employeeId as employeeNo, e.campus
+      SELECT l.*, l.type as "loanType", e.firstName, e.lastName, e.employeeId as employeeNo, e.campus
       FROM loans l
-      LEFT JOIN employees e ON (l."employeeId" = e.id OR l.employee_id = e.id OR l.employeeId = e.id)
+      LEFT JOIN employees e ON l."employeeId" = e.id
     `;
     const params: any[] = [];
 
     if (employeeId) {
-      query += ' WHERE (l."employeeId" = ? OR l.employee_id = ? OR l.employeeId = ?)';
-      params.push(employeeId, employeeId, employeeId);
+      query += ' WHERE l."employeeId" = ?';
+      params.push(employeeId);
     }
 
     let loans: any[] = [];
@@ -435,25 +435,22 @@ deductionsRouter.get("/loans", async (req: any, res: any) => {
       loans = await db.prepare(query + ' ORDER BY l."createdAt" DESC').all(...params);
     } catch {
       try {
-        loans = await db.prepare(query + ' ORDER BY l.created_at DESC').all(...params);
+        loans = await db.prepare(query + ' ORDER BY l.id DESC').all(...params);
       } catch {
-        try {
-          loans = await db.prepare(query + ' ORDER BY l.id DESC').all(...params);
-        } catch {
-          const rawLoans = await db.prepare("SELECT * FROM loans").all() as any[];
-          const emps = await db.prepare("SELECT * FROM employees").all() as any[];
-          const empMap = new Map(emps.map(e => [e.id, e]));
-          loans = rawLoans.map(l => {
-            const emp = empMap.get(l.employeeId || l.employee_id) || {};
-            return {
-              ...l,
-              firstName: emp.firstName || emp.first_name || "",
-              lastName: emp.lastName || emp.last_name || "",
-              employeeNo: emp.employeeId || emp.employee_id || emp.bpno || "",
-              campus: emp.campus || ""
-            };
-          });
-        }
+        const rawLoans = await db.prepare("SELECT * FROM loans").all() as any[];
+        const emps = await db.prepare("SELECT * FROM employees").all() as any[];
+        const empMap = new Map(emps.map(e => [e.id, e]));
+        loans = rawLoans.map(l => {
+          const emp = empMap.get(l.employeeId) || {};
+          return {
+            ...l,
+            loanType: l.type || l.loanType || "GSIS Loan",
+            firstName: emp.firstName || "",
+            lastName: emp.lastName || "",
+            employeeNo: emp.employeeId || emp.bpno || "",
+            campus: emp.campus || ""
+          };
+        });
       }
     }
     res.json(loans);
@@ -472,24 +469,10 @@ deductionsRouter.post("/loans", async (req: any, res: any) => {
     const tMonths = parseInt(termMonths || 12) || 12;
     const rBal = parseFloat(remainingBalance !== undefined ? remainingBalance : tAmt) || tAmt;
 
-    try {
-      await db.prepare(`
-        INSERT INTO loans (id, "employeeId", employee_id, "loanType", loan_type, "principalAmount", principal_amount, "totalAmount", total_amount, "monthlyAmortization", monthly_amortization, "termMonths", term_months, "remainingBalance", remaining_balance, status, "startDate", start_date, "endDate", end_date, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
-      `).run(id, employeeId, employeeId, loanType, loanType, pAmt, pAmt, tAmt, tAmt, mAmort, mAmort, tMonths, tMonths, rBal, rBal, startDate || null, startDate || null, endDate || null, endDate || null, notes || "");
-    } catch {
-      try {
-        await db.prepare(`
-          INSERT INTO loans (id, employeeId, loanType, principalAmount, totalAmount, monthlyAmortization, termMonths, remainingBalance, status, startDate, endDate, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
-        `).run(id, employeeId, loanType, pAmt, tAmt, mAmort, tMonths, rBal, startDate || null, endDate || null, notes || "");
-      } catch {
-        await db.prepare(`
-          INSERT INTO loans (id, employee_id, loan_type, principal_amount, total_amount, monthly_amortization, term_months, remaining_balance, status, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
-        `).run(id, employeeId, loanType, pAmt, tAmt, mAmort, tMonths, rBal, notes || "");
-      }
-    }
+    await db.prepare(`
+      INSERT INTO loans (id, "employeeId", type, "principalAmount", "totalAmount", "monthlyAmortization", "termMonths", "remainingBalance", status, "startDate", "endDate", notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+    `).run(id, employeeId, loanType || "GSIS Loan", pAmt, tAmt, mAmort, tMonths, rBal, startDate || null, endDate || null, notes || "");
 
     await syncDeductionsToActivePayrollCycles(employeeId);
     res.json({ success: true, id });
