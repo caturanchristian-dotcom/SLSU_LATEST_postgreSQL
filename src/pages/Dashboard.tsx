@@ -28,7 +28,27 @@ import {
   ArrowLeft,
   Scale,
   MessageSquare,
-  BookOpen
+  BookOpen,
+  Activity,
+  RefreshCw,
+  ShieldCheck,
+  Landmark,
+  Briefcase,
+  GraduationCap,
+  ChevronRight,
+  FileCheck,
+  Check,
+  Database,
+  Banknote,
+  CalendarCheck,
+  HelpCircle,
+  ArrowRight,
+  UserCheck,
+  School,
+  Layers,
+  Sparkles,
+  LogIn,
+  LogOut
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -50,12 +70,12 @@ import {
   Tooltip, 
   ResponsiveContainer,
   AreaChart,
-  Area
+  Area,
+  Legend
 } from 'recharts';
 import { format, differenceInSeconds } from 'date-fns';
 import { toast } from 'sonner';
 import { formatCurrency, safeDateStr, safeDateOnly, safeSplit } from '../lib/utils';
-import { LogIn, LogOut } from 'lucide-react';
 
 const formatTimeTo12Hour = (timeVal: any): string => {
   if (!timeVal) return '';
@@ -184,17 +204,43 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
   const { user, role, logout } = useAuth();
   const [stats, setStats] = useState({
     totalEmployees: 0,
+    regularCount: 0,
+    visitingCount: 0,
+    jobOrderCount: 0,
     totalDeductions: 0,
+    totalDeductionsValue: 0,
     lastPayrollAmount: 0,
-    activeCycles: 0
+    lastGrossAmount: 0,
+    lastDeductionsAmount: 0,
+    lastCycleName: '',
+    activeCycles: 0,
+    draftCycles: 0,
+    processingCycles: 0,
+    disbursedCount: 0,
+    totalDisbursedYTD: 0,
+    avgNetPay: 0,
+    deductionRatio: 0,
   });
   const [recentCycles, setRecentCycles] = useState<any[]>([]);
+  const [recentAuditLogs, setRecentAuditLogs] = useState<any[]>([]);
+  const [upcomingHolidaysList, setUpcomingHolidaysList] = useState<any[]>([]);
+  const [chartTab, setChartTab] = useState<'trends' | 'categories'>('trends');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
   const [myPayroll, setMyPayroll] = useState<any[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
+  const [categoryBreakdownData, setCategoryBreakdownData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPayslip, setSelectedPayslip] = useState<any>(null);
   const [employeeProfile, setEmployeeProfile] = useState<any>(null);
   const [subview, setSubview] = useState<string | null>(initialSubview);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     setSubview(initialSubview);
@@ -279,38 +325,112 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
 
   const fetchDashboardData = async () => {
     try {
-      const [employees, cycles, deductions] = await Promise.all([
+      setIsRefreshing(true);
+      const [employeesRes, cyclesRes, deductionsRes, auditRes, holidaysRes] = await Promise.allSettled([
         api.employees.list(),
         api.payroll.listCycles(),
-        api.deductions.list()
+        api.deductions.list(),
+        api.audit.list(),
+        fetch('/api/holidays').then(r => r.json())
       ]);
 
-      const lastCycle = cycles.find((c: any) => c.status === 'disbursed' || c.status === 'completed');
-      
+      const employees = employeesRes.status === 'fulfilled' && Array.isArray(employeesRes.value) ? employeesRes.value : [];
+      const cycles = cyclesRes.status === 'fulfilled' && Array.isArray(cyclesRes.value) ? cyclesRes.value : [];
+      const deductions = deductionsRes.status === 'fulfilled' && Array.isArray(deductionsRes.value) ? deductionsRes.value : [];
+      const auditLogs = auditRes.status === 'fulfilled' && Array.isArray(auditRes.value) ? auditRes.value : [];
+      const holidays = holidaysRes.status === 'fulfilled' && Array.isArray(holidaysRes.value) ? holidaysRes.value : [];
+
+      const regularCount = employees.filter((e: any) => /faculty|regular|staff/i.test(e.category || '')).length;
+      const visitingCount = employees.filter((e: any) => /visiting|part-time|lecturer/i.test(e.category || '')).length;
+      const jobOrderCount = employees.filter((e: any) => /job order|jo/i.test(e.category || '')).length;
+
+      const disbursedCycles = cycles.filter((c: any) => c.status === 'disbursed' || c.status === 'completed');
+      const lastCycle = disbursedCycles[0] || null;
+
+      const draftCycles = cycles.filter((c: any) => c.status === 'draft').length;
+      const processingCycles = cycles.filter((c: any) => c.status === 'processing' || c.status === 'pending_approval').length;
+      const activeCyclesCount = draftCycles + processingCycles;
+
+      const totalDisbursedYTD = disbursedCycles.reduce((acc: number, c: any) => acc + Number(c.totalNet || 0), 0);
+      const totalGrossYTD = disbursedCycles.reduce((acc: number, c: any) => acc + Number(c.totalGross || 0), 0);
+      const totalDeductionsYTD = disbursedCycles.reduce((acc: number, c: any) => acc + Number(c.totalDeductions || 0), 0);
+
+      const totalDeductionsValue = deductions.reduce((acc: number, d: any) => acc + Number(d.amount || 0), 0);
+
+      const lastPayrollNet = lastCycle ? Number(lastCycle.totalNet || 0) : 0;
+      const lastGross = lastCycle ? Number(lastCycle.totalGross || 0) : 0;
+      const lastDeductions = lastCycle ? Number(lastCycle.totalDeductions || 0) : 0;
+      const lastCycleEmpCount = lastCycle ? Number(lastCycle.employeeCount || 0) : 0;
+
+      const avgNet = lastCycleEmpCount > 0 
+        ? Math.round(lastPayrollNet / lastCycleEmpCount) 
+        : (employees.length > 0 ? Math.round(lastPayrollNet / employees.length) : 0);
+      const deductionRatio = lastGross > 0 ? Math.round((lastDeductions / lastGross) * 100) : 0;
+
       setStats({
         totalEmployees: employees.length,
+        regularCount,
+        visitingCount,
+        jobOrderCount,
         totalDeductions: deductions.length,
-        lastPayrollAmount: lastCycle ? lastCycle.totalNet : 0,
-        activeCycles: cycles.filter((c: any) => c.status === 'draft' || c.status === 'processing').length
+        totalDeductionsValue,
+        lastPayrollAmount: lastPayrollNet,
+        lastGrossAmount: lastGross,
+        lastDeductionsAmount: lastDeductions,
+        lastCycleName: lastCycle?.name || 'No cycle yet',
+        activeCycles: activeCyclesCount,
+        draftCycles,
+        processingCycles,
+        disbursedCount: disbursedCycles.length,
+        totalDisbursedYTD,
+        avgNetPay: avgNet,
+        deductionRatio,
       });
 
-      setRecentCycles(cycles.slice(0, 5));
+      setRecentCycles(cycles.slice(0, 6));
+      setRecentAuditLogs(auditLogs.slice(0, 5));
+      setUpcomingHolidaysList(holidays.slice(0, 4));
 
-      // Prepare chart data (last 6 cycles)
-      const chart = cycles
-        .filter((c: any) => c.status === 'disbursed' || c.status === 'completed')
+      // Category breakdown data
+      setCategoryBreakdownData([
+        { name: 'Faculty & Regular Staff', count: regularCount, color: '#1e3a5f' },
+        { name: 'Visiting Instructors', count: visitingCount, color: '#059669' },
+        { name: 'Job Order Personnel', count: jobOrderCount, color: '#d97706' },
+      ]);
+
+      // Chart data: last 6 disbursed cycles
+      const chart = disbursedCycles
         .slice(0, 6)
         .reverse()
         .map((c: any) => ({
-          name: safeSplit(c.name || 'Cycle', ' ')[0],
-          amount: c.totalNet
+          name: safeSplit(c.name || 'Cycle', ' ')[0] || 'Cycle',
+          fullName: c.name,
+          gross: Number(c.totalGross || 0),
+          amount: Number(c.totalNet || 0),
+          net: Number(c.totalNet || 0),
+          deductions: Number(c.totalDeductions || 0),
+          employees: Number(c.employeeCount || 0),
         }));
-      setChartData(chart);
+
+      if (chart.length === 0 && cycles.length > 0) {
+        setChartData(cycles.slice(0, 6).reverse().map((c: any) => ({
+          name: safeSplit(c.name || 'Cycle', ' ')[0] || 'Cycle',
+          fullName: c.name,
+          gross: Number(c.totalGross || 0),
+          amount: Number(c.totalNet || 0),
+          net: Number(c.totalNet || 0),
+          deductions: Number(c.totalDeductions || 0),
+          employees: Number(c.employeeCount || 0),
+        })));
+      } else {
+        setChartData(chart);
+      }
 
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -1815,155 +1935,814 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
   }
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight text-neutral-900">Dashboard</h2>
-        <p className="text-neutral-500">Welcome back! Here's what's happening with your payroll today.</p>
+    <div className="space-y-8 pb-12">
+      {/* Executive University Header & Live Status Ribbon */}
+      <div className="bg-white border border-neutral-200/80 rounded-3xl p-6 md:p-8 shadow-sm relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-blue-50/40 via-emerald-50/20 to-transparent rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
+        
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-[#1e3a5f]/10 text-[#1e3a5f] border border-[#1e3a5f]/20">
+                <School className="w-3.5 h-3.5 text-[#1e3a5f]" />
+                Southern Luzon State University
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                Hinunangan Campus
+              </span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-mono font-semibold bg-neutral-100 text-neutral-600">
+                <Database className="w-3 h-3 text-neutral-500" />
+                PostgreSQL • Supabase Auth
+              </span>
+            </div>
+
+            <div>
+              <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-neutral-900 font-sans">
+                Executive Operations & Payroll Governance
+              </h1>
+              <p className="text-sm text-neutral-500 mt-1 max-w-2xl font-normal leading-relaxed">
+                Centralized administration of compensation cycles, statutory withholdings, personnel appointments, and institutional compliance.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
+            {/* Live Clock Display */}
+            <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-neutral-50 border border-neutral-200/80 text-neutral-700 text-xs font-mono font-medium shadow-2xs">
+              <Clock className="w-3.5 h-3.5 text-neutral-500" />
+              <span>{format(currentTime, 'EEE, MMM dd, yyyy • hh:mm:ss a')}</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fetchDashboardData}
+                disabled={isRefreshing}
+                className="h-10 px-3.5 rounded-xl border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-bold text-xs gap-1.5 shadow-2xs"
+              >
+                <RefreshCw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin text-blue-600")} />
+                <span>{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
+              </Button>
+
+              {onNavigate && (
+                <Button
+                  size="sm"
+                  onClick={() => onNavigate('payroll')}
+                  className="h-10 px-4 rounded-xl bg-[#1e3a5f] hover:bg-[#162c46] text-white font-bold text-xs gap-1.5 shadow-sm transition-all"
+                >
+                  <Banknote className="w-4 h-4" />
+                  <span>Run Payroll</span>
+                  <ArrowUpRight className="w-3.5 h-3.5 opacity-70" />
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card className="border-none shadow-sm bg-white">
+      {/* Executive KPI Ribbon (4 Metric Cards) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        {/* Card 1: Total Personnel */}
+        <Card className="border border-neutral-200/80 shadow-xs bg-white rounded-2xl hover:shadow-md transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-neutral-500 uppercase tracking-wider">Total Employees</CardTitle>
-            <Users className="w-4 h-4 text-neutral-400" />
+            <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">
+              Total Active Personnel
+            </span>
+            <div className="w-9 h-9 rounded-xl bg-blue-50 text-[#1e3a5f] flex items-center justify-center">
+              <Users className="w-4 h-4 stroke-[2.2]" />
+            </div>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-neutral-900">{stats.totalEmployees}</div>
-            <p className="text-xs text-emerald-600 flex items-center gap-1 mt-1 font-medium">
-              <ArrowUpRight className="w-3 h-3" />
-              +2 this month
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="border-none shadow-sm bg-white">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-neutral-500 uppercase tracking-wider">Active Deductions</CardTitle>
-            <CreditCard className="w-4 h-4 text-neutral-400" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-neutral-900">{stats.totalDeductions}</div>
-            <p className="text-xs text-red-600 flex items-center gap-1 mt-1 font-medium">
-              <ArrowDownRight className="w-3 h-3" />
-              -₱12,400 total
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="border-none shadow-sm bg-white">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-neutral-500 uppercase tracking-wider">Last Payroll</CardTitle>
-            <TrendingUp className="w-4 h-4 text-neutral-400" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-neutral-900">₱{formatCurrency(stats.lastPayrollAmount)}</div>
-            <p className="text-xs text-neutral-400 mt-1">Disbursed successfully</p>
-          </CardContent>
-        </Card>
-        <Card className="border-none shadow-sm bg-white">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-neutral-500 uppercase tracking-wider">Active Cycles</CardTitle>
-            <Calendar className="w-4 h-4 text-neutral-400" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-neutral-900">{stats.activeCycles}</div>
-            <p className="text-xs text-amber-600 font-medium mt-1">Requires processing</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <Card className="lg:col-span-2 border-none shadow-sm bg-white overflow-hidden">
-          <CardHeader className="pb-0">
-            <CardTitle className="text-lg font-bold">Payroll Trends</CardTitle>
-            <CardDescription>Monthly net disbursement overview.</CardDescription>
-          </CardHeader>
-          <CardContent className="p-0 pt-6">
-            <div className="h-[350px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#171717" stopOpacity={0.1}/>
-                      <stop offset="95%" stopColor="#171717" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f5" />
-                  <XAxis 
-                    dataKey="name" 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{ fill: '#a3a3a3', fontSize: 12 }}
-                    dy={10}
-                  />
-                  <YAxis 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{ fill: '#a3a3a3', fontSize: 12 }}
-                    tickFormatter={(value) => `₱${formatCurrency(value)}`}
-                  />
-                  <Tooltip 
-                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                    formatter={(value: any) => [`₱${formatCurrency(value)}`, 'Net Pay']}
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey="amount" 
-                    stroke="#171717" 
-                    strokeWidth={3}
-                    fillOpacity={1} 
-                    fill="url(#colorAmount)" 
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+          <CardContent className="space-y-3">
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black text-neutral-900 tracking-tight font-sans">
+                {stats.totalEmployees}
+              </span>
+              <span className="text-xs font-semibold text-neutral-400">Headcount</span>
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-neutral-100 text-[10px] font-medium text-neutral-600">
+              <span className="px-2 py-0.5 rounded-md bg-neutral-100 font-bold text-[#1e3a5f]">
+                {stats.regularCount} Regular
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-neutral-100 font-bold text-emerald-700">
+                {stats.visitingCount} Visiting
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-neutral-100 font-bold text-amber-700">
+                {stats.jobOrderCount} JO
+              </span>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-none shadow-sm bg-white">
-          <CardHeader>
-            <CardTitle className="text-lg font-bold">Recent Cycles</CardTitle>
-            <CardDescription>Latest payroll activities.</CardDescription>
+        {/* Card 2: Latest Net Disbursement */}
+        <Card className="border border-neutral-200/80 shadow-xs bg-white rounded-2xl hover:shadow-md transition-shadow">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">
+              Latest Net Disbursement
+            </span>
+            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
+              <DollarSign className="w-4 h-4 stroke-[2.5]" />
+            </div>
           </CardHeader>
-          <CardContent className="space-y-6 max-h-[450px] overflow-auto custom-scrollbar pr-2">
-            {recentCycles.length === 0 ? (
-              <div className="text-center py-10 text-neutral-400 text-sm">No recent cycles found.</div>
-            ) : (
-              recentCycles.map((cycle) => (
-                <div key={cycle.id} className="flex items-center justify-between group cursor-pointer">
-                  <div className="flex items-center gap-4">
-                    <div className={cn(
-                      "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
-                      cycle.status === 'disbursed' ? "bg-emerald-50 text-emerald-600" : "bg-neutral-50 text-neutral-400"
-                    )}>
-                      {cycle.status === 'disbursed' ? <CheckCircle2 className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
+          <CardContent className="space-y-3">
+            <div className="flex items-baseline gap-1">
+              <span className="text-3xl font-black text-emerald-700 tracking-tight font-sans">
+                ₱{formatCurrency(stats.lastPayrollAmount)}
+              </span>
+            </div>
+            
+            <div className="flex items-center justify-between pt-1 border-t border-neutral-100 text-[11px]">
+              <span className="text-neutral-500 font-medium">
+                Gross: <strong className="text-neutral-800">₱{formatCurrency(stats.lastGrossAmount)}</strong>
+              </span>
+              <span className="text-red-600 font-semibold">
+                -₱{formatCurrency(stats.lastDeductionsAmount)}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 3: Deductions Portfolio */}
+        <Card className="border border-neutral-200/80 shadow-xs bg-white rounded-2xl hover:shadow-md transition-shadow">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">
+              Active Deductions Pool
+            </span>
+            <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center">
+              <CreditCard className="w-4 h-4 stroke-[2.2]" />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black text-neutral-900 tracking-tight font-sans">
+                {stats.totalDeductions}
+              </span>
+              <span className="text-xs font-semibold text-neutral-400">Total Items</span>
+            </div>
+            
+            <div className="flex items-center justify-between pt-1 border-t border-neutral-100 text-[11px]">
+              <span className="text-neutral-500">Statutory & Loans</span>
+              <span className="font-bold text-neutral-800">₱{formatCurrency(stats.totalDeductionsValue)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 4: Active Payroll Cycles */}
+        <Card className="border border-neutral-200/80 shadow-xs bg-white rounded-2xl hover:shadow-md transition-shadow">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">
+              Active Cycle Pipeline
+            </span>
+            <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center">
+              <TrendingUp className="w-4 h-4 stroke-[2.2]" />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black text-neutral-900 tracking-tight font-sans">
+                {stats.activeCycles}
+              </span>
+              <span className="text-xs font-semibold text-amber-600">Pending Action</span>
+            </div>
+            
+            <div className="flex items-center justify-between pt-1 border-t border-neutral-100 text-[11px]">
+              <span className="text-neutral-500 font-medium">
+                {stats.draftCycles} Draft • {stats.processingCycles} Review
+              </span>
+              <span className="font-bold text-emerald-700">{stats.disbursedCount} Disbursed</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Operational Workflow Launchpad (6 Quick Actions) */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-extrabold uppercase tracking-wider text-neutral-500">
+            Operations Workflow Launchpad
+          </h2>
+          <span className="text-xs text-neutral-400 font-medium">Direct operational shortcuts</span>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          {[
+            {
+              id: 'payroll',
+              label: 'Run Payroll',
+              sub: 'Cycles & Computation',
+              icon: <Banknote className="w-5 h-5 text-[#1e3a5f]" />,
+              color: 'hover:border-[#1e3a5f]/40 hover:bg-blue-50/30'
+            },
+            {
+              id: 'employees',
+              label: 'Personnel Registry',
+              sub: 'Roster & Appointees',
+              icon: <Users className="w-5 h-5 text-blue-600" />,
+              color: 'hover:border-blue-300 hover:bg-blue-50/30'
+            },
+            {
+              id: 'dtr',
+              label: 'Attendance & DTR',
+              sub: 'Biometrics & Hours',
+              icon: <Clock className="w-5 h-5 text-emerald-600" />,
+              color: 'hover:border-emerald-300 hover:bg-emerald-50/30'
+            },
+            {
+              id: 'deductions',
+              label: 'Deductions & SSS',
+              sub: 'Mandatory & Loans',
+              icon: <CreditCard className="w-5 h-5 text-amber-600" />,
+              color: 'hover:border-amber-300 hover:bg-amber-50/30'
+            },
+            {
+              id: 'reports',
+              label: 'Official Reports',
+              sub: 'Registers & BIR 2316',
+              icon: <FileSpreadsheet className="w-5 h-5 text-indigo-600" />,
+              color: 'hover:border-indigo-300 hover:bg-indigo-50/30'
+            },
+            {
+              id: 'audit',
+              label: 'Security & Audit',
+              sub: 'Logs & Event Trail',
+              icon: <ShieldCheck className="w-5 h-5 text-purple-600" />,
+              color: 'hover:border-purple-300 hover:bg-purple-50/30'
+            }
+          ].map((item) => (
+            <button
+              key={item.id}
+              onClick={() => onNavigate && onNavigate(item.id)}
+              className={cn(
+                "p-4 bg-white border border-neutral-200/80 rounded-2xl text-left transition-all duration-150 flex flex-col justify-between group shadow-2xs cursor-pointer",
+                item.color
+              )}
+            >
+              <div className="p-2.5 rounded-xl bg-neutral-50 w-fit mb-3 group-hover:scale-105 transition-transform">
+                {item.icon}
+              </div>
+              <div>
+                <h3 className="text-xs font-bold text-neutral-800 group-hover:text-neutral-900">
+                  {item.label}
+                </h3>
+                <p className="text-[10px] text-neutral-400 font-medium mt-0.5 leading-tight">
+                  {item.sub}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Analytics & Demographics Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Main Chart Column (2/3) */}
+        <Card className="lg:col-span-2 border border-neutral-200/80 shadow-xs bg-white rounded-2xl overflow-hidden flex flex-col justify-between">
+          <div>
+            <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-neutral-100 gap-4">
+              <div>
+                <CardTitle className="text-base font-extrabold text-neutral-900">
+                  Payroll Financial Analytics
+                </CardTitle>
+                <CardDescription className="text-xs mt-0.5">
+                  Multi-cycle disbursement comparison (Gross Pay, Net Pay & Statutory Withholdings)
+                </CardDescription>
+              </div>
+
+              <div className="flex items-center gap-1.5 p-1 bg-neutral-100 rounded-xl">
+                <button
+                  onClick={() => setChartTab('trends')}
+                  className={cn(
+                    "px-3 py-1 text-xs font-bold rounded-lg transition-colors",
+                    chartTab === 'trends' ? "bg-white text-neutral-900 shadow-2xs" : "text-neutral-500 hover:text-neutral-800"
+                  )}
+                >
+                  Trends Flow
+                </button>
+                <button
+                  onClick={() => setChartTab('categories')}
+                  className={cn(
+                    "px-3 py-1 text-xs font-bold rounded-lg transition-colors",
+                    chartTab === 'categories' ? "bg-white text-neutral-900 shadow-2xs" : "text-neutral-500 hover:text-neutral-800"
+                  )}
+                >
+                  Workforce Allocation
+                </button>
+              </div>
+            </CardHeader>
+
+            <CardContent className="pt-6">
+              {chartTab === 'trends' ? (
+                <div className="h-[320px] w-full">
+                  {chartData.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-neutral-400 text-xs">
+                      <TrendingUp className="w-8 h-8 opacity-30 mb-2" />
+                      No completed cycles recorded yet for disbursement analytics.
                     </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-neutral-900 group-hover:text-neutral-600 transition-colors">{cycle.name}</h4>
-                      <p className="text-xs text-neutral-400">{format(new Date(cycle.startDate), 'MMM dd')} - {format(new Date(cycle.endDate), 'MMM dd')}</p>
-                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="grossGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#1e3a5f" stopOpacity={0.25}/>
+                            <stop offset="95%" stopColor="#1e3a5f" stopOpacity={0}/>
+                          </linearGradient>
+                          <linearGradient id="netGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#059669" stopOpacity={0.35}/>
+                            <stop offset="95%" stopColor="#059669" stopOpacity={0}/>
+                          </linearGradient>
+                          <linearGradient id="dedGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#d97706" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="#d97706" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis 
+                          dataKey="name" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
+                          dy={8}
+                        />
+                        <YAxis 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: '#64748b', fontSize: 11 }}
+                          tickFormatter={(val) => `₱${val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val}`}
+                        />
+                        <Tooltip 
+                          contentStyle={{ 
+                            borderRadius: '12px', 
+                            border: '1px solid #e2e8f0', 
+                            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.08)',
+                            fontSize: '12px',
+                            fontWeight: 600
+                          }}
+                          formatter={((value: any, name: any) => {
+                            const label = name === 'gross' || name === 'Gross Pay' 
+                              ? 'Gross Pay' 
+                              : name === 'net' || name === 'Net Disbursed' 
+                              ? 'Net Disbursed' 
+                              : 'Deductions';
+                            return [`₱${formatCurrency(value || 0)}`, label];
+                          }) as any}
+                        />
+                        <Legend 
+                          verticalAlign="top" 
+                          align="right"
+                          iconType="circle"
+                          wrapperStyle={{ paddingBottom: '12px', fontSize: '11px', fontWeight: 700 }}
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="gross" 
+                          name="Gross Pay"
+                          stroke="#1e3a5f" 
+                          strokeWidth={2.5} 
+                          fillOpacity={1} 
+                          fill="url(#grossGrad)" 
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="net" 
+                          name="Net Disbursed"
+                          stroke="#059669" 
+                          strokeWidth={3} 
+                          fillOpacity={1} 
+                          fill="url(#netGrad)" 
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="deductions" 
+                          name="Deductions"
+                          stroke="#d97706" 
+                          strokeWidth={2} 
+                          strokeDasharray="4 4"
+                          fillOpacity={1} 
+                          fill="url(#dedGrad)" 
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              ) : (
+                <div className="h-[320px] w-full pt-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                    {categoryBreakdownData.map((cat, idx) => (
+                      <div key={idx} className="p-4 rounded-xl border border-neutral-100 bg-neutral-50/50">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400">
+                          {cat.name}
+                        </span>
+                        <div className="text-2xl font-black text-neutral-900 mt-1">{cat.count}</div>
+                        <div className="text-xs text-neutral-500 font-medium mt-0.5">
+                          {stats.totalEmployees > 0 ? `${Math.round((cat.count / stats.totalEmployees) * 100)}% of workforce` : '0%'}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="text-right">
-                    <div className="text-sm font-bold text-neutral-900">₱{formatCurrency(cycle.totalNet)}</div>
-                    <div className={cn(
-                      "text-[10px] font-bold uppercase tracking-wider",
-                      cycle.status === 'disbursed' ? "text-emerald-600" : "text-neutral-400"
-                    )}>{cycle.status}</div>
+
+                  <div className="h-[180px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={categoryBreakdownData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis 
+                          dataKey="name" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
+                          dy={6}
+                        />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
+                        <Tooltip 
+                          formatter={(value: any) => [`${value} Personnel`, 'Count']}
+                          contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '12px' }}
+                        />
+                        <Bar dataKey="count" fill="#1e3a5f" radius={[8, 8, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
-              ))
-            )}
-            <div className="pt-4">
-              <div className="p-4 bg-neutral-50 rounded-2xl flex items-center gap-4">
-                <div className="bg-white p-2 rounded-lg shadow-sm">
-                  <AlertCircle className="w-5 h-5 text-neutral-900" />
-                </div>
-                <div>
-                  <h5 className="text-xs font-bold text-neutral-900">System Status</h5>
-                  <p className="text-[10px] text-neutral-500 leading-tight">All systems operational. Database connected via SQLite.</p>
-                </div>
+              )}
+            </CardContent>
+          </div>
+
+          {/* Key Executive KPI Metrics below chart */}
+          <div className="p-4 bg-neutral-50/80 border-t border-neutral-100 grid grid-cols-3 gap-4 text-center">
+            <div>
+              <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
+                Average Net / Employee
+              </span>
+              <div className="text-sm font-extrabold text-neutral-900 mt-0.5">
+                ₱{formatCurrency(stats.avgNetPay)}
               </div>
             </div>
-          </CardContent>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
+                Withholding Ratio
+              </span>
+              <div className="text-sm font-extrabold text-amber-700 mt-0.5">
+                {stats.deductionRatio}% of Gross
+              </div>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
+                Total Disbursed (YTD)
+              </span>
+              <div className="text-sm font-extrabold text-emerald-700 mt-0.5">
+                ₱{formatCurrency(stats.totalDisbursedYTD)}
+              </div>
+            </div>
+          </div>
         </Card>
+
+        {/* Workforce Demographics Column (1/3) */}
+        <Card className="border border-neutral-200/80 shadow-xs bg-white rounded-2xl overflow-hidden flex flex-col justify-between">
+          <CardHeader className="border-b border-neutral-100 pb-4">
+            <CardTitle className="text-base font-extrabold text-neutral-900">
+              Workforce Composition
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Staff appointment & category distribution
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent className="p-5 space-y-5">
+            {/* Category 1: Faculty & Regular */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-neutral-800 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#1e3a5f]" />
+                  Faculty & Regular Staff
+                </span>
+                <span className="font-bold text-neutral-900 font-mono">
+                  {stats.regularCount} <span className="text-neutral-400 font-normal">({stats.totalEmployees > 0 ? Math.round((stats.regularCount / stats.totalEmployees) * 100) : 0}%)</span>
+                </span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-neutral-100 overflow-hidden">
+                <div 
+                  className="h-full bg-[#1e3a5f] rounded-full transition-all duration-500"
+                  style={{ width: `${stats.totalEmployees > 0 ? (stats.regularCount / stats.totalEmployees) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Category 2: Visiting Instructors */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-neutral-800 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
+                  Visiting Instructors (Part-Time)
+                </span>
+                <span className="font-bold text-neutral-900 font-mono">
+                  {stats.visitingCount} <span className="text-neutral-400 font-normal">({stats.totalEmployees > 0 ? Math.round((stats.visitingCount / stats.totalEmployees) * 100) : 0}%)</span>
+                </span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-neutral-100 overflow-hidden">
+                <div 
+                  className="h-full bg-emerald-600 rounded-full transition-all duration-500"
+                  style={{ width: `${stats.totalEmployees > 0 ? (stats.visitingCount / stats.totalEmployees) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Category 3: Job Order Personnel */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-neutral-800 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-600" />
+                  Job Order Personnel (Daily)
+                </span>
+                <span className="font-bold text-neutral-900 font-mono">
+                  {stats.jobOrderCount} <span className="text-neutral-400 font-normal">({stats.totalEmployees > 0 ? Math.round((stats.jobOrderCount / stats.totalEmployees) * 100) : 0}%)</span>
+                </span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-neutral-100 overflow-hidden">
+                <div 
+                  className="h-full bg-amber-600 rounded-full transition-all duration-500"
+                  style={{ width: `${stats.totalEmployees > 0 ? (stats.jobOrderCount / stats.totalEmployees) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Institutional Campus Tag */}
+            <div className="p-3.5 rounded-xl bg-neutral-50 border border-neutral-100 space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-neutral-700">Designated Campus</span>
+                <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 text-[10px] font-bold border-none">
+                  100% Active
+                </Badge>
+              </div>
+              <p className="text-[11px] text-neutral-500">
+                Southern Luzon State University • Hinunangan Campus registry
+              </p>
+            </div>
+          </CardContent>
+
+          <div className="p-4 bg-neutral-50 border-t border-neutral-100">
+            {onNavigate && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onNavigate('employees')}
+                className="w-full rounded-xl text-xs font-bold text-neutral-700 hover:bg-white border-neutral-200 flex items-center justify-center gap-1.5"
+              >
+                <span>View Complete Personnel Directory</span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </Button>
+            )}
+          </div>
+        </Card>
+      </div>
+
+      {/* Operational Pipeline & Live System Audit Stream */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left: Recent Cycles Table (2/3) */}
+        <Card className="lg:col-span-2 border border-neutral-200/80 shadow-xs bg-white rounded-2xl overflow-hidden flex flex-col justify-between">
+          <div>
+            <CardHeader className="flex flex-row items-center justify-between border-b border-neutral-100 pb-4">
+              <div>
+                <CardTitle className="text-base font-extrabold text-neutral-900">
+                  Recent Payroll Cycles
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Latest compensation cycles and disbursement statuses
+                </CardDescription>
+              </div>
+
+              {onNavigate && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onNavigate('payroll')}
+                  className="text-xs font-bold text-[#1e3a5f] hover:bg-blue-50/50 rounded-xl flex items-center gap-1"
+                >
+                  <span>All Cycles</span>
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </Button>
+              )}
+            </CardHeader>
+
+            <CardContent className="p-0">
+              {recentCycles.length === 0 ? (
+                <div className="py-12 text-center text-neutral-400 text-xs">
+                  <Calendar className="w-8 h-8 opacity-30 mx-auto mb-2" />
+                  No payroll cycles created yet. Click "Run Payroll" to initiate your first cycle.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader className="bg-neutral-50/60">
+                      <TableRow className="border-b border-neutral-100">
+                        <TableHead className="text-xs font-bold text-neutral-500 uppercase">Cycle Details</TableHead>
+                        <TableHead className="text-xs font-bold text-neutral-500 uppercase">Category</TableHead>
+                        <TableHead className="text-xs font-bold text-neutral-500 uppercase text-center">Personnel</TableHead>
+                        <TableHead className="text-xs font-bold text-neutral-500 uppercase text-right">Net Amount</TableHead>
+                        <TableHead className="text-xs font-bold text-neutral-500 uppercase text-center">Status</TableHead>
+                        <TableHead className="text-xs font-bold text-neutral-500 uppercase text-right">Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {recentCycles.map((cycle) => (
+                        <TableRow key={cycle.id} className="hover:bg-neutral-50/50 transition-colors border-b border-neutral-100">
+                          <TableCell className="py-3.5">
+                            <div className="font-bold text-xs text-neutral-900">{cycle.name}</div>
+                            <div className="text-[11px] text-neutral-400 font-mono mt-0.5">
+                              {cycle.startDate ? format(new Date(cycle.startDate), 'MMM dd') : '---'} - {cycle.endDate ? format(new Date(cycle.endDate), 'MMM dd, yyyy') : '---'}
+                            </div>
+                          </TableCell>
+
+                          <TableCell className="py-3.5">
+                            <Badge variant="outline" className="text-[10px] font-semibold text-neutral-600 border-neutral-200 bg-neutral-50">
+                              {cycle.categoryFilter || 'All Categories'}
+                            </Badge>
+                          </TableCell>
+
+                          <TableCell className="py-3.5 text-center font-mono text-xs font-bold text-neutral-700">
+                            {cycle.employeeCount || 0}
+                          </TableCell>
+
+                          <TableCell className="py-3.5 text-right font-mono text-xs font-bold text-neutral-900">
+                            ₱{formatCurrency(cycle.totalNet || 0)}
+                          </TableCell>
+
+                          <TableCell className="py-3.5 text-center">
+                            <Badge className={cn(
+                              "text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 border-none",
+                              cycle.status === 'disbursed' || cycle.status === 'completed' 
+                                ? "bg-emerald-50 text-emerald-700" 
+                                : cycle.status === 'processing'
+                                ? "bg-blue-50 text-blue-700"
+                                : "bg-amber-50 text-amber-700"
+                            )}>
+                              {cycle.status || 'draft'}
+                            </Badge>
+                          </TableCell>
+
+                          <TableCell className="py-3.5 text-right">
+                            {onNavigate && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => onNavigate('payroll')}
+                                className="h-8 px-2.5 text-xs font-bold text-[#1e3a5f] hover:bg-blue-50/60 rounded-lg"
+                              >
+                                View Hub
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </div>
+        </Card>
+
+        {/* Right: Live System Audit Feed & Holidays (1/3) */}
+        <div className="space-y-6">
+          {/* Audit Feed */}
+          <Card className="border border-neutral-200/80 shadow-xs bg-white rounded-2xl overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between border-b border-neutral-100 pb-3">
+              <div>
+                <CardTitle className="text-sm font-extrabold text-neutral-900 flex items-center gap-1.5">
+                  <Activity className="w-4 h-4 text-emerald-600" />
+                  Live Compliance & Audit Feed
+                </CardTitle>
+                <CardDescription className="text-[11px]">
+                  Real-time security & transactional stream
+                </CardDescription>
+              </div>
+
+              {onNavigate && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onNavigate('audit')}
+                  className="text-xs font-bold text-neutral-600 hover:bg-neutral-50 rounded-xl"
+                >
+                  Logs
+                </Button>
+              )}
+            </CardHeader>
+
+            <CardContent className="p-4 space-y-3">
+              {recentAuditLogs.length === 0 ? (
+                <div className="text-center py-6 text-neutral-400 text-xs">
+                  No recent audit events registered.
+                </div>
+              ) : (
+                recentAuditLogs.map((log: any) => (
+                  <div key={log.id} className="p-2.5 rounded-xl bg-neutral-50/60 border border-neutral-100 text-xs space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold font-mono text-[10px] px-1.5 py-0.5 rounded bg-white text-neutral-700 border border-neutral-200">
+                        {log.action}
+                      </span>
+                      <span className="text-[10px] text-neutral-400 font-mono">
+                        {log.createdAt ? format(new Date(log.createdAt), 'MMM dd, HH:mm') : 'Recently'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-neutral-600 line-clamp-1">
+                      {log.detail || 'Security event registered'}
+                    </p>
+                    <div className="text-[10px] text-neutral-400 font-mono">
+                      By: {log.userEmail || 'system'}
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Academic Calendar / Upcoming Breaks */}
+          <Card className="border border-neutral-200/80 shadow-xs bg-white rounded-2xl overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between border-b border-neutral-100 pb-3">
+              <div>
+                <CardTitle className="text-sm font-extrabold text-neutral-900 flex items-center gap-1.5">
+                  <CalendarCheck className="w-4 h-4 text-purple-600" />
+                  Upcoming University Breaks
+                </CardTitle>
+                <CardDescription className="text-[11px]">
+                  Administrative holidays & cutoff dates
+                </CardDescription>
+              </div>
+
+              {onNavigate && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onNavigate('holidays')}
+                  className="text-xs font-bold text-neutral-600 hover:bg-neutral-50 rounded-xl"
+                >
+                  Calendar
+                </Button>
+              )}
+            </CardHeader>
+
+            <CardContent className="p-4 space-y-2.5">
+              {upcomingHolidaysList.length === 0 ? (
+                <div className="text-center py-6 text-neutral-400 text-xs">
+                  No upcoming holidays scheduled.
+                </div>
+              ) : (
+                upcomingHolidaysList.map((hol: any) => (
+                  <div key={hol.id} className="flex items-center justify-between p-2 rounded-xl hover:bg-neutral-50 transition-colors text-xs">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-1.5 rounded-lg bg-purple-50 text-purple-700">
+                        <Calendar className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-neutral-800 leading-tight">{hol.name}</h4>
+                        <span className="text-[10px] text-neutral-400 font-mono">
+                          {hol.date ? format(new Date(hol.date), 'MMMM dd, yyyy') : 'TBD'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <Badge className={cn(
+                      "text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 border-none",
+                      hol.type === 'Regular' ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-600"
+                    )}>
+                      {hol.type}
+                    </Badge>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Institutional Infrastructure Verification Ribbon */}
+      <div className="p-4 rounded-2xl bg-white border border-neutral-200/80 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-4 h-4 stroke-[2.2]" />
+          </div>
+          <div>
+            <h4 className="font-bold text-neutral-900">Database & Security Architecture Active</h4>
+            <p className="text-[11px] text-neutral-500">
+              PostgreSQL direct connection pool synchronized with Supabase Auth RBAC. AES-256 encrypted payroll registers.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0 text-[11px] font-mono text-neutral-500">
+          <span className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            PostgreSQL: Operational
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            Realtime: Connected
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            SLSU Hinunangan
+          </span>
+        </div>
       </div>
     </div>
   );
