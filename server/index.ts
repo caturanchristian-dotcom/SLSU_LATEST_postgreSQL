@@ -34,125 +34,101 @@ export function broadcastRealtime(event: string, data: any = {}) {
   });
 }
 
-// 1. Middlewares
-app.use(cors());
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true }));
+export async function startServer() {
+  // 1. Initialize Database Schema & Seed Data
+  await initDb();
 
-let initDbPromise: Promise<void> | null = null;
-export async function ensureDbInitialized() {
-  if (!initDbPromise) {
-    initDbPromise = initDb().catch((err) => {
-      console.error("[Database Init Error]:", err);
-      initDbPromise = null;
-      throw err;
+  // 2. Middlewares
+  app.use(cors());
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  // 3. SSE Real-Time Heartbeat & Endpoint
+  setInterval(() => {
+    sseClients.forEach((client) => {
+      try {
+        client.res.write(`: heartbeat\n\n`);
+      } catch (err) {}
     });
-  }
-  return initDbPromise;
-}
+  }, 15000);
 
-// Ensure DB is initialized before handling API requests
-app.use(async (req: any, res: any, next: any) => {
-  if (req.path.startsWith("/api/")) {
-    try {
-      await ensureDbInitialized();
-    } catch (err: any) {
-      return res.status(500).json({ error: "Database initialization failed: " + err.message });
-    }
-  }
-  next();
-});
+  app.get("/api/realtime", (req: any, res: any) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
 
-// 2. SSE Real-Time Heartbeat & Endpoint
-setInterval(() => {
-  sseClients.forEach((client) => {
+    const clientId = Date.now();
+    const newClient = { id: clientId, res };
+    sseClients.push(newClient);
+
     try {
-      client.res.write(`: heartbeat\n\n`);
+      res.write(`data: ${JSON.stringify({ event: "connected", data: { clientId } })}\n\n`);
     } catch (err) {}
+
+    req.on("close", () => {
+      sseClients = sseClients.filter((c) => c.id !== clientId);
+    });
   });
-}, 15000);
 
-app.get("/api/realtime", (req: any, res: any) => {
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders();
-
-  const clientId = Date.now();
-  const newClient = { id: clientId, res };
-  sseClients.push(newClient);
-
-  try {
-    res.write(`data: ${JSON.stringify({ event: "connected", data: { clientId } })}\n\n`);
-  } catch (err) {}
-
-  req.on("close", () => {
-    sseClients = sseClients.filter((c) => c.id !== clientId);
-  });
-});
-
-// Mutating Request Interceptor for Automatic Real-Time Synchronization
-app.use((req: any, res: any, next: any) => {
-  const isMutating = ["POST", "PUT", "DELETE"].includes(req.method);
-  if (isMutating && req.path.startsWith("/api/")) {
-    res.on("finish", () => {
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        const segments = req.path.split("/");
-        const moduleName = segments[2];
-        if (moduleName) {
-          broadcastRealtime(moduleName + "_changed", {
-            method: req.method,
-            path: req.path,
-            module: moduleName
-          });
-
-          const normalizedModule = moduleName.replace(/-/g, "_");
-          if (normalizedModule !== moduleName) {
-            broadcastRealtime(normalizedModule + "_changed", {
+  // Mutating Request Interceptor for Automatic Real-Time Synchronization
+  app.use((req: any, res: any, next: any) => {
+    const isMutating = ["POST", "PUT", "DELETE"].includes(req.method);
+    if (isMutating && req.path.startsWith("/api/")) {
+      res.on("finish", () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          const segments = req.path.split("/");
+          const moduleName = segments[2];
+          if (moduleName) {
+            broadcastRealtime(moduleName + "_changed", {
               method: req.method,
               path: req.path,
               module: moduleName
             });
-          }
 
-          if (moduleName.startsWith("payroll") || moduleName.startsWith("deduction")) {
-            broadcastRealtime("payroll_changed", { path: req.path });
-            broadcastRealtime("deductions_changed", { path: req.path });
-            broadcastRealtime("deduction_records_changed", { path: req.path });
-          }
+            const normalizedModule = moduleName.replace(/-/g, "_");
+            if (normalizedModule !== moduleName) {
+              broadcastRealtime(normalizedModule + "_changed", {
+                method: req.method,
+                path: req.path,
+                module: moduleName
+              });
+            }
 
-          if (moduleName === "dtr" || moduleName === "schedules") {
-            broadcastRealtime("dtr_changed", { path: req.path });
-            broadcastRealtime("schedules_changed", { path: req.path });
+            if (moduleName.startsWith("payroll") || moduleName.startsWith("deduction")) {
+              broadcastRealtime("payroll_changed", { path: req.path });
+              broadcastRealtime("deductions_changed", { path: req.path });
+              broadcastRealtime("deduction_records_changed", { path: req.path });
+            }
+
+            if (moduleName === "dtr" || moduleName === "schedules") {
+              broadcastRealtime("dtr_changed", { path: req.path });
+              broadcastRealtime("schedules_changed", { path: req.path });
+            }
           }
         }
-      }
-    });
-  }
-  next();
-});
+      });
+    }
+    next();
+  });
 
-// 3. API Routes
-app.use("/api/auth", authRouter);
-app.use("/api", employeesRouter);
-app.use("/api", payrollRouter);
-app.use("/api", dtrRouter);
-app.use("/api", deductionsRouter);
-app.use("/api", usersRouter);
-app.use("/api", reportsRouter);
-app.use("/api", databaseRouter);
-app.use("/api", integrationsRouter);
+  // 4. API Routes
+  app.use("/api/auth", authRouter);
+  app.use("/api", employeesRouter);
+  app.use("/api", payrollRouter);
+  app.use("/api", dtrRouter);
+  app.use("/api", deductionsRouter);
+  app.use("/api", usersRouter);
+  app.use("/api", reportsRouter);
+  app.use("/api", databaseRouter);
+  app.use("/api", integrationsRouter);
 
-// Health check
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
+  // Health check
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
 
-export async function startServer() {
-  // Initialize Database Schema & Seed Data
-  await ensureDbInitialized();
-
-  // 4. Frontend Vite Middleware / Static Files
+  // 5. Frontend Vite Middleware / Static Files
   if (process.env.NODE_ENV !== "production") {
     const isHmrDisabled = process.env.DISABLE_HMR === "true" || process.env.DISABLE_HMR === "1";
     const vite = await createViteServer({
@@ -171,7 +147,7 @@ export async function startServer() {
     });
   }
 
-  // 5. Listen on 0.0.0.0:3000
+  // 6. Listen on 0.0.0.0:3000
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`[SLSU Server] Running on http://localhost:${PORT}`);
   });
