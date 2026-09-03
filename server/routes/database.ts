@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, isMysql, generateMysqlDump, generatePostgresDump, getDatabaseStatus, testMysqlConnection } from "../db/schema.js";
+import { db, generatePostgresDump, getDatabaseStatus, testPostgresConnection } from "../db/schema.js";
 import { getSupabaseClient, hasSupabaseConfig } from "../supabase.js";
 import { createClient } from "@supabase/supabase-js";
 import pg from "pg";
@@ -113,10 +113,10 @@ databaseRouter.post("/database/test-postgresql", async (req: any, res: any) => {
   }
 });
 
-// GET MySQL Schema SQL DDL script
+// GET Schema SQL DDL script (PostgreSQL / Supabase)
 databaseRouter.get("/database/schema-sql", async (req: any, res: any) => {
   try {
-    const dump = await generateMysqlDump(false); // Schema only
+    const dump = await generatePostgresDump(false); // Schema only
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.setHeader("Content-Disposition", 'attachment; filename="slsu_payroll_schema.sql"');
     res.send(dump);
@@ -125,11 +125,11 @@ databaseRouter.get("/database/schema-sql", async (req: any, res: any) => {
   }
 });
 
-// GET full MySQL Database Dump (Schema + Data)
-databaseRouter.get("/database/mysql-dump", async (req: any, res: any) => {
+// GET Database Dump (Schema + Data)
+databaseRouter.get("/database/postgresql-dump", async (req: any, res: any) => {
   try {
-    const dump = await generateMysqlDump(true); // Schema + All Data
-    const filename = `slsu_payroll_mysql_dump_${new Date().toISOString().slice(0, 10)}.sql`;
+    const dump = await generatePostgresDump(true); // Schema + All Data
+    const filename = `slsu_payroll_dump_${new Date().toISOString().slice(0, 10)}.sql`;
     res.setHeader("Content-Type", "application/sql; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(dump);
@@ -138,11 +138,10 @@ databaseRouter.get("/database/mysql-dump", async (req: any, res: any) => {
   }
 });
 
-// POST test custom MySQL connection
+// POST test database connection
 databaseRouter.post("/database/test-connection", async (req: any, res: any) => {
   try {
-    const { host, port, user, password, database, uri } = req.body;
-    const result = await testMysqlConnection({ host, port, user, password, database, uri });
+    const result = await testPostgresConnection(req.body);
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

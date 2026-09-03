@@ -167,7 +167,9 @@ export async function syncUserToSupabase(user: SyncUserParams): Promise<Supabase
       };
 
       if (user.password && user.password.trim()) {
-        updatePayload.password = user.password.trim();
+        const trimmed = user.password.trim();
+        // Supabase Auth requires passwords to be at least 6 characters
+        updatePayload.password = trimmed.length < 6 ? trimmed.padEnd(6, "0") : trimmed;
       }
 
       const { data, error } = await client.auth.admin.updateUserById(existing.id, updatePayload);
@@ -178,7 +180,9 @@ export async function syncUserToSupabase(user: SyncUserParams): Promise<Supabase
 
       return { success: true, user: data.user, action: "updated" };
     } else {
-      const password = user.password && user.password.trim() ? user.password.trim() : "password123";
+      const rawPassword = user.password && user.password.trim() ? user.password.trim() : "password123";
+      // Supabase Auth requires passwords to be at least 6 characters
+      const password = rawPassword.length < 6 ? rawPassword.padEnd(6, "0") : rawPassword;
       const { data, error } = await client.auth.admin.createUser({
         email: cleanEmail,
         password,
@@ -243,19 +247,30 @@ export async function authenticateWithSupabase(email: string, password: string):
 
   try {
     const cleanEmail = email.trim().toLowerCase();
-    const { data, error } = await anonClient.auth.signInWithPassword({
+    let authRes = await anonClient.auth.signInWithPassword({
       email: cleanEmail,
       password: password,
     });
 
-    if (error) {
-      return { success: false, error: error.message };
+    if (authRes.error && password.length < 6) {
+      // Supabase requires passwords to be at least 6 characters; retry with padded password
+      const retry = await anonClient.auth.signInWithPassword({
+        email: cleanEmail,
+        password: password.padEnd(6, "0"),
+      });
+      if (!retry.error) {
+        authRes = retry;
+      }
+    }
+
+    if (authRes.error) {
+      return { success: false, error: authRes.error.message };
     }
 
     return {
       success: true,
-      session: data.session,
-      user: data.user,
+      session: authRes.data.session,
+      user: authRes.data.user,
     };
   } catch (err: any) {
     return { success: false, error: err.message || "Supabase authentication failed" };
@@ -358,7 +373,8 @@ export async function syncAllUsersToSupabase(): Promise<{
             },
           };
           if (userParams.password && userParams.password.trim()) {
-            updatePayload.password = userParams.password.trim();
+            const trimmed = userParams.password.trim();
+            updatePayload.password = trimmed.length < 6 ? trimmed.padEnd(6, "0") : trimmed;
           }
 
           const { error } = await client.auth.admin.updateUserById(existing.id, updatePayload);
@@ -369,7 +385,8 @@ export async function syncAllUsersToSupabase(): Promise<{
             synced++;
           }
         } else {
-          const password = userParams.password && userParams.password.trim() ? userParams.password.trim() : "password123";
+          const rawPassword = userParams.password && userParams.password.trim() ? userParams.password.trim() : "password123";
+          const password = rawPassword.length < 6 ? rawPassword.padEnd(6, "0") : rawPassword;
           const { error } = await client.auth.admin.createUser({
             email,
             password,
@@ -389,7 +406,11 @@ export async function syncAllUsersToSupabase(): Promise<{
       }
     }
 
-    console.log(`[Supabase Auth Sync] Finished sync. Total: ${total}, Synced: ${synced} (Created: ${created}, Updated: ${updated}), Errors: ${errors.length}`);
+    if (errors.length === 0) {
+      console.log(`[Supabase Auth Sync] Synchronized ${synced}/${total} accounts successfully.`);
+    } else {
+      console.warn(`[Supabase Auth Sync] Synchronized ${synced}/${total} accounts with ${errors.length} skipped.`);
+    }
   } catch (err: any) {
     console.error("[Supabase Auth Sync] Global sync error:", err);
     errors.push(err.message || "Failed to complete full sync");

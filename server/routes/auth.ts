@@ -83,8 +83,14 @@ authRouter.post("/login", async (req: any, res: any) => {
         supabaseAuthSession = supabaseAuth.session;
         supabaseAuthUser = supabaseAuth.user;
       } else {
+        const isMatch =
+          user &&
+          (user.password === cleanPassword ||
+            (cleanPassword.length < 6 && user.password === cleanPassword.padEnd(6, "0")) ||
+            (user.password && user.password.length < 6 && cleanPassword === user.password.padEnd(6, "0")));
+
         // If Supabase Auth failed because user was not yet synced or password changed in local DB:
-        if (user && user.password === cleanPassword) {
+        if (user && isMatch) {
           // Provision / update in Supabase Auth
           await syncUserToSupabase({
             id: user.id,
@@ -108,8 +114,13 @@ authRouter.post("/login", async (req: any, res: any) => {
 
     // 3. Verify user authentication status
     if (user) {
+      const isPasswordValid =
+        user.password === cleanPassword ||
+        (cleanPassword.length < 6 && user.password === cleanPassword.padEnd(6, "0")) ||
+        (user.password && user.password.length < 6 && cleanPassword === user.password.padEnd(6, "0"));
+
       // If password does not match local record AND supabase auth failed
-      if (user.password !== cleanPassword && !supabaseAuthSession) {
+      if (!isPasswordValid && !supabaseAuthSession) {
         await logAudit(req, 'USER_LOGIN_FAILED', `Failed login attempt for ${cleanEmail}: Invalid password`);
         return res.status(401).json({ error: "Invalid password" });
       }

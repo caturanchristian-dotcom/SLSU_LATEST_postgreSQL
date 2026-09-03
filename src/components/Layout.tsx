@@ -529,149 +529,268 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
         </header>
 
         {/* Mobile Header */}
-        <header className="md:hidden bg-white border-b border-neutral-200 p-4 flex items-center justify-between sticky top-0 z-50 select-none shadow-sm h-16">
-          <div className="flex items-center gap-2">
-            <div className="w-[28px] h-[28px] shrink-0 bg-white text-[#1d58d9] rounded-full p-0.5 border border-[#1d58d9]/20 flex items-center justify-center">
-              <img 
-                src="https://2.bp.blogspot.com/-h1JqhRBS1l0/WQdMWsZUjWI/AAAAAAAAAGg/220ucc6KzCQeb3E8grfL9dZ2bt5ESvUJwCLcB/s1600/slsuLogo.jpg" 
-                alt="SLSU Logo" 
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-contain" 
-              />
+        <header className="md:hidden bg-white border-b border-neutral-200/80 px-4 py-3 flex items-center justify-between sticky top-0 z-40 select-none shadow-sm h-16">
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="p-2 -ml-1.5 rounded-xl text-neutral-700 hover:text-[#1d58d9] hover:bg-[#e2ebf8]/60 active:scale-95 transition-all focus:outline-none"
+              aria-label="Open Sidebar Menu"
+            >
+              <Menu className="w-6 h-6" />
+            </button>
+
+            <div className="flex items-center gap-2.5">
+              <div className="w-[30px] h-[30px] shrink-0 bg-white text-[#1d58d9] rounded-full p-0.5 border border-[#1d58d9]/20 flex items-center justify-center">
+                <img 
+                  src="https://2.bp.blogspot.com/-h1JqhRBS1l0/WQdMWsZUjWI/AAAAAAAAAGg/220ucc6KzCQeb3E8grfL9dZ2bt5ESvUJwCLcB/s1600/slsuLogo.jpg" 
+                  alt="SLSU Logo" 
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-contain" 
+                />
+              </div>
+              <span className="font-extrabold text-lg text-[#1d58d9] tracking-tight font-sans">
+                PAYROLL
+              </span>
             </div>
-            <span className="font-extrabold text-lg text-[#1d58d9] tracking-tighter">PAYROLL</span>
           </div>
-          <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
-            {isMobileMenuOpen ? <X className="text-neutral-800" /> : <Menu className="text-neutral-800" />}
-          </Button>
+
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => onNavigate('profile')}
+              className="w-9 h-9 rounded-full border border-[#1d58d9]/25 p-0.5 overflow-hidden bg-white flex items-center justify-center focus:outline-none active:scale-95 transition-transform"
+              title="My Profile"
+            >
+              <img 
+                src={user?.profileImage || "https://2.bp.blogspot.com/-h1JqhRBS1l0/WQdMWsZUjWI/AAAAAAAAAGg/220ucc6KzCQeb3E8grfL9dZ2bt5ESvUJwCLcB/s1600/slsuLogo.jpg"} 
+                alt="Profile Emblem" 
+                referrerPolicy="no-referrer"
+                className={cn(
+                  "w-full h-full rounded-full",
+                  user?.profileImage ? "object-cover" : "object-contain"
+                )} 
+              />
+            </button>
+          </div>
         </header>
 
-        {/* Mobile menu overlay */}
+        {/* Mobile Sidebar (Slide-over Drawer from Left) */}
         <AnimatePresence>
           {isMobileMenuOpen && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="md:hidden absolute top-[64px] left-0 right-0 bg-white border-b border-neutral-200 z-40 p-4 shadow-xl overflow-y-auto max-h-[calc(100vh-64px)] scrollbar-none"
-            >
-              <nav className="space-y-4">
-                {filteredCategories.map((cat, catIdx) => (
-                  <div key={catIdx} className="space-y-1.5">
-                    <h3 className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase px-2">
-                      {cat.title}
-                    </h3>
-                    <div className="space-y-1">
-                      {cat.items.map((item) => {
-                        if (item.isAccordion) {
-                          const isOpen = !!openAccordions[item.name];
-                          const filteredChildren = item.children || [];
+            <div className="md:hidden fixed inset-0 z-50 overflow-hidden">
+              {/* Dimmed Backdrop Overlay */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="fixed inset-0 bg-neutral-900/60 backdrop-blur-xs"
+              />
 
-                          return (
-                            <div 
-                              key={item.name} 
-                              className={cn(
-                                "transition-all duration-200 rounded-xl overflow-hidden",
-                                isOpen 
-                                  ? "bg-white border border-[#e2ebf8] p-1.5 shadow-[0_2px_6px_rgba(29,88,217,0.03)]" 
-                                  : "bg-transparent"
-                              )}
-                            >
-                              <button
-                                onClick={() => toggleAccordion(item.name)}
-                                className={cn(
-                                  "flex items-center justify-between transition-all duration-150 w-full rounded-lg select-none group font-medium text-sm font-sans text-left px-3 py-2.5",
-                                  isOpen 
-                                    ? "text-[#1d58d9] font-bold" 
-                                    : "text-[#555] hover:bg-neutral-50 px-3 py-2.5"
-                                )}
-                              >
-                                <div className="flex items-center gap-3">
-                                  <item.icon className={cn(
-                                    "w-5 h-5 shrink-0 transition-colors",
-                                    isOpen ? "text-[#1d58d9]" : "text-neutral-400"
-                                  )} />
-                                  <span className="text-sm">{item.name}</span>
-                                </div>
-                                <ChevronDown className={cn(
-                                  "w-4 h-4 text-neutral-400 transition-transform duration-200 shrink-0",
-                                  isOpen && "transform rotate-180 text-[#1d58d9]"
-                                )} />
-                              </button>
-
-                              {isOpen && (
-                                <div className="mt-1 flex flex-col">
-                                  <div className="border-t border-neutral-100 my-1 mx-2" />
-                                  <div className="space-y-0.5">
-                                    {filteredChildren.map((child) => {
-                                      const isChildActive = currentPage === child.id;
-                                      return (
-                                        <button
-                                          key={child.name}
-                                          onClick={() => {
-                                            onNavigate(child.id);
-                                            setIsMobileMenuOpen(false);
-                                          }}
-                                          className={cn(
-                                            "flex items-center gap-2.5 w-full rounded-lg select-none group font-medium text-[13px] font-sans text-left transition-all duration-150 py-2 px-3.5",
-                                            isChildActive
-                                              ? "bg-[#e2ebf8]/80 text-[#1d58d9] font-bold"
-                                              : "text-neutral-500 hover:bg-neutral-50"
-                                          )}
-                                        >
-                                          <ArrowRight className={cn(
-                                            "w-3.5 h-3.5 shrink-0 transition-transform duration-150",
-                                            isChildActive 
-                                              ? "text-[#1d58d9] transform translate-x-0.5" 
-                                              : "text-neutral-300 group-hover:text-neutral-600"
-                                          )} />
-                                          <span>{child.name}</span>
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        }
-
-                        const isActive = currentPage === item.id;
-                        return (
-                          <button
-                            key={item.name}
-                            onClick={() => {
-                              onNavigate(item.id);
-                              setIsMobileMenuOpen(false);
-                            }}
-                            className={cn(
-                              "flex items-center gap-3 w-full px-4 py-2.5 rounded-xl font-medium text-sm text-left transition-colors",
-                              isActive 
-                                ? "bg-[#e2ebf8] text-[#1d58d9]" 
-                                : "text-neutral-500 hover:bg-neutral-50"
-                            )}
-                          >
-                            <item.icon className="w-5 h-5 shrink-0" />
-                            <span>{item.name}</span>
-                          </button>
-                        );
-                      })}
+              {/* Sidebar Drawer Container */}
+              <motion.aside
+                initial={{ x: '-100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '-100%' }}
+                transition={{ type: 'spring', damping: 28, stiffness: 280 }}
+                className="fixed inset-y-0 left-0 w-[300px] max-w-[85vw] bg-white flex flex-col shadow-2xl z-50 select-none"
+              >
+                {/* Mobile Drawer Header */}
+                <div className="flex items-center justify-between border-b border-neutral-100 px-5 h-16 shrink-0">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-[32px] h-[32px] shrink-0 bg-white text-[#1d58d9] rounded-full p-0.5 border border-[#1d58d9]/20 flex items-center justify-center">
+                      <img 
+                        src="https://2.bp.blogspot.com/-h1JqhRBS1l0/WQdMWsZUjWI/AAAAAAAAAGg/220ucc6KzCQeb3E8grfL9dZ2bt5ESvUJwCLcB/s1600/slsuLogo.jpg" 
+                        alt="SLSU Logo" 
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-contain" 
+                      />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="font-extrabold text-lg text-[#1d58d9] tracking-tighter leading-none font-sans">
+                        PAYROLL
+                      </span>
+                      <span className="text-[10px] font-semibold text-neutral-400 leading-tight">
+                        SLSU Hinunangan
+                      </span>
                     </div>
                   </div>
-                ))}
-                
-                <div className="border-t border-neutral-100 my-2" />
-                
-                <Button 
-                  variant="ghost" 
-                  className="w-full justify-start text-red-500 font-semibold"
-                  onClick={logout}
-                >
-                  <Power className="w-5 h-5 mr-3 shrink-0" />
-                  Logout
-                </Button>
-              </nav>
-            </motion.div>
+
+                  <button 
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="p-1.5 rounded-xl text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 active:scale-95 transition-all focus:outline-none"
+                    aria-label="Close Sidebar"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* User Profile Card inside Sidebar */}
+                <div className="p-4 mx-3 my-3 bg-[#f8fafc] border border-neutral-200/80 rounded-2xl flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-full border-2 border-[#1d58d9]/30 p-0.5 shrink-0 overflow-hidden bg-white flex items-center justify-center">
+                    <img 
+                      src={user?.profileImage || "https://2.bp.blogspot.com/-h1JqhRBS1l0/WQdMWsZUjWI/AAAAAAAAAGg/220ucc6KzCQeb3E8grfL9dZ2bt5ESvUJwCLcB/s1600/slsuLogo.jpg"} 
+                      alt="User Avatar" 
+                      referrerPolicy="no-referrer"
+                      className={cn(
+                        "w-full h-full rounded-full",
+                        user?.profileImage ? "object-cover" : "object-contain"
+                      )} 
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0 font-sans">
+                    <p className="text-sm font-bold text-neutral-900 truncate leading-tight">
+                      {getDisplayName()}
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-[#e2ebf8] text-[#1d58d9] font-mono leading-none">
+                        {getDisplayId()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Scrollable Navigation List */}
+                <nav className="flex-1 overflow-y-auto px-3 py-2 space-y-5 scrollbar-none">
+                  {filteredCategories.map((cat, catIdx) => (
+                    <div key={catIdx} className="space-y-1">
+                      <h3 className="px-3 text-[10px] font-bold text-neutral-400 tracking-wider uppercase select-none mb-1.5">
+                        {cat.title}
+                      </h3>
+                      
+                      <div className="space-y-1">
+                        {cat.items.map((item) => {
+                          if (item.isAccordion) {
+                            const hasActiveChild = item.children?.some(child => child.id === currentPage);
+                            const isOpen = !!openAccordions[item.name];
+                            const filteredChildren = item.children || [];
+
+                            return (
+                              <div 
+                                key={item.name} 
+                                className={cn(
+                                  "transition-all duration-200 rounded-xl overflow-hidden",
+                                  isOpen 
+                                    ? "bg-white border border-[#e2ebf8] p-1.5 shadow-[0_2px_6px_rgba(29,88,217,0.03)]" 
+                                    : "bg-transparent"
+                                )}
+                              >
+                                <button
+                                  onClick={() => toggleAccordion(item.name)}
+                                  className={cn(
+                                    "flex items-center justify-between transition-all duration-150 w-full rounded-lg select-none group font-medium text-sm font-sans text-left px-3 py-2.5",
+                                    isOpen || hasActiveChild
+                                      ? "text-[#1d58d9] font-bold" 
+                                      : "text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900"
+                                  )}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <item.icon className={cn(
+                                      "w-[18px] h-[18px] shrink-0 transition-colors",
+                                      isOpen || hasActiveChild ? "text-[#1d58d9]" : "text-neutral-400 group-hover:text-neutral-600"
+                                    )} />
+                                    <span className="text-[13.5px] font-medium">{item.name}</span>
+                                  </div>
+                                  
+                                  <ChevronDown className={cn(
+                                    "w-4 h-4 text-neutral-400 transition-transform duration-200 shrink-0",
+                                    isOpen && "transform rotate-180 text-[#1d58d9]"
+                                  )} />
+                                </button>
+
+                                {isOpen && (
+                                  <div className="mt-1 flex flex-col">
+                                    <div className="border-t border-neutral-100 my-1 mx-2" />
+                                    <div className="space-y-0.5">
+                                      {filteredChildren.map((child) => {
+                                        const isChildActive = currentPage === child.id;
+                                        return (
+                                          <button
+                                            key={child.name}
+                                            onClick={() => {
+                                              onNavigate(child.id);
+                                              setIsMobileMenuOpen(false);
+                                            }}
+                                            className={cn(
+                                              "flex items-center gap-2.5 w-full rounded-lg select-none group font-medium text-[13px] font-sans text-left transition-all duration-150 py-2.5 px-3.5",
+                                              isChildActive
+                                                ? "bg-[#e2ebf8] text-[#1d58d9] font-bold shadow-[0_1px_2px_rgba(29,88,217,0.05)]"
+                                                : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
+                                            )}
+                                          >
+                                            <ArrowRight className={cn(
+                                              "w-3.5 h-3.5 shrink-0 transition-transform duration-150",
+                                              isChildActive 
+                                                ? "text-[#1d58d9] transform translate-x-0.5" 
+                                                : "text-neutral-300 group-hover:text-neutral-600 group-hover:translate-x-0.5"
+                                            )} />
+                                            <span className="truncate">{child.name}</span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
+
+                          const isActive = currentPage === item.id;
+                          return (
+                            <button
+                              key={item.name}
+                              onClick={() => {
+                                onNavigate(item.id);
+                                setIsMobileMenuOpen(false);
+                              }}
+                              className={cn(
+                                "flex items-center gap-3 w-full px-3 py-2.5 rounded-xl font-medium text-sm font-sans text-left transition-all duration-150",
+                                isActive 
+                                  ? "bg-[#e2ebf8] text-[#1d58d9] font-bold shadow-[0_1px_2px_rgba(29,88,217,0.05)]" 
+                                  : "text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900"
+                              )}
+                            >
+                              <item.icon className={cn(
+                                "w-[18px] h-[18px] shrink-0 transition-colors",
+                                isActive 
+                                  ? "text-[#1d58d9]" 
+                                  : "text-neutral-400 group-hover:text-neutral-600"
+                              )} />
+                              <span className="text-[13.5px]">{item.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </nav>
+
+                {/* Mobile Drawer Footer Actions */}
+                <div className="p-3 border-t border-neutral-100 bg-neutral-50/70 space-y-1">
+                  <button
+                    onClick={() => {
+                      onNavigate('docs');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-neutral-600 hover:bg-white text-xs font-semibold text-left transition-colors"
+                  >
+                    <HelpCircle className="w-4 h-4 text-neutral-400" />
+                    <span>Knowledge Base &amp; Docs</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      logout();
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-red-600 hover:bg-red-50 text-xs font-bold text-left transition-colors"
+                  >
+                    <Power className="w-4 h-4 text-red-500" />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              </motion.aside>
+            </div>
           )}
         </AnimatePresence>
 

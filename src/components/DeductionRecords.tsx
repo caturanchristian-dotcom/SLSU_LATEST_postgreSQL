@@ -235,7 +235,7 @@ export const DeductionRecords: React.FC<DeductionRecordsProps> = ({ onBackToMatr
         title: saveCurrentForm.title,
         notes: saveCurrentForm.notes,
       });
-      toast.success('Deduction record saved successfully to MySQL database!');
+      toast.success('Deduction record saved successfully to database!');
       setIsSaveCurrentOpen(false);
       fetchRecords();
     } catch (error: any) {
@@ -403,7 +403,7 @@ export const DeductionRecords: React.FC<DeductionRecordsProps> = ({ onBackToMatr
               Auto-Save Active
             </Badge>
             <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
-              MySQL Synced
+              Database Synced
             </Badge>
           </div>
           <p className="text-xs text-neutral-500 mt-1">
@@ -656,7 +656,7 @@ export const DeductionRecords: React.FC<DeductionRecordsProps> = ({ onBackToMatr
               Save Active Matrix as Record Snapshot
             </DialogTitle>
             <DialogDescription className="text-xs text-neutral-500">
-              Capture all current employee deductions as an official deduction record saved in the MySQL database.
+              Capture all current employee deductions as an official deduction record saved in the PostgreSQL / Supabase database.
             </DialogDescription>
           </DialogHeader>
 
