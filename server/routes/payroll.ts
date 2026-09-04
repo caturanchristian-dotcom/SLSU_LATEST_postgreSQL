@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, logAudit, MONTH_NAMES_LIST } from "../db/schema.js";
 import { calculateNetSalary, syncPayrollCycleToRecord, syncAllCyclesToRecords, syncPayrollDeductionsToDeductionsTable } from "../services/payrollCalculator.js";
+import { broadcastRealtime } from "../index.js";
 
 export const payrollRouter = Router();
 
@@ -118,32 +119,7 @@ payrollRouter.get("/payroll-cycles", async (req: any, res: any) => {
       cycles = [];
     }
 
-    // Check if any cycle is empty or has 0 totalNet/totalGross, and auto-populate or calculate
-    for (const c of cycles) {
-      if (c && (!c.totalNet || Number(c.totalNet) === 0 || !c.totalGross || Number(c.totalGross) === 0)) {
-        try {
-          const entryCount = await db.prepare("SELECT COUNT(*) as count FROM payroll_entries WHERE cycleId = ?").get(c.id) as any;
-          if (!entryCount || Number(entryCount.count) === 0) {
-            if (c.status === 'draft') {
-              await populateCycleEmployees(c.id);
-            }
-          } else {
-            await calculateNetSalary(c.id);
-          }
-        } catch (popErr) {
-          console.warn(`[Payroll] Auto-calculate warning for cycle ${c.id}:`, popErr);
-        }
-      }
-    }
-
-    // Refresh cycles with updated totals safely
-    try {
-      cycles = await db.prepare(query + " ORDER BY id DESC").all(...params) as any[];
-    } catch {
-      // keep existing cycles list
-    }
-
-    res.json(Array.isArray(cycles) ? cycles : []);
+    res.json(cycles);
   } catch (err: any) {
     console.error("[Payroll] Error in GET /payroll-cycles:", err);
     res.status(500).json({ error: err.message || "Failed to fetch payroll cycles" });
@@ -242,27 +218,17 @@ payrollRouter.get("/payroll-cycles/:id/entries", async (req: any, res: any) => {
     if (entries.length === 0) {
       try {
         await populateCycleEmployees(id);
+        entries = await db.prepare(`
+          SELECT pe.*, e.employeeId as employeeNo, e.category, e.position, e.campus, e.email, e.phoneNumber, e.hasPhilhealth, e.hasPagibig, e.hasSss, e.basicSalary, e.salaryType, e.bpno, e.crn
+          FROM payroll_entries pe
+          LEFT JOIN employees e ON pe.employeeId = e.id
+          WHERE pe.cycleId = ?
+          ORDER BY pe.employeeName ASC
+        `).all(id) as any[];
       } catch (err) {
         console.warn(`[Payroll] Populate error for cycle ${id}:`, err);
       }
-    } else {
-      try {
-        const cycle = await db.prepare("SELECT * FROM payroll_cycles WHERE id = ?").get(id) as any;
-        if (cycle && (cycle.status === 'draft' || !cycle.totalNet || Number(cycle.totalNet) === 0 || !cycle.totalGross || Number(cycle.totalGross) === 0)) {
-          await calculateNetSalary(id);
-        }
-      } catch (calcErr) {
-        console.warn(`[Payroll] Calculate error for cycle ${id}:`, calcErr);
-      }
     }
-
-    entries = await db.prepare(`
-      SELECT pe.*, e.employeeId as employeeNo, e.category, e.position, e.campus, e.email, e.phoneNumber, e.hasPhilhealth, e.hasPagibig, e.hasSss, e.basicSalary, e.salaryType, e.bpno, e.crn
-      FROM payroll_entries pe
-      LEFT JOIN employees e ON pe.employeeId = e.id
-      WHERE pe.cycleId = ?
-      ORDER BY pe.employeeName ASC
-    `).all(id) as any[];
 
     const formattedEntries = entries.map((pe) => {
       let customValues: any = {};
@@ -285,16 +251,32 @@ payrollRouter.get("/payroll-cycles/:id/entries", async (req: any, res: any) => {
         ? Number(pe.compSal2nd)
         : (pe.basicPay !== undefined && pe.basicPay !== null && Number(pe.basicPay) > 0 ? Number(pe.basicPay) : Number(pe.basicSalary || 0));
 
+      const resolvedAbsences = pe.absences !== undefined && pe.absences !== null
+        ? Number(pe.absences)
+        : (customValues.absences !== undefined ? Number(customValues.absences) : (deductions.absences !== undefined ? Number(deductions.absences) : 0));
+
       return {
         ...pe,
+        absences: resolvedAbsences,
         compSal2nd: resolvedSal2nd,
         basicPay: pe.basicPay || resolvedSal2nd,
-        customValues: { compSal2nd: resolvedSal2nd, ...deductions, ...customValues },
-        deductions
+        customValues: { ...deductions, ...customValues, compSal2nd: resolvedSal2nd, absences: resolvedAbsences },
+        deductions: { ...deductions, absences: resolvedAbsences }
       };
     });
 
     res.json(formattedEntries);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+payrollRouter.post("/payroll-cycles/:id/sync-dtr", async (req: any, res: any) => {
+  try {
+    const { id } = req.params;
+    const totals = await calculateNetSalary(id);
+    broadcastRealtime("payroll_changed", { cycleId: id, source: "manual_sync_dtr" });
+    res.json({ success: true, totals });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -652,7 +634,7 @@ payrollRouter.get("/payroll-entries/:id", async (req: any, res: any) => {
 payrollRouter.put("/payroll-entries/:id", async (req: any, res: any) => {
   try {
     const { id } = req.params;
-    const { basicPay, overtime, bonuses, allowances, otHours, teachingHours, custom_values_json, customValues } = req.body;
+    const { basicPay, overtime, bonuses, allowances, otHours, teachingHours, custom_values_json, customValues, absences } = req.body;
 
     const entry = await db.prepare("SELECT * FROM payroll_entries WHERE id = ?").get(id) as any;
     if (!entry) return res.status(404).json({ error: "Entry not found" });
@@ -670,10 +652,12 @@ payrollRouter.put("/payroll-entries/:id", async (req: any, res: any) => {
       updatedCustomJson = JSON.stringify({ ...existingCustom, ...customValues });
     }
 
+    const resolvedAbsences = absences !== undefined ? Number(absences) : (customValues?.absences !== undefined ? Number(customValues.absences) : entry.absences);
+
     await db.prepare(`
       UPDATE payroll_entries SET
         basicPay = ?, overtime = ?, bonuses = ?, allowances = ?, otHours = ?,
-        teachingHours = ?, custom_values_json = ?
+        teachingHours = ?, absences = ?, custom_values_json = ?
       WHERE id = ?
     `).run(
       basicPay !== undefined ? basicPay : entry.basicPay,
@@ -682,6 +666,7 @@ payrollRouter.put("/payroll-entries/:id", async (req: any, res: any) => {
       allowances !== undefined ? allowances : entry.allowances,
       otHours !== undefined ? otHours : entry.otHours,
       teachingHours !== undefined ? teachingHours : entry.teachingHours,
+      resolvedAbsences !== undefined ? resolvedAbsences : entry.absences,
       updatedCustomJson !== undefined ? updatedCustomJson : entry.custom_values_json,
       id
     );
@@ -693,6 +678,8 @@ payrollRouter.put("/payroll-entries/:id", async (req: any, res: any) => {
     if (customValues && typeof customValues === 'object') {
       await syncPayrollDeductionsToDeductionsTable(entry.employeeId, customValues);
     }
+
+    broadcastRealtime("payroll_changed", { cycleId: entry.cycleId, entryId: id, source: "updateEntry" });
 
     const updatedCycle = await db.prepare('SELECT "totalGross", "totalDeductions", "totalNet" FROM payroll_cycles WHERE id = ?').get(entry.cycleId) as any;
 
@@ -813,7 +800,14 @@ payrollRouter.get("/my-payroll", async (req: any, res: any) => {
 // Payroll Records (Archived & Historical)
 payrollRouter.get("/payroll-records", async (req: any, res: any) => {
   try {
-    await syncAllCyclesToRecords();
+    // Only perform auto-sync if records table is completely empty
+    try {
+      const recCount = await db.prepare("SELECT COUNT(*) as count FROM payroll_records").get() as any;
+      if (!recCount || Number(recCount.count) === 0) {
+        await syncAllCyclesToRecords();
+      }
+    } catch {}
+
     const { year, month, search } = req.query;
 
     let query = "SELECT * FROM payroll_records WHERE 1=1";

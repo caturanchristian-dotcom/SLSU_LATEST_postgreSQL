@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useRealtime } from '../hooks/useRealtime';
 import { api } from '../lib/api';
 import { useAuth } from '../components/AuthProvider';
@@ -41,6 +41,7 @@ import {
   CheckCircle,
   AlertCircle,
   RotateCcw,
+  RefreshCw,
   Users,
   Clock,
   SlidersHorizontal,
@@ -526,6 +527,14 @@ const Payroll = () => {
                 : rawEmpSalary))
     );
 
+    // 1b. For absences column: Live DTR calculation takes precedence unless explicit manual cell override is set
+    if (key === 'absences') {
+      if (entry.customValues && entry.customValues['absencesOverride'] !== undefined) {
+        return Number(entry.customValues['absencesOverride']);
+      }
+      return Number(entry.absences !== undefined ? entry.absences : (entry.customValues?.absences !== undefined ? entry.customValues.absences : 0));
+    }
+
     // 2. If there is a manual override for this specific column, that always wins
     if (entry.customValues && entry.customValues[key] !== undefined) {
       return Number(entry.customValues[key]);
@@ -533,9 +542,6 @@ const Payroll = () => {
 
     // 3. For the primary wages column:
     if (key === 'compSal2nd') return resolvedWages;
-
-    // 3b. For absences column:
-    if (key === 'absences') return Number(entry.absences || 0);
 
     // 4. For dynamically computed components based on basicPay:
     if (key === 'govSecGsis') {
@@ -620,6 +626,10 @@ const Payroll = () => {
     setEntries(prev => prev.map(e => {
       if (e.id === entryId) {
         const updatedCustom = { ...(e.customValues || {}), [key]: numVal };
+        if (key === 'absences') {
+          updatedCustom.absencesOverride = numVal;
+          updatedCustom.absences = numVal;
+        }
         const updatedEntry = {
           ...e,
           customValues: updatedCustom
@@ -638,9 +648,14 @@ const Payroll = () => {
     }));
 
     try {
-      const res = await api.payroll.updateEntry(entryId, {
+      const payload: any = {
         customValues: { [key]: numVal }
-      });
+      };
+      if (key === 'absences') {
+        payload.absences = numVal;
+        payload.customValues = { absences: numVal, absencesOverride: numVal };
+      }
+      const res = await api.payroll.updateEntry(entryId, payload);
       if (res?.cycleTotals && selectedCycle) {
         setSelectedCycle((prev: any) => prev ? {
           ...prev,
@@ -738,19 +753,34 @@ const Payroll = () => {
   useEffect(() => {
     fetchCycles();
     fetchDeductionTypes();
+    api.employees.list().then(data => {
+      if (Array.isArray(data)) setAllEmployeesList(data);
+    }).catch(err => {
+      console.error("Failed to preload employees list:", err);
+    });
   }, []);
 
+  const selectedCycleRef = useRef(selectedCycle);
+  useEffect(() => {
+    selectedCycleRef.current = selectedCycle;
+  }, [selectedCycle]);
+
+  const [isSyncingDtr, setIsSyncingDtr] = useState(false);
+  const syncTimeoutRef = useRef<any>(null);
+
   const handleRealtimeSync = () => {
-    fetchCycles();
-    fetchDeductionTypes();
-    if (selectedCycle?.id) {
-      fetchEntries();
-    }
+    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+    syncTimeoutRef.current = setTimeout(() => {
+      fetchCycles();
+      fetchDeductionTypes();
+      const activeCycleId = selectedCycleRef.current?.id;
+      if (activeCycleId) {
+        fetchEntries(activeCycleId);
+      }
+    }, 250);
   };
 
-  useRealtime('payroll_changed', handleRealtimeSync);
-  useRealtime('deductions_changed', handleRealtimeSync);
-  useRealtime('employees_changed', handleRealtimeSync);
+  useRealtime(['payroll_changed', 'deductions_changed', 'employees_changed', 'dtr_changed', 'schedules_changed'], handleRealtimeSync);
 
   const fetchCycles = async () => {
     try {
@@ -771,33 +801,51 @@ const Payroll = () => {
 
   useEffect(() => {
     if (selectedCycle?.id) {
-      fetchEntries();
+      fetchEntries(selectedCycle.id);
     }
   }, [selectedCycle?.id]);
 
-  const fetchEntries = async () => {
+  const fetchEntries = async (targetId?: string) => {
+    const cycleId = targetId || selectedCycleRef.current?.id || selectedCycle?.id;
+    if (!cycleId) return;
+
     setEntriesLoading(true);
     try {
-      const data = await api.payroll.getEntries(selectedCycle.id);
-      setEntries(data);
-      
-      try {
-        const allEmployees = await api.employees.list();
-        setAllEmployeesList(allEmployees);
-      } catch (err) {
-        console.error("Could not load all active employees: ", err);
-      }
-      
-      // Refresh cycle totals to get updated calculations from backend
-      if (selectedCycle.status !== 'disbursed') {
-        const updatedCycles = await api.payroll.listCycles();
-        const updated = updatedCycles.find((c: any) => c.id === selectedCycle.id);
-        if (updated) setSelectedCycle(updated);
+      const data = await api.payroll.getEntries(cycleId);
+      if (Array.isArray(data)) {
+        setEntries(data);
+        // Instantly update cycle totals in memory without extra network waterfall
+        const sumGross = data.reduce((acc: number, curr: any) => acc + (Number(curr.grossPay) || 0), 0);
+        const sumDeds = data.reduce((acc: number, curr: any) => acc + (Number(curr.totalDeductions) || 0), 0);
+        const sumNet = data.reduce((acc: number, curr: any) => acc + (Number(curr.netPay) || 0), 0);
+        setSelectedCycle((prev: any) => prev ? {
+          ...prev,
+          totalGross: Number(sumGross.toFixed(2)),
+          totalDeductions: Number(sumDeds.toFixed(2)),
+          totalNet: Number(sumNet.toFixed(2)),
+        } : prev);
+      } else {
+        setEntries([]);
       }
     } catch (error: any) {
       toast.error('Failed to fetch entries');
     } finally {
       setEntriesLoading(false);
+    }
+  };
+
+  const handleSyncDtr = async () => {
+    const cycleId = selectedCycleRef.current?.id || selectedCycle?.id;
+    if (!cycleId) return;
+    setIsSyncingDtr(true);
+    try {
+      await api.payroll.syncDtr(cycleId);
+      await fetchEntries(cycleId);
+      toast.success("DTR Absences synchronized in real-time!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to sync DTR absences");
+    } finally {
+      setIsSyncingDtr(false);
     }
   };
 
@@ -3044,6 +3092,18 @@ const Payroll = () => {
                         <RotateCcw className="w-3.5 h-3.5 text-neutral-600" />
                         Sync / Populate Employees
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleSyncDtr}
+                        disabled={isSyncingDtr}
+                        className="gap-1.5 h-9 bg-orange-50/80 border-orange-200 text-orange-950 hover:bg-orange-100 text-xs font-semibold"
+                        title="Force recalculate Absences & Undertime from DTR records in real-time"
+                      >
+                        <RefreshCw className={cn("w-3.5 h-3.5 text-orange-600", isSyncingDtr && "animate-spin")} />
+                        <span>{isSyncingDtr ? "Syncing DTR..." : "Sync DTR Abs."}</span>
+                        <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5" title="Realtime DTR Sync Active" />
+                      </Button>
                     </div>
                     <div className="flex items-center gap-2 border-r pr-3 border-neutral-200">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 font-sans">Import</p>
@@ -3760,18 +3820,19 @@ const Payroll = () => {
                               );
                             })}
 
-                            {/* Compensations Columns - Soft green tones */}
+                            {/* Compensations Columns - Soft green tones & Orange accent for Absences */}
                             {columnsList.filter(col => col.category === 'COMPENSATIONS').map(col => {
                               const val = getCellValue(entry, col.key);
                               const isEditable = selectedCycle.status === 'draft' && !col.isReadOnly;
+                              const isAbs = col.key === 'absences';
                               return (
-                                <td key={col.key} className={`p-1 text-right ${col.key === 'compGross' ? 'bg-emerald-50/60 text-emerald-950 font-bold' : 'bg-emerald-50/10'}`}>
+                                <td key={col.key} className={`p-1 text-right ${col.key === 'compGross' ? 'bg-emerald-50/60 text-emerald-950 font-bold' : isAbs ? 'bg-orange-50/40 text-orange-950' : 'bg-emerald-50/10'}`}>
                                   {editingCell?.entryId === entry.id && editingCell?.key === col.key ? (
                                     <input
                                       autoFocus
                                       type="number"
                                       step="any"
-                                      className="w-[68px] h-6 px-1 text-right text-xs border border-emerald-500 focus:outline-none rounded bg-white shadow-xs"
+                                      className={`w-[68px] h-6 px-1 text-right text-xs border ${isAbs ? 'border-orange-500' : 'border-emerald-500'} focus:outline-none rounded bg-white shadow-xs`}
                                       value={cellValue}
                                       onChange={(e) => setCellValue(e.target.value)}
                                       onBlur={() => handleSaveCell(entry.id, col.key)}
@@ -3783,7 +3844,16 @@ const Payroll = () => {
                                   ) : (
                                     <div
                                       onClick={() => isEditable && startEditCell(entry.id, col.key, val)}
-                                      className={`font-mono text-xs cursor-pointer px-1 py-0.5 rounded select-none ${isEditable ? 'hover:bg-emerald-100 text-emerald-900 border border-dashed border-transparent hover:border-emerald-300' : col.key === 'compGross' ? 'text-emerald-900 font-bold' : 'text-slate-600'}`}
+                                      title={isAbs ? (val > 0 ? `DTR Absences & Undertime: ₱${formatCurrency(val)} (Synced from DTR)` : 'No absences in this cycle (Synced from DTR)') : undefined}
+                                      className={`font-mono text-xs cursor-pointer px-1 py-0.5 rounded select-none ${
+                                        isEditable 
+                                          ? (isAbs ? 'hover:bg-orange-100 text-orange-950 border border-dashed border-transparent hover:border-orange-300 font-medium' : 'hover:bg-emerald-100 text-emerald-900 border border-dashed border-transparent hover:border-emerald-300') 
+                                          : col.key === 'compGross' 
+                                            ? 'text-emerald-900 font-bold' 
+                                            : isAbs 
+                                              ? (val > 0 ? 'text-orange-950 font-bold' : 'text-slate-500') 
+                                              : 'text-slate-600'
+                                      }`}
                                     >
                                       ₱{formatCurrency(val)}
                                     </div>

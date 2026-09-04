@@ -104,6 +104,7 @@ export async function startServer() {
             if (moduleName === "dtr" || moduleName === "schedules") {
               broadcastRealtime("dtr_changed", { path: req.path });
               broadcastRealtime("schedules_changed", { path: req.path });
+              broadcastRealtime("payroll_changed", { path: req.path, source: "dtr" });
             }
           }
         }

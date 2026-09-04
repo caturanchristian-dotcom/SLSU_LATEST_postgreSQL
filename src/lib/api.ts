@@ -437,6 +437,10 @@ export const api = {
       });
       return handleResponse(res);
     },
+    syncDtr: async (cycleId: string) => {
+      const res = await fetchWithAuth(`${API_BASE}/payroll-cycles/${cycleId}/sync-dtr`, { method: 'POST' });
+      return handleResponse(res);
+    },
     // Payroll Records (By Year & By Month)
     listRecords: async (params?: { year?: number; month?: number; search?: string }) => {
       const queryParams = new URLSearchParams();

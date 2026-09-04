@@ -109,6 +109,7 @@ export async function calculateNetSalary(
     const empMap: { [key: string]: any } = {};
     for (const emp of employees) {
       empMap[emp.id] = emp;
+      if (emp.id) empMap[String(emp.id).toLowerCase()] = emp;
       if (emp.employeeId) empMap[String(emp.employeeId).toLowerCase()] = emp;
       if (emp.employee_id) empMap[String(emp.employee_id).toLowerCase()] = emp;
       if (emp.bpno) empMap[String(emp.bpno).toLowerCase()] = emp;
@@ -129,6 +130,33 @@ export async function calculateNetSalary(
       if (rawEid) {
         if (!loansByEmployee[rawEid]) loansByEmployee[rawEid] = [];
         loansByEmployee[rawEid].push(loan);
+      }
+    }
+
+    const dtrsByEmployee: { [key: string]: any[] } = {};
+    for (const d of allDtrRecords) {
+      const rawEid = String(d.employeeId || d.employee_id || d.employeeid || '').trim().toLowerCase();
+      if (rawEid) {
+        if (!dtrsByEmployee[rawEid]) dtrsByEmployee[rawEid] = [];
+        dtrsByEmployee[rawEid].push(d);
+      }
+    }
+
+    const logsByEmployee: { [key: string]: any[] } = {};
+    for (const lg of allDtrLogs) {
+      const rawEid = String(lg.employeeId || lg.employee_id || lg.employeeid || '').trim().toLowerCase();
+      if (rawEid) {
+        if (!logsByEmployee[rawEid]) logsByEmployee[rawEid] = [];
+        logsByEmployee[rawEid].push(lg);
+      }
+    }
+
+    const leavesByEmployee: { [key: string]: any[] } = {};
+    for (const l of allLeaveApps) {
+      const rawEid = String(l.employeeId || l.employee_id || l.employeeid || '').trim().toLowerCase();
+      if (rawEid) {
+        if (!leavesByEmployee[rawEid]) leavesByEmployee[rawEid] = [];
+        leavesByEmployee[rawEid].push(l);
       }
     }
 
@@ -226,6 +254,10 @@ export async function calculateNetSalary(
 
     const isSemiMonthly = cycle.type === 'semi-monthly';
 
+    try {
+      await db.prepare("BEGIN TRANSACTION").run();
+    } catch {}
+
     for (const entry of entries) {
       const emp = empMap[entry.employeeId];
       let existingCustom: any = {};
@@ -298,24 +330,21 @@ export async function calculateNetSalary(
             const end = parseLocalDate(cycle.endDate);
 
             const empIdSet = new Set<string>();
+            if (entry.employeeId) empIdSet.add(String(entry.employeeId).toLowerCase());
             if (emp.id) empIdSet.add(String(emp.id).toLowerCase());
             if (emp.employeeId) empIdSet.add(String(emp.employeeId).toLowerCase());
+            if (emp.employee_id) empIdSet.add(String(emp.employee_id).toLowerCase());
+            if (emp.bpno) empIdSet.add(String(emp.bpno).toLowerCase());
             if (emp.email) empIdSet.add(String(emp.email).toLowerCase());
 
-            const empDtrs = allDtrRecords.filter((d: any) => {
-              if (!d.employeeId) return false;
-              return empIdSet.has(String(d.employeeId).toLowerCase());
-            });
-
-            const empLogs = (allDtrLogs || []).filter((lg: any) => {
-              if (!lg.employeeId) return false;
-              return empIdSet.has(String(lg.employeeId).toLowerCase());
-            });
-
-            const empLeaves = allLeaveApps.filter((l: any) => {
-              if (!l.employeeId) return false;
-              return empIdSet.has(String(l.employeeId).toLowerCase());
-            });
+            const empDtrs: any[] = [];
+            const empLogs: any[] = [];
+            const empLeaves: any[] = [];
+            for (const k of empIdSet) {
+              if (dtrsByEmployee[k]) empDtrs.push(...dtrsByEmployee[k]);
+              if (logsByEmployee[k]) empLogs.push(...logsByEmployee[k]);
+              if (leavesByEmployee[k]) empLeaves.push(...leavesByEmployee[k]);
+            }
 
             let totalScheduledWorkdays = 0;
             let totalAbsenceDays = 0;
@@ -354,7 +383,8 @@ export async function calculateNetSalary(
                   // No record in DTR and no punch logs on this scheduled workday -> Absent!
                   totalAbsenceDays += 1;
                 } else if (dayDtr) {
-                  const isExplicitAbsent = dayDtr.status === 'absent';
+                  const isExplicitAbsent = String(dayDtr.status || '').toLowerCase() === 'absent' ||
+                                           String(dayDtr.notes || '').toLowerCase().includes('absent');
                   const hasPunches = Boolean(
                     dayDtr.timeIn || dayDtr.timeOut ||
                     dayDtr.amIn || dayDtr.amOut ||
@@ -683,6 +713,7 @@ export async function calculateNetSalary(
               employeeName = ?,
               basicPay = ?,
               grossPay = ?,
+              absences = ?,
               deductions_json = ?,
               custom_values_json = ?,
               totalDeductions = ?,
@@ -692,6 +723,7 @@ export async function calculateNetSalary(
             employeeName,
             computedBasicPay,
             gross,
+            absences,
             JSON.stringify(deductionsMap),
             updatedCustomJson,
             sumDeductions,
@@ -708,6 +740,10 @@ export async function calculateNetSalary(
       totalDeductions = Number((totalDeductions + sumDeductions).toFixed(2));
       totalNet = Number((totalNet + net).toFixed(2));
     }
+
+    try {
+      await db.prepare("COMMIT").run();
+    } catch {}
 
     // Always summarize from payroll_entries to ensure 100% database consistency
     const summary = await db.prepare(`

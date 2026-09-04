@@ -1,15 +1,20 @@
 import { Router } from "express";
 import { db, logAudit } from "../db/schema.js";
 import { calculateNetSalary } from "../services/payrollCalculator.js";
+import { broadcastRealtime } from "../index.js";
 
 export const dtrRouter = Router();
 
 async function syncActivePayrollCycles() {
   try {
-    const draftCycles = await db.prepare("SELECT id FROM payroll_cycles WHERE status = 'draft'").all() as any[];
-    for (const cycle of draftCycles) {
+    const activeCycles = await db.prepare(
+      "SELECT id FROM payroll_cycles WHERE status NOT IN ('disbursed', 'completed', 'archived') OR status IS NULL"
+    ).all() as any[];
+    for (const cycle of activeCycles) {
       await calculateNetSalary(cycle.id);
     }
+    broadcastRealtime("payroll_changed", { source: "dtr" });
+    broadcastRealtime("dtr_changed", { source: "dtr" });
   } catch (err) {
     console.error("Error auto-syncing payroll cycles on DTR change:", err);
   }
@@ -121,6 +126,7 @@ dtrRouter.post("/dtr/:id/approve", async (req: any, res: any) => {
     const { id } = req.params;
     await db.prepare("UPDATE dtr_records SET status = 'approved' WHERE id = ?").run(id);
     const updated = await db.prepare("SELECT * FROM dtr_records WHERE id = ?").get(id);
+    await syncActivePayrollCycles();
     res.json(updated || { success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -134,6 +140,7 @@ dtrRouter.post("/dtr/:id/reject", async (req: any, res: any) => {
     const { reason } = req.body;
     await db.prepare("UPDATE dtr_records SET status = 'rejected', notes = ? WHERE id = ?").run(reason || 'Rejected', id);
     const updated = await db.prepare("SELECT * FROM dtr_records WHERE id = ?").get(id);
+    await syncActivePayrollCycles();
     res.json(updated || { success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -180,6 +187,7 @@ dtrRouter.post("/dtr/punch", async (req: any, res: any) => {
     `).run(id, employeeId, timestamp, type, source || "manual", notes || "");
 
     await logAudit(req, "DTR_PUNCH", `Punch log recorded for employee ${employeeId} (${type})`);
+    await syncActivePayrollCycles();
     res.json({ success: true, id, timestamp });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -466,8 +474,13 @@ dtrRouter.post("/dtr/save-day", async (req: any, res: any) => {
     const resolvedEmpId = await resolveEmployeeId(employeeId);
     const dateClean = date.split("T")[0];
 
-    // Remove existing records for this day
-    await db.prepare("DELETE FROM dtr_records WHERE (employeeId = ? OR employeeId = ?) AND date = ?").run(resolvedEmpId, employeeId, dateClean);
+    // Remove existing records and punch logs for this day
+    try {
+      await db.prepare("DELETE FROM dtr_records WHERE (employeeId = ? OR employeeId = ?) AND (date = ? OR date LIKE ?)").run(resolvedEmpId, employeeId, dateClean, `${dateClean}%`);
+      await db.prepare("DELETE FROM dtr_logs WHERE (employeeId = ? OR employeeId = ?) AND (timestamp LIKE ? OR date LIKE ?)").run(resolvedEmpId, employeeId, `${dateClean}%`, `${dateClean}%`);
+    } catch (cleanErr) {
+      await db.prepare("DELETE FROM dtr_records WHERE (employeeId = ? OR employeeId = ?) AND date = ?").run(resolvedEmpId, employeeId, dateClean);
+    }
 
     // Calculate hours
     let amHrs = 0;
@@ -489,8 +502,9 @@ dtrRouter.post("/dtr/save-day", async (req: any, res: any) => {
     const otHrs = Number(overtimeHours || 0);
     const lateMin = Number(lateMinutes || 0);
     const underMin = Number(undertimeMinutes || 0);
+    const isExplicitAbsent = status === 'absent';
 
-    if (effectiveIn || effectiveOut || notes || amIn || amOut || pmIn || pmOut) {
+    if (isExplicitAbsent || effectiveIn || effectiveOut || notes || amIn || amOut || pmIn || pmOut) {
       const id = `dtr-${Date.now()}`;
       await db.prepare(`
         INSERT INTO dtr_records (id, employeeId, date, timeIn, timeOut, amIn, amOut, pmIn, pmOut, hoursWorked, overtimeHours, lateMinutes, undertimeMinutes, status, notes)
@@ -498,7 +512,7 @@ dtrRouter.post("/dtr/save-day", async (req: any, res: any) => {
       `).run(
         id, resolvedEmpId, dateClean, effectiveIn, effectiveOut,
         amIn || null, amOut || null, pmIn || null, pmOut || null,
-        totalHours, otHrs, lateMin, underMin, status || 'regular', notes || ""
+        isExplicitAbsent ? 0 : totalHours, otHrs, lateMin, underMin, isExplicitAbsent ? 'absent' : (status || 'regular'), notes || (isExplicitAbsent ? "Absent" : "")
       );
     }
 
@@ -595,6 +609,9 @@ dtrRouter.delete("/dtr/:id", async (req: any, res: any) => {
   try {
     const { id } = req.params;
     await db.prepare("DELETE FROM dtr_records WHERE id = ?").run(id);
+    try {
+      await db.prepare("DELETE FROM dtr_logs WHERE id = ?").run(id);
+    } catch {}
     await syncActivePayrollCycles();
     res.json({ success: true });
   } catch (err: any) {
