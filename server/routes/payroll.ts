@@ -119,7 +119,43 @@ payrollRouter.get("/payroll-cycles", async (req: any, res: any) => {
       cycles = [];
     }
 
-    res.json(cycles);
+    const formattedCycles = await Promise.all(cycles.map(async (c) => {
+      let totalGross = Number(c.totalGross ?? c.total_gross ?? 0);
+      let totalDeductions = Number(c.totalDeductions ?? c.total_deductions ?? 0);
+      let totalNet = Number(c.totalNet ?? c.total_net ?? 0);
+
+      if (totalGross === 0 && totalNet === 0) {
+        try {
+          const sumRow = await db.prepare(`
+            SELECT 
+              COALESCE(SUM("grossPay"), 0) as "sumGross", 
+              COALESCE(SUM("totalDeductions"), 0) as "sumDeds", 
+              COALESCE(SUM("netPay"), 0) as "sumNet" 
+            FROM payroll_entries 
+            WHERE "cycleId" = ?
+          `).get(c.id) as any;
+          if (sumRow) {
+            const g = Number(sumRow.sumGross ?? sumRow.sumgross ?? 0);
+            const d = Number(sumRow.sumDeds ?? sumRow.sumdeds ?? 0);
+            const n = Number(sumRow.sumNet ?? sumRow.sumnet ?? 0);
+            if (g > 0 || n !== 0) {
+              totalGross = Number(g.toFixed(2));
+              totalDeductions = Number(d.toFixed(2));
+              totalNet = Number(n.toFixed(2));
+            }
+          }
+        } catch {}
+      }
+
+      return {
+        ...c,
+        totalGross,
+        totalDeductions,
+        totalNet
+      };
+    }));
+
+    res.json(formattedCycles);
   } catch (err: any) {
     console.error("[Payroll] Error in GET /payroll-cycles:", err);
     res.status(500).json({ error: err.message || "Failed to fetch payroll cycles" });
@@ -634,10 +670,18 @@ payrollRouter.get("/payroll-entries/:id", async (req: any, res: any) => {
 payrollRouter.put("/payroll-entries/:id", async (req: any, res: any) => {
   try {
     const { id } = req.params;
-    const { basicPay, overtime, bonuses, allowances, otHours, teachingHours, custom_values_json, customValues, absences } = req.body;
+    const { basicPay, compSal2nd, overtime, bonuses, allowances, otHours, teachingHours, custom_values_json, customValues, absences } = req.body;
 
     const entry = await db.prepare("SELECT * FROM payroll_entries WHERE id = ?").get(id) as any;
     if (!entry) return res.status(404).json({ error: "Entry not found" });
+
+    const resolvedSal2nd = compSal2nd !== undefined 
+      ? Number(compSal2nd) 
+      : (customValues?.compSal2nd !== undefined 
+          ? Number(customValues.compSal2nd) 
+          : (basicPay !== undefined ? Number(basicPay) : undefined));
+
+    const resolvedBasicPay = resolvedSal2nd !== undefined ? resolvedSal2nd : entry.basicPay;
 
     let updatedCustomJson = custom_values_json;
     if (customValues && typeof customValues === 'object') {
@@ -649,18 +693,23 @@ payrollRouter.put("/payroll-entries/:id", async (req: any, res: any) => {
           existingCustom = {};
         }
       }
-      updatedCustomJson = JSON.stringify({ ...existingCustom, ...customValues });
+      const mergedCustom = { ...existingCustom, ...customValues };
+      if (resolvedSal2nd !== undefined) {
+        mergedCustom.compSal2nd = resolvedSal2nd;
+      }
+      updatedCustomJson = JSON.stringify(mergedCustom);
     }
 
     const resolvedAbsences = absences !== undefined ? Number(absences) : (customValues?.absences !== undefined ? Number(customValues.absences) : entry.absences);
 
     await db.prepare(`
       UPDATE payroll_entries SET
-        basicPay = ?, overtime = ?, bonuses = ?, allowances = ?, otHours = ?,
+        basicPay = ?, compSal2nd = ?, overtime = ?, bonuses = ?, allowances = ?, otHours = ?,
         teachingHours = ?, absences = ?, custom_values_json = ?
       WHERE id = ?
     `).run(
-      basicPay !== undefined ? basicPay : entry.basicPay,
+      resolvedBasicPay,
+      resolvedBasicPay,
       overtime !== undefined ? overtime : entry.overtime,
       bonuses !== undefined ? bonuses : entry.bonuses,
       allowances !== undefined ? allowances : entry.allowances,
@@ -671,7 +720,13 @@ payrollRouter.put("/payroll-entries/:id", async (req: any, res: any) => {
       id
     );
 
-    const customOverrides = customValues && typeof customValues === 'object' ? { [id]: customValues } : undefined;
+    const customOverrides: any = customValues && typeof customValues === 'object' ? { [id]: { ...customValues } } : { [id]: {} };
+    if (resolvedSal2nd !== undefined) {
+      customOverrides[id].compSal2nd = resolvedSal2nd;
+      customOverrides[id].basicPay = resolvedSal2nd;
+      customOverrides[id].recomputeGovShare = true;
+    }
+
     await calculateNetSalary(entry.cycleId, entry.employeeId, customOverrides);
 
     // Bidirectional sync: sync to deductions table
@@ -682,13 +737,15 @@ payrollRouter.put("/payroll-entries/:id", async (req: any, res: any) => {
     broadcastRealtime("payroll_changed", { cycleId: entry.cycleId, entryId: id, source: "updateEntry" });
 
     const updatedCycle = await db.prepare('SELECT "totalGross", "totalDeductions", "totalNet" FROM payroll_cycles WHERE id = ?').get(entry.cycleId) as any;
+    const updatedEntry = await db.prepare('SELECT * FROM payroll_entries WHERE id = ?').get(id) as any;
 
     res.json({ 
       success: true,
+      entry: updatedEntry,
       cycleTotals: updatedCycle ? {
-        totalGross: Number(updatedCycle.totalGross || 0),
-        totalDeductions: Number(updatedCycle.totalDeductions || 0),
-        totalNet: Number(updatedCycle.totalNet || 0)
+        totalGross: Number(updatedCycle.totalGross ?? updatedCycle.total_gross ?? 0),
+        totalDeductions: Number(updatedCycle.totalDeductions ?? updatedCycle.total_deductions ?? 0),
+        totalNet: Number(updatedCycle.totalNet ?? updatedCycle.total_net ?? 0)
       } : undefined
     });
   } catch (err: any) {

@@ -495,15 +495,15 @@ reportsRouter.get("/analytics", async (req: any, res: any) => {
 
     const totalEmployees = await db.prepare(empQuery).get(...params);
     const totalCycles = await db.prepare(cycleQuery).get(...params);
-    const totalDisbursed = await db.prepare("SELECT SUM(totalNet) as sumNet FROM payroll_cycles WHERE status = 'disbursed'").get();
+    const totalDisbursed = await db.prepare('SELECT COALESCE(SUM("totalNet"), 0) as "sumNet" FROM payroll_cycles WHERE status = \'disbursed\'').get() as any;
 
     const categoryBreakdown = await db.prepare("SELECT category, COUNT(*) as count FROM employees GROUP BY category").all();
     const campusBreakdown = await db.prepare("SELECT campus, COUNT(*) as count FROM employees GROUP BY campus").all();
 
     res.json({
-      totalEmployees: totalEmployees?.count || 0,
-      totalCycles: totalCycles?.count || 0,
-      totalDisbursed: totalDisbursed?.sumNet || 0,
+      totalEmployees: Number(totalEmployees?.count || 0),
+      totalCycles: Number(totalCycles?.count || 0),
+      totalDisbursed: Number(totalDisbursed?.sumNet ?? totalDisbursed?.sumnet ?? 0),
       categoryBreakdown: categoryBreakdown || [],
       campusBreakdown: campusBreakdown || []
     });

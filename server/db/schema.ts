@@ -99,7 +99,7 @@ const CAMEL_CASE_COLUMNS = [
   "dedGfal", "dedEmergencyLoan", "dedGsisPremPersonal", "dedEducAsst",
   "dedPagibigPersonal", "dedPagibigMpl", "dedSss", "dedPagibigMp2",
   "dedPhilhealthCont", "dedCsbLoan", "dedTaxWithheld", "isValidated", "basicPay",
-  "employeeName", "createdBy"
+  "employeeName", "createdBy", "sumGross", "sumDeds", "sumNet"
 ];
 
 /**
@@ -173,7 +173,9 @@ export function normalizeRow(row: any): any {
   // Priority mapping for camelCase fields so non-null values take precedence
   const setIfValOrEmpty = (targetKey: string, val: any) => {
     if (val !== null && val !== undefined && val !== "") {
-      newRow[targetKey] = val;
+      if (newRow[targetKey] === undefined || newRow[targetKey] === null || newRow[targetKey] === "" || (Number(newRow[targetKey]) === 0 && Number(val) !== 0)) {
+        newRow[targetKey] = val;
+      }
     } else if (newRow[targetKey] === undefined) {
       newRow[targetKey] = val;
     }
@@ -201,6 +203,9 @@ export function normalizeRow(row: any): any {
     if (lower === "totalgross" || lower === "total_gross") setIfValOrEmpty("totalGross", val);
     if (lower === "totaldeductions" || lower === "total_deductions") setIfValOrEmpty("totalDeductions", val);
     if (lower === "totalnet" || lower === "total_net") setIfValOrEmpty("totalNet", val);
+    if (lower === "sumgross" || lower === "sum_gross") setIfValOrEmpty("sumGross", val);
+    if (lower === "sumdeds" || lower === "sum_deds") setIfValOrEmpty("sumDeds", val);
+    if (lower === "sumnet" || lower === "sum_net") setIfValOrEmpty("sumNet", val);
     if (lower === "managedby" || lower === "managed_by") setIfValOrEmpty("managedBy", val);
     if (lower === "managedbyname" || lower === "managed_by_name") setIfValOrEmpty("managedByName", val);
     if (lower === "approvedby" || lower === "approved_by") setIfValOrEmpty("approvedBy", val);

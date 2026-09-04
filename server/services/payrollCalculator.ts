@@ -532,18 +532,59 @@ export async function calculateNetSalary(
         String(emp.category || '').toLowerCase().includes('permanent')
       );
       const isJobOrder = emp && String(emp.category || '').toLowerCase().includes('job order');
-      const hasPh = isPhRegular || (isJobOrder && emp.hasPhilhealth);
-      const hasHdmf = isPhRegular || (isJobOrder && emp.hasPagibig);
-
-      // Government Share Mandatory Contributions
-      const govSecGsis = custom.govSecGsis !== undefined ? Number(custom.govSecGsis) : (isPhRegular ? Number((computedBasicPay * 0.12).toFixed(2)) : 0.00);
-      const govSecHdmf = custom.govSecHdmf !== undefined ? Number(custom.govSecHdmf) : (hasHdmf ? (isSemiMonthly ? 100.00 : 200.00) : 0.00);
-      const govSecPh = custom.govSecPh !== undefined ? Number(custom.govSecPh) : (hasPh ? Number(((computedBasicPay * 0.05) / 2).toFixed(2)) : 0.00);
-      const govSecEcip = custom.govSecEcip !== undefined ? Number(custom.govSecEcip) : (isPhRegular ? (isSemiMonthly ? 50.00 : 100.00) : 0.00);
+      const hasPh = isPhRegular || (isJobOrder && (emp.hasPhilhealth || emp.has_philhealth));
+      const hasHdmf = isPhRegular || (isJobOrder && (emp.hasPagibig || emp.has_pagibig));
 
       const isExplicitOverride = (field: string) => {
-        return customColumnValues && customColumnValues[entry.id] && customColumnValues[entry.id][field] !== undefined;
+        return Boolean(customColumnValues && customColumnValues[entry.id] && customColumnValues[entry.id][field] !== undefined);
       };
+
+      const isCompSal2ndChanged = Boolean(
+        explicitOverride && (
+          explicitOverride.compSal2nd !== undefined || 
+          explicitOverride.basicPay !== undefined || 
+          explicitOverride.recomputeGovShare ||
+          explicitOverride.autoGovShare
+        )
+      );
+
+      // Government Share Mandatory Contributions:
+      // When Salaries and Wages-2nd Tranch is modified or recalculated, Government Shares automatically update based on computedBasicPay
+      let govSecGsis = isPhRegular ? Number((computedBasicPay * 0.12).toFixed(2)) : 0.00;
+      if (isExplicitOverride('govSecGsis') && !isCompSal2ndChanged) {
+        govSecGsis = Number(customColumnValues[entry.id].govSecGsis);
+      } else if (isExplicitOverride('govSecGsisOverride') && !isCompSal2ndChanged) {
+        govSecGsis = Number(customColumnValues[entry.id].govSecGsisOverride);
+      } else if (custom.govSecGsisOverride !== undefined && !isCompSal2ndChanged) {
+        govSecGsis = Number(custom.govSecGsisOverride);
+      }
+
+      let govSecHdmf = hasHdmf ? (isSemiMonthly ? 100.00 : 200.00) : 0.00;
+      if (isExplicitOverride('govSecHdmf') && !isCompSal2ndChanged) {
+        govSecHdmf = Number(customColumnValues[entry.id].govSecHdmf);
+      } else if (isExplicitOverride('govSecHdmfOverride') && !isCompSal2ndChanged) {
+        govSecHdmf = Number(customColumnValues[entry.id].govSecHdmfOverride);
+      } else if (custom.govSecHdmfOverride !== undefined && !isCompSal2ndChanged) {
+        govSecHdmf = Number(custom.govSecHdmfOverride);
+      }
+
+      let govSecPh = hasPh ? Number(((computedBasicPay * 0.05) / 2).toFixed(2)) : 0.00;
+      if (isExplicitOverride('govSecPh') && !isCompSal2ndChanged) {
+        govSecPh = Number(customColumnValues[entry.id].govSecPh);
+      } else if (isExplicitOverride('govSecPhOverride') && !isCompSal2ndChanged) {
+        govSecPh = Number(customColumnValues[entry.id].govSecPhOverride);
+      } else if (custom.govSecPhOverride !== undefined && !isCompSal2ndChanged) {
+        govSecPh = Number(custom.govSecPhOverride);
+      }
+
+      let govSecEcip = isPhRegular ? (isSemiMonthly ? 50.00 : 100.00) : 0.00;
+      if (isExplicitOverride('govSecEcip') && !isCompSal2ndChanged) {
+        govSecEcip = Number(customColumnValues[entry.id].govSecEcip);
+      } else if (isExplicitOverride('govSecEcipOverride') && !isCompSal2ndChanged) {
+        govSecEcip = Number(customColumnValues[entry.id].govSecEcipOverride);
+      } else if (custom.govSecEcipOverride !== undefined && !isCompSal2ndChanged) {
+        govSecEcip = Number(custom.govSecEcipOverride);
+      }
 
       const getDeductionValue = (field: string, statutoryDefault: number = 0.00) => {
         if (isExplicitOverride(field)) {
@@ -748,20 +789,33 @@ export async function calculateNetSalary(
     // Always summarize from payroll_entries to ensure 100% database consistency
     const summary = await db.prepare(`
       SELECT 
-        COALESCE(SUM(grossPay), 0) as sumGross, 
-        COALESCE(SUM(totalDeductions), 0) as sumDeds, 
-        COALESCE(SUM(netPay), 0) as sumNet 
+        COALESCE(SUM("grossPay"), 0) as "sumGross", 
+        COALESCE(SUM("totalDeductions"), 0) as "sumDeds", 
+        COALESCE(SUM("netPay"), 0) as "sumNet" 
       FROM payroll_entries 
-      WHERE cycleId = ?
+      WHERE "cycleId" = ?
     `).get(cycleId) as any;
 
     if (summary) {
-      totalGross = Number(Number(summary.sumGross || 0).toFixed(2));
-      totalDeductions = Number(Number(summary.sumDeds || 0).toFixed(2));
-      totalNet = Number(Number(summary.sumNet || 0).toFixed(2));
+      const grossVal = summary.sumGross ?? summary.sumgross ?? summary.totalGross ?? summary.total_gross;
+      const dedsVal = summary.sumDeds ?? summary.sumdeds ?? summary.totalDeductions ?? summary.total_deductions;
+      const netVal = summary.sumNet ?? summary.sumnet ?? summary.totalNet ?? summary.total_net;
+
+      if (grossVal !== undefined && grossVal !== null) totalGross = Number(Number(grossVal).toFixed(2));
+      if (dedsVal !== undefined && dedsVal !== null) totalDeductions = Number(Number(dedsVal).toFixed(2));
+      if (netVal !== undefined && netVal !== null) totalNet = Number(Number(netVal).toFixed(2));
     }
 
-    await db.prepare('UPDATE payroll_cycles SET "totalGross" = ?, "totalDeductions" = ?, "totalNet" = ? WHERE id = ?').run(totalGross, totalDeductions, totalNet, cycleId);
+    try {
+      await db.prepare(`
+        UPDATE payroll_cycles SET 
+          "totalGross" = ?, "totalDeductions" = ?, "totalNet" = ?,
+          total_gross = ?, total_deductions = ?, total_net = ?
+        WHERE id = ?
+      `).run(totalGross, totalDeductions, totalNet, totalGross, totalDeductions, totalNet, cycleId);
+    } catch {
+      await db.prepare('UPDATE payroll_cycles SET "totalGross" = ?, "totalDeductions" = ?, "totalNet" = ? WHERE id = ?').run(totalGross, totalDeductions, totalNet, cycleId);
+    }
     return { totalGross, totalDeductions, totalNet };
   } catch (error) {
     throw error;

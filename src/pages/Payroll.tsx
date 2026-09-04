@@ -535,46 +535,80 @@ const Payroll = () => {
       return Number(entry.absences !== undefined ? entry.absences : (entry.customValues?.absences !== undefined ? entry.customValues.absences : 0));
     }
 
-    // 2. If there is a manual override for this specific column, that always wins
-    if (entry.customValues && entry.customValues[key] !== undefined) {
-      return Number(entry.customValues[key]);
+    const isRegular = String(entry.category || '').toUpperCase() === 'FACULTY' || 
+                      String(entry.category || '').toUpperCase() === 'STAFF' ||
+                      String(entry.category || '').toLowerCase().includes('regular') ||
+                      String(entry.category || '').toLowerCase().includes('permanent');
+    const isSemi = selectedCycle?.periodType === 'semi-monthly' || selectedCycle?.type === 'semi-monthly';
+    const isJobOrder = String(entry.category || '').toLowerCase().includes('job order');
+    const hasPh = isRegular || (isJobOrder && (entry.hasPhilhealth || entry.has_philhealth));
+    const hasHdmf = isRegular || (isJobOrder && (entry.hasPagibig || entry.has_pagibig));
+
+    // 2. GOVERNMENT SHARE columns:
+    // Automatically recalculates whenever Salaries and Wages-2nd Tranch (resolvedWages) changes
+    if (key === 'govSecGsis') {
+      if (entry.customValues?.govSecGsisOverride !== undefined) {
+        return Number(entry.customValues.govSecGsisOverride);
+      }
+      return isRegular ? Number((resolvedWages * 0.12).toFixed(2)) : 0;
+    }
+    if (key === 'govSecPh') {
+      if (entry.customValues?.govSecPhOverride !== undefined) {
+        return Number(entry.customValues.govSecPhOverride);
+      }
+      return hasPh ? Number(((resolvedWages * 0.05) / 2).toFixed(2)) : 0;
+    }
+    if (key === 'govSecHdmf') {
+      if (entry.customValues?.govSecHdmfOverride !== undefined) {
+        return Number(entry.customValues.govSecHdmfOverride);
+      }
+      return hasHdmf ? (isSemi ? 100.00 : 200.00) : 0;
+    }
+    if (key === 'govSecEcip') {
+      if (entry.customValues?.govSecEcipOverride !== undefined) {
+        return Number(entry.customValues.govSecEcipOverride);
+      }
+      return isRegular ? (isSemi ? 50.00 : 100.00) : 0;
     }
 
     // 3. For the primary wages column:
     if (key === 'compSal2nd') return resolvedWages;
 
-    // 4. For dynamically computed components based on basicPay:
-    if (key === 'govSecGsis') {
-      const isRegular = entry.category === 'FACULTY' || entry.category === 'STAFF';
-      return isRegular ? Number((resolvedWages * 0.12).toFixed(2)) : 0;
+    // 4. Dynamic Gross Pay calculation based on active wages
+    if (key === 'compGross') {
+      const compPera = entry.customValues?.compPera !== undefined ? Number(entry.customValues.compPera) : (entry.compPera !== undefined ? Number(entry.compPera) : 2000.00);
+      const absVal = Number(entry.customValues?.absences !== undefined ? entry.customValues.absences : (entry.absences || 0));
+      const otVal = Number(entry.customValues?.overtime !== undefined ? entry.customValues.overtime : (entry.overtime || 0));
+      const allowVal = Number(entry.customValues?.allowances !== undefined ? entry.customValues.allowances : (entry.allowances || 0));
+      const bonusVal = Number(entry.customValues?.bonuses !== undefined ? entry.customValues.bonuses : (entry.bonuses || 0));
+      return Math.max(0, Number((resolvedWages + compPera - absVal + allowVal + otVal + bonusVal).toFixed(2)));
     }
-    if (key === 'govSecPh') {
-      return Number(((resolvedWages * 0.05) / 2).toFixed(2));
+
+    // 5. If there is a manual override for this specific column, that wins
+    if (entry.customValues && entry.customValues[key] !== undefined) {
+      return Number(entry.customValues[key]);
     }
+
+    // 6. For dynamically computed components based on basicPay:
     if (key === 'dedGsisPremPersonal') {
-      const isRegular = entry.category === 'FACULTY' || entry.category === 'STAFF';
       return isRegular ? Number((resolvedWages * 0.09).toFixed(2)) : 0;
     }
     if (key === 'dedSss') {
-      return (entry.category === 'Job Order' && entry.hasSss) ? Number((resolvedWages * 0.045).toFixed(2)) : 0;
+      return (isJobOrder && (entry.hasSss || entry.has_sss)) ? Number((resolvedWages * 0.045).toFixed(2)) : 0;
     }
     if (key === 'dedPhilhealthCont') {
-      const isRegular = entry.category === 'FACULTY' || entry.category === 'STAFF';
-      return (isRegular || (entry.category === 'Job Order' && entry.hasPhilhealth)) 
-        ? Number((resolvedWages * 0.025).toFixed(2)) : 0;
+      return hasPh ? Number((resolvedWages * 0.025).toFixed(2)) : 0;
     }
     if (key === 'dedPagibigPersonal') {
-      const isRegular = entry.category === 'FACULTY' || entry.category === 'STAFF';
-      const hasPagibig = isRegular || (entry.category === 'Job Order' && entry.hasPagibig);
-      return hasPagibig ? Number((resolvedWages * 0.02).toFixed(2)) : 0;
+      return hasHdmf ? Number((resolvedWages * 0.02).toFixed(2)) : 0;
     }
 
-    // 5. If it's cached in deductions, use that
+    // 7. If it's cached in deductions, use that
     if (entry.deductions && entry.deductions[key] !== undefined) {
       return Number(entry.deductions[key]);
     }
 
-    // 5b. Check normalized key match in deductions
+    // 7b. Check normalized key match in deductions
     if (entry.deductions) {
       const normKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
       for (const [dK, dV] of Object.entries(entry.deductions)) {
@@ -584,30 +618,8 @@ const Payroll = () => {
       }
     }
 
-    // 6. Dynamic Gross Pay calculation
-    if (key === 'compGross') {
-      const compPera = entry.customValues?.compPera !== undefined ? Number(entry.customValues.compPera) : (entry.compPera !== undefined ? Number(entry.compPera) : 2000.00);
-      const absVal = Number(entry.customValues?.absences !== undefined ? entry.customValues.absences : (entry.absences || 0));
-      const otVal = Number(entry.customValues?.overtime !== undefined ? entry.customValues.overtime : (entry.overtime || 0));
-      const allowVal = Number(entry.customValues?.allowances !== undefined ? entry.customValues.allowances : (entry.allowances || 0));
-      const bonusVal = Number(entry.customValues?.bonuses !== undefined ? entry.customValues.bonuses : (entry.bonuses || 0));
-      const computed = Math.max(0, Number((resolvedWages + compPera - absVal + allowVal + otVal + bonusVal).toFixed(2)));
-      if (computed > 0) return computed;
-      if (Number(entry.grossPay || 0) > 0) return Number(entry.grossPay);
-      return 0;
-    }
-
-    // 7. Static/Smart defaults
+    // 8. Static/Smart defaults
     if (key === 'compPera') return 2000.00;
-    if (key === 'govSecHdmf') {
-      const isRegular = entry.category === 'FACULTY' || entry.category === 'STAFF';
-      const hasHdmf = isRegular || (entry.category === 'Job Order' && entry.hasPagibig);
-      return hasHdmf ? 200.00 : 0;
-    }
-    if (key === 'govSecEcip') {
-      const isRegular = entry.category === 'FACULTY' || entry.category === 'STAFF';
-      return isRegular ? 100.00 : 0;
-    }
 
     return 0;
   };
@@ -630,18 +642,70 @@ const Payroll = () => {
           updatedCustom.absencesOverride = numVal;
           updatedCustom.absences = numVal;
         }
+
+        const isRegular = String(e.category || '').toUpperCase() === 'FACULTY' || 
+                          String(e.category || '').toUpperCase() === 'STAFF' ||
+                          String(e.category || '').toLowerCase().includes('regular') ||
+                          String(e.category || '').toLowerCase().includes('permanent');
+        const isSemi = selectedCycle?.periodType === 'semi-monthly' || selectedCycle?.type === 'semi-monthly';
+        const isJobOrder = String(e.category || '').toLowerCase().includes('job order');
+        const hasPh = isRegular || (isJobOrder && (e.hasPhilhealth || e.has_philhealth));
+        const hasHdmf = isRegular || (isJobOrder && (e.hasPagibig || e.has_pagibig));
+
+        if (key === 'compSal2nd') {
+          updatedCustom.compSal2nd = numVal;
+          // Clear any explicit override so automatic formula updates
+          delete updatedCustom.govSecGsisOverride;
+          delete updatedCustom.govSecPhOverride;
+          delete updatedCustom.govSecHdmfOverride;
+          delete updatedCustom.govSecEcipOverride;
+
+          const newGovGsis = isRegular ? Number((numVal * 0.12).toFixed(2)) : 0;
+          const newGovPh = hasPh ? Number(((numVal * 0.05) / 2).toFixed(2)) : 0;
+          const newGovHdmf = hasHdmf ? (isSemi ? 100.00 : 200.00) : 0;
+          const newGovEcip = isRegular ? (isSemi ? 50.00 : 100.00) : 0;
+
+          updatedCustom.govSecGsis = newGovGsis;
+          updatedCustom.govSecPh = newGovPh;
+          updatedCustom.govSecHdmf = newGovHdmf;
+          updatedCustom.govSecEcip = newGovEcip;
+        }
+
+        if (['govSecGsis', 'govSecPh', 'govSecHdmf', 'govSecEcip'].includes(key)) {
+          updatedCustom[`${key}Override`] = numVal;
+          updatedCustom[key] = numVal;
+        }
+
         const updatedEntry = {
           ...e,
           customValues: updatedCustom
         };
+
         if (key === 'compSal2nd') {
           updatedEntry.basicPay = numVal;
           updatedEntry.compSal2nd = numVal;
+          updatedEntry.govSecGsis = isRegular ? Number((numVal * 0.12).toFixed(2)) : 0;
+          updatedEntry.govSecPh = hasPh ? Number(((numVal * 0.05) / 2).toFixed(2)) : 0;
+          updatedEntry.govSecHdmf = hasHdmf ? (isSemi ? 100.00 : 200.00) : 0;
+          updatedEntry.govSecEcip = isRegular ? (isSemi ? 50.00 : 100.00) : 0;
+
+          const compPera = updatedCustom.compPera !== undefined ? Number(updatedCustom.compPera) : 2000.00;
+          const absVal = Number(updatedCustom.absences !== undefined ? updatedCustom.absences : (e.absences || 0));
+          const otVal = Number(updatedCustom.overtime !== undefined ? updatedCustom.overtime : (e.overtime || 0));
+          const allowVal = Number(updatedCustom.allowances !== undefined ? updatedCustom.allowances : (e.allowances || 0));
+          const bonusVal = Number(updatedCustom.bonuses !== undefined ? updatedCustom.bonuses : (e.bonuses || 0));
+          const newGross = Math.max(0, Number((numVal + compPera - absVal + allowVal + otVal + bonusVal).toFixed(2)));
+          updatedEntry.compGross = newGross;
+          updatedEntry.grossPay = newGross;
         }
+
         if (key === 'absences') updatedEntry.absences = numVal;
         if (key === 'overtime') updatedEntry.overtime = numVal;
         if (key === 'allowances') updatedEntry.allowances = numVal;
         if (key === 'bonuses') updatedEntry.bonuses = numVal;
+        if (['govSecGsis', 'govSecPh', 'govSecHdmf', 'govSecEcip'].includes(key)) {
+          updatedEntry[key] = numVal;
+        }
         return updatedEntry;
       }
       return e;
@@ -651,9 +715,20 @@ const Payroll = () => {
       const payload: any = {
         customValues: { [key]: numVal }
       };
+      if (key === 'compSal2nd') {
+        payload.basicPay = numVal;
+        payload.compSal2nd = numVal;
+        payload.customValues = {
+          compSal2nd: numVal,
+          recomputeGovShare: true
+        };
+      }
       if (key === 'absences') {
         payload.absences = numVal;
         payload.customValues = { absences: numVal, absencesOverride: numVal };
+      }
+      if (['govSecGsis', 'govSecPh', 'govSecHdmf', 'govSecEcip'].includes(key)) {
+        payload.customValues = { [key]: numVal, [`${key}Override`]: numVal };
       }
       const res = await api.payroll.updateEntry(entryId, payload);
       if (res?.cycleTotals && selectedCycle) {
