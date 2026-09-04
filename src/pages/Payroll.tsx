@@ -48,7 +48,8 @@ import {
   Calculator,
   Receipt,
   Check,
-  Layers
+  Layers,
+  ChevronDown
 } from 'lucide-react';
 import { SLSU_CAMPUSES } from '../lib/constants';
 import { PayrollRecords } from '../components/PayrollRecords';
@@ -293,6 +294,9 @@ const Payroll = () => {
     }
   };
   const [searchTerm, setSearchTerm] = useState('');
+  const [entryClusterFilter, setEntryClusterFilter] = useState<string>('all');
+  const [entryCategoryFilter, setEntryCategoryFilter] = useState<string>('all');
+  const [entryValidationFilter, setEntryValidationFilter] = useState<string>('all');
   const [showGsisFormula, setShowGsisFormula] = useState(false);
   const [showPhilhealthFormula, setShowPhilhealthFormula] = useState(false);
   const [showGrossFormula, setShowGrossFormula] = useState(false);
@@ -2501,10 +2505,68 @@ const Payroll = () => {
     }
   };
 
-  const filteredEntries = entries.filter(e => 
-    e.employeeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    e.employeeId.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const availableCategories = useMemo(() => {
+    const cats = new Set<string>();
+    entries.forEach((e: any) => {
+      const cat = (e.category || '').trim();
+      if (cat) cats.add(cat);
+    });
+    return Array.from(cats).sort();
+  }, [entries]);
+
+  const isAnyEntryFilterActive = useMemo(() => {
+    return Boolean(
+      searchTerm.trim() ||
+      entryClusterFilter !== 'all' ||
+      entryCategoryFilter !== 'all' ||
+      entryValidationFilter !== 'all'
+    );
+  }, [searchTerm, entryClusterFilter, entryCategoryFilter, entryValidationFilter]);
+
+  const resetEntryFilters = () => {
+    setSearchTerm('');
+    setEntryClusterFilter('all');
+    setEntryCategoryFilter('all');
+    setEntryValidationFilter('all');
+  };
+
+  const filteredEntries = useMemo(() => {
+    return entries.filter(e => {
+      // 1. Text Search (Name, Employee ID / No, Position)
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase().trim();
+        const matchesName = (e.employeeName || '').toLowerCase().includes(q);
+        const matchesId = (e.employeeId || e.employeeNo || '').toLowerCase().includes(q);
+        const matchesPos = (e.position || '').toLowerCase().includes(q);
+        if (!matchesName && !matchesId && !matchesPos) return false;
+      }
+
+      // 2. Cluster / Group & Gender Filter
+      if (entryClusterFilter !== 'all') {
+        const info = getEmployeeGroupAndGender(e);
+        if (entryClusterFilter === 'faculty' && info.group !== 'FACULTY') return false;
+        if (entryClusterFilter === 'staff' && info.group !== 'STAFF') return false;
+        if (entryClusterFilter === 'faculty-male' && (info.group !== 'FACULTY' || !info.isMale)) return false;
+        if (entryClusterFilter === 'faculty-female' && (info.group !== 'FACULTY' || info.isMale)) return false;
+        if (entryClusterFilter === 'staff-male' && (info.group !== 'STAFF' || !info.isMale)) return false;
+        if (entryClusterFilter === 'staff-female' && (info.group !== 'STAFF' || info.isMale)) return false;
+        if (entryClusterFilter === 'male' && !info.isMale) return false;
+        if (entryClusterFilter === 'female' && info.isMale) return false;
+      }
+
+      // 3. Employment Category Filter
+      if (entryCategoryFilter !== 'all') {
+        const cat = (e.category || '').trim().toLowerCase();
+        if (cat !== entryCategoryFilter.trim().toLowerCase()) return false;
+      }
+
+      // 4. Validation Status Filter
+      if (entryValidationFilter === 'validated' && !e.isValidated) return false;
+      if (entryValidationFilter === 'pending' && !!e.isValidated) return false;
+
+      return true;
+    });
+  }, [entries, searchTerm, entryClusterFilter, entryCategoryFilter, entryValidationFilter]);
 
   const filteredCycles = cycles.filter(c => {
     const matchesSearch = c.name.toLowerCase().includes(cycleSearchTerm.toLowerCase());
@@ -3094,97 +3156,220 @@ const Payroll = () => {
               </div>
             </div>
           ) : (
-            <div className="p-4 border-b border-neutral-100 bg-neutral-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-center gap-4 flex-1 max-w-2xl">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
-                  <Input 
-                    placeholder="Search employee name or ID..." 
-                    className="pl-10 h-9 bg-white"
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                  />
-                </div>
-                <div className="flex items-center gap-2 border-l border-neutral-200 pl-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 mr-2">Export Report</p>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={downloadTablePDF} 
-                    className="gap-2 h-9 bg-white"
-                    disabled={isExportingPDF || isExportingExcel || isExportingSlips}
-                  >
-                    {isExportingPDF ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-neutral-600" />
-                    ) : (
-                      <FileText className="w-4 h-4" />
+            <div className="p-3 bg-neutral-50/90 border-b border-neutral-200/80 flex flex-col gap-2.5">
+              {/* Primary Search, Filter Suite, and Action Tools */}
+              <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+                {/* Left: Search & Filter Suite */}
+                <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+                  {/* Search Bar */}
+                  <div className="relative min-w-[200px] max-w-xs flex-1">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
+                    <Input 
+                      id="payroll-employee-search-filter"
+                      placeholder="Filter name, ID, or position..." 
+                      className="pl-8 pr-7 h-8.5 bg-white border-neutral-200 text-xs rounded-lg focus:border-neutral-400 shadow-2xs placeholder:text-neutral-400"
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                    />
+                    {searchTerm && (
+                      <button 
+                        type="button"
+                        onClick={() => setSearchTerm('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 text-xs font-bold p-0.5"
+                        title="Clear search"
+                      >
+                        ✕
+                      </button>
                     )}
-                    {isExportingPDF ? 'Exporting PDF...' : 'PDF Report'}
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={downloadAllExcel} 
-                    className="gap-2 h-9 bg-white"
-                    disabled={isExportingPDF || isExportingExcel || isExportingSlips}
+                  </div>
+
+                  {/* Filter Icon and Label */}
+                  <div className="hidden sm:flex items-center gap-1 text-neutral-400 text-xs font-semibold px-0.5">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-neutral-500" />
+                  </div>
+
+                  {/* Cluster / Group Filter */}
+                  <Select 
+                    value={entryClusterFilter} 
+                    onValueChange={(v: string | null) => { if (v) setEntryClusterFilter(v); }}
                   >
-                    {isExportingExcel ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-neutral-600" />
-                    ) : (
-                      <Download className="w-4 h-4" />
-                    )}
-                    {isExportingExcel ? 'Exporting Excel...' : 'Excel Report'}
-                  </Button>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 border-r border-neutral-200 pr-3">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 font-sans">Payslips</p>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={downloadAllPDF} 
-                    className="gap-2 h-9 text-neutral-600 hover:text-neutral-900 font-sans"
-                    disabled={isExportingPDF || isExportingExcel || isExportingSlips}
+                    <SelectTrigger className="h-8.5 min-w-[145px] text-xs bg-white border-neutral-200 rounded-lg shadow-2xs font-medium text-neutral-700" id="payroll-cluster-filter">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <Users className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                        <SelectValue placeholder="Group / Cluster" />
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Groups / Clusters</SelectItem>
+                      <SelectItem value="faculty">Faculty (All)</SelectItem>
+                      <SelectItem value="staff">Staff / Admin (All)</SelectItem>
+                      <SelectItem value="faculty-male">Faculty - Male</SelectItem>
+                      <SelectItem value="faculty-female">Faculty - Female</SelectItem>
+                      <SelectItem value="staff-male">Staff - Male</SelectItem>
+                      <SelectItem value="staff-female">Staff - Female</SelectItem>
+                      <SelectItem value="male">All Male Staff</SelectItem>
+                      <SelectItem value="female">All Female Staff</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  {/* Category Filter */}
+                  <Select 
+                    value={entryCategoryFilter} 
+                    onValueChange={(v: string | null) => { if (v) setEntryCategoryFilter(v); }}
                   >
-                    {isExportingSlips ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-neutral-600" />
-                    ) : (
-                      <Download className="w-4 h-4" />
-                    )}
-                    {isExportingSlips ? 'Generating...' : 'All Slips'}
-                  </Button>
+                    <SelectTrigger className="h-8.5 min-w-[135px] text-xs bg-white border-neutral-200 rounded-lg shadow-2xs font-medium text-neutral-700" id="payroll-category-filter">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <Building2 className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                        <SelectValue placeholder="Category" />
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Categories</SelectItem>
+                      {availableCategories.map((cat) => (
+                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {/* Validation Status Filter */}
+                  <Select 
+                    value={entryValidationFilter} 
+                    onValueChange={(v: string | null) => { if (v) setEntryValidationFilter(v); }}
+                  >
+                    <SelectTrigger className="h-8.5 min-w-[125px] text-xs bg-white border-neutral-200 rounded-lg shadow-2xs font-medium text-neutral-700" id="payroll-validation-filter">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <ShieldCheck className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                        <SelectValue placeholder="Validation" />
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="validated">Validated Only</SelectItem>
+                      <SelectItem value="pending">Pending Check</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  {/* Reset Filter Button */}
+                  {isAnyEntryFilterActive && (
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={resetEntryFilters}
+                      className="h-8.5 px-2 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg font-medium gap-1"
+                      id="btn-reset-payroll-filters"
+                      title="Reset all filters"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>Reset</span>
+                    </Button>
+                  )}
+
+                  {/* Count indicator */}
+                  <div className="hidden lg:flex items-center gap-1 text-xs text-neutral-500 font-medium pl-1">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded bg-neutral-200/70 text-neutral-800 font-semibold text-[11px] font-mono">
+                      {filteredEntries.length} / {entries.length}
+                    </span>
+                    <span>Staff</span>
+                  </div>
                 </div>
-                {selectedCycle.status === 'draft' && (
-                  <>
-                    <div className="flex items-center gap-2 border-r pr-3 border-neutral-200">
+
+                {/* Right: Actions Suite (Export, Sync, Import, Fullscreen) */}
+                <div className="flex flex-wrap items-center gap-2 shrink-0 border-t xl:border-t-0 pt-2 xl:pt-0 border-neutral-200/60">
+                  {/* Export Dropdown */}
+                  <Popover>
+                    <PopoverTrigger render={(props) => (
+                      <Button 
+                        {...props} 
+                        variant="outline" 
+                        size="sm" 
+                        className="h-8.5 px-3 bg-white border-neutral-200 text-neutral-800 hover:bg-neutral-50 text-xs font-semibold rounded-lg gap-1.5 shadow-2xs"
+                        disabled={isExportingPDF || isExportingExcel || isExportingSlips}
+                        id="btn-payroll-export-menu"
+                      >
+                        {isExportingPDF || isExportingExcel || isExportingSlips ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-neutral-600" />
+                        ) : (
+                          <Download className="w-3.5 h-3.5 text-neutral-600" />
+                        )}
+                        <span>Export</span>
+                        <ChevronDown className="w-3 h-3 text-neutral-400" />
+                      </Button>
+                    )} />
+                    <PopoverContent align="end" className="w-56 p-1.5 bg-white border border-neutral-200 shadow-lg rounded-xl z-50">
+                      <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Reports & Payslips</div>
+                      <button 
+                        onClick={downloadTablePDF} 
+                        disabled={isExportingPDF || isExportingExcel || isExportingSlips}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-medium text-neutral-700 hover:bg-neutral-100 rounded-lg transition-colors text-left disabled:opacity-50 cursor-pointer"
+                      >
+                        <FileText className="w-4 h-4 text-rose-600 shrink-0" />
+                        <div>
+                          <div className="font-semibold text-neutral-900">PDF General Payroll</div>
+                          <div className="text-[10px] text-neutral-400">Official landscape document</div>
+                        </div>
+                      </button>
+                      <button 
+                        onClick={downloadAllExcel} 
+                        disabled={isExportingPDF || isExportingExcel || isExportingSlips}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-medium text-neutral-700 hover:bg-neutral-100 rounded-lg transition-colors text-left disabled:opacity-50 cursor-pointer"
+                      >
+                        <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <div>
+                          <div className="font-semibold text-neutral-900">Excel Spreadsheet</div>
+                          <div className="text-[10px] text-neutral-400">Complete XLSX report</div>
+                        </div>
+                      </button>
+                      <div className="h-px bg-neutral-100 my-1" />
+                      <button 
+                        onClick={downloadAllPDF} 
+                        disabled={isExportingPDF || isExportingExcel || isExportingSlips}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-medium text-neutral-700 hover:bg-neutral-100 rounded-lg transition-colors text-left disabled:opacity-50 cursor-pointer"
+                      >
+                        <Receipt className="w-4 h-4 text-blue-600 shrink-0" />
+                        <div>
+                          <div className="font-semibold text-neutral-900">All Payslips</div>
+                          <div className="text-[10px] text-neutral-400">Combined batch PDF slips</div>
+                        </div>
+                      </button>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Sync Tools (when draft) */}
+                  {selectedCycle.status === 'draft' && (
+                    <>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={handlePopulateCycle}
-                        className="gap-1.5 h-9 bg-white border-neutral-300 text-neutral-800 hover:bg-neutral-50 text-xs font-semibold"
+                        className="gap-1.5 h-8.5 px-2.5 bg-white border-neutral-200 text-neutral-800 hover:bg-neutral-50 text-xs font-semibold rounded-lg shadow-2xs"
+                        id="btn-sync-populate-employees"
+                        title="Populate or refresh employees from masterlist"
                       >
                         <RotateCcw className="w-3.5 h-3.5 text-neutral-600" />
-                        Sync / Populate Employees
+                        <span className="hidden sm:inline">Sync Staff</span>
                       </Button>
+
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={handleSyncDtr}
                         disabled={isSyncingDtr}
-                        className="gap-1.5 h-9 bg-orange-50/80 border-orange-200 text-orange-950 hover:bg-orange-100 text-xs font-semibold"
+                        className="gap-1.5 h-8.5 px-2.5 bg-orange-50/80 border-orange-200 text-orange-950 hover:bg-orange-100 text-xs font-semibold rounded-lg shadow-2xs"
+                        id="btn-sync-dtr-absences"
                         title="Force recalculate Absences & Undertime from DTR records in real-time"
                       >
                         <RefreshCw className={cn("w-3.5 h-3.5 text-orange-600", isSyncingDtr && "animate-spin")} />
-                        <span>{isSyncingDtr ? "Syncing DTR..." : "Sync DTR Abs."}</span>
-                        <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5" title="Realtime DTR Sync Active" />
+                        <span>{isSyncingDtr ? "Syncing..." : "Sync DTR"}</span>
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                       </Button>
-                    </div>
-                    <div className="flex items-center gap-2 border-r pr-3 border-neutral-200">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 font-sans">Import</p>
-                      <label className="flex items-center gap-1.5 px-3 h-9 bg-zinc-950 hover:bg-zinc-805 text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors shadow-sm select-none font-sans">
-                        <Plus className="w-4 h-4" />
-                        Deductions XLSX/XLS
+
+                      <label 
+                        className="flex items-center gap-1.5 px-2.5 h-8.5 bg-neutral-900 hover:bg-neutral-800 text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors shadow-2xs select-none"
+                        id="btn-import-deductions-xlsx"
+                        title="Import deductions from XLSX file"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Deductions</span>
                         <input
                           type="file"
                           accept=".xlsx, .xls"
@@ -3192,23 +3377,63 @@ const Payroll = () => {
                           className="hidden"
                         />
                       </label>
-                    </div>
-                  </>
-                )}
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={toggleFullscreen} 
-                  className="gap-2 h-9 border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-50 font-sans shadow-xs font-semibold transition-colors"
-                  title="Expand spreadsheet to fullscreen view"
-                >
-                  <Maximize2 className="w-4 h-4 text-neutral-700" />
-                  <span>Fullscreen</span>
-                </Button>
-                <div className="text-xs font-medium text-neutral-500">
-                  {filteredEntries.length} Employees
+                    </>
+                  )}
+
+                  {/* Fullscreen Button */}
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={toggleFullscreen} 
+                    className="gap-1.5 h-8.5 px-2.5 border-neutral-200 bg-white text-neutral-800 hover:bg-neutral-50 font-sans shadow-2xs text-xs font-semibold rounded-lg transition-colors"
+                    id="btn-toggle-fullscreen"
+                    title="Expand spreadsheet to fullscreen view"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5 text-neutral-700" />
+                    <span className="hidden md:inline">Fullscreen</span>
+                  </Button>
                 </div>
               </div>
+
+              {/* Active Filter Chips Bar (rendered whenever any filter is applied) */}
+              {isAnyEntryFilterActive && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 px-0.5 text-xs border-t border-neutral-200/60">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Filtered by:</span>
+                    {searchTerm && (
+                      <Badge variant="outline" className="text-[11px] font-normal gap-1 bg-white border-neutral-200 text-neutral-700 py-0.5">
+                        Keyword: "{searchTerm}"
+                        <button onClick={() => setSearchTerm('')} className="hover:text-rose-600 font-bold ml-0.5">×</button>
+                      </Badge>
+                    )}
+                    {entryClusterFilter !== 'all' && (
+                      <Badge variant="outline" className="text-[11px] font-normal gap-1 bg-white border-neutral-200 text-neutral-700 py-0.5">
+                        Group: {entryClusterFilter}
+                        <button onClick={() => setEntryClusterFilter('all')} className="hover:text-rose-600 font-bold ml-0.5">×</button>
+                      </Badge>
+                    )}
+                    {entryCategoryFilter !== 'all' && (
+                      <Badge variant="outline" className="text-[11px] font-normal gap-1 bg-white border-neutral-200 text-neutral-700 py-0.5">
+                        Category: {entryCategoryFilter}
+                        <button onClick={() => setEntryCategoryFilter('all')} className="hover:text-rose-600 font-bold ml-0.5">×</button>
+                      </Badge>
+                    )}
+                    {entryValidationFilter !== 'all' && (
+                      <Badge variant="outline" className="text-[11px] font-normal gap-1 bg-white border-neutral-200 text-neutral-700 py-0.5">
+                        Status: {entryValidationFilter === 'validated' ? 'Validated Only' : 'Pending Check'}
+                        <button onClick={() => setEntryValidationFilter('all')} className="hover:text-rose-600 font-bold ml-0.5">×</button>
+                      </Badge>
+                    )}
+                  </div>
+
+                  <div className="text-[11px] text-neutral-500 font-medium">
+                    Showing <strong className="text-neutral-900 font-semibold">{filteredEntries.length}</strong> of {entries.length} staff
+                    {realTimeTotals.isFiltered && (
+                      <> • Filtered Net: <strong className="text-emerald-700 font-mono font-semibold">₱{formatCurrency(realTimeTotals.filteredNet)}</strong></>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -3773,6 +3998,33 @@ const Payroll = () => {
                     ].filter(sect => sect.entries.length > 0);
 
                     if (sections.length === 0) {
+                      if (entries.length > 0 && isAnyEntryFilterActive) {
+                        return (
+                          <tr key="empty-filter-results">
+                            <td colSpan={columnsList.length + 7} className="p-12 text-center bg-white text-neutral-500 font-sans">
+                              <div className="flex flex-col items-center justify-center gap-3 max-w-md mx-auto">
+                                <SlidersHorizontal className="w-9 h-9 text-neutral-300" />
+                                <div>
+                                  <h3 className="text-sm font-semibold text-neutral-800">No Employees Match Filter Criteria</h3>
+                                  <p className="text-xs text-neutral-500 mt-1">
+                                    No records match your selected keyword, group, category, or validation status.
+                                  </p>
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={resetEntryFilters}
+                                  className="mt-2 gap-1.5 text-xs font-semibold bg-white border-neutral-300 text-neutral-800 hover:bg-neutral-50"
+                                >
+                                  <X className="w-3.5 h-3.5 text-rose-500" />
+                                  Reset All Filters
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }
+
                       return (
                         <tr key="empty-payroll-entries">
                           <td colSpan={columnsList.length + 7} className="p-12 text-center bg-white text-neutral-500 font-sans">

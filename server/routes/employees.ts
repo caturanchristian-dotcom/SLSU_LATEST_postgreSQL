@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, logAudit } from "../db/schema.js";
 import { hasSupabaseConfig, syncUserToSupabase, deleteUserFromSupabase } from "../supabase.js";
+import { syncOfficialHolidays } from "../services/officialHolidays.js";
 
 export const employeesRouter = Router();
 
@@ -645,8 +646,33 @@ employeesRouter.delete("/teaching-loads/:id", async (req: any, res: any) => {
 // Holidays
 employeesRouter.get("/holidays", async (req: any, res: any) => {
   try {
-    const hols = await db.prepare("SELECT * FROM holidays ORDER BY date ASC").all();
-    res.json(hols);
+    // Auto-sync official Philippine holidays if database has empty or dummy test data
+    await syncOfficialHolidays(db, false);
+
+    const hols = await db.prepare("SELECT * FROM holidays ORDER BY date ASC").all() as any[];
+    // Normalize date to YYYY-MM-DD string to avoid timezone shifts
+    const formatted = hols.map((h: any) => {
+      let dStr = h.date;
+      if (dStr instanceof Date) {
+        dStr = dStr.toISOString().split('T')[0];
+      } else if (typeof dStr === 'string') {
+        dStr = dStr.split('T')[0];
+      }
+      return {
+        ...h,
+        date: dStr
+      };
+    });
+    res.json(formatted);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+employeesRouter.post("/holidays/sync-official", async (req: any, res: any) => {
+  try {
+    const result = await syncOfficialHolidays(db, true);
+    res.json({ success: true, count: result.count, updated: result.updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -654,9 +680,16 @@ employeesRouter.get("/holidays", async (req: any, res: any) => {
 
 employeesRouter.post("/holidays", async (req: any, res: any) => {
   try {
-    const { name, date, type } = req.body;
+    const { name, date, type, description } = req.body;
     const id = `hol-${Date.now()}`;
-    await db.prepare("INSERT INTO holidays (id, name, date, type) VALUES (?, ?, ?, ?)").run(id, name, date, type || "Regular");
+    const cleanDate = typeof date === 'string' ? date.split('T')[0] : date;
+    await db.prepare("INSERT INTO holidays (id, name, date, type, description) VALUES (?, ?, ?, ?, ?)").run(
+      id, 
+      name, 
+      cleanDate, 
+      type || "Regular",
+      description || null
+    );
     res.json({ success: true, id });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -666,8 +699,15 @@ employeesRouter.post("/holidays", async (req: any, res: any) => {
 employeesRouter.put("/holidays/:id", async (req: any, res: any) => {
   try {
     const { id } = req.params;
-    const { name, date, type } = req.body;
-    await db.prepare("UPDATE holidays SET name = ?, date = ?, type = ? WHERE id = ?").run(name, date, type, id);
+    const { name, date, type, description } = req.body;
+    const cleanDate = typeof date === 'string' ? date.split('T')[0] : date;
+    await db.prepare("UPDATE holidays SET name = ?, date = ?, type = ?, description = ? WHERE id = ?").run(
+      name, 
+      cleanDate, 
+      type, 
+      description || null,
+      id
+    );
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
