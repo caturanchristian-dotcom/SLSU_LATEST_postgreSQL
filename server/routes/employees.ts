@@ -69,12 +69,12 @@ employeesRouter.post("/employees", async (req: any, res: any) => {
         id, employeeId, firstName, lastName, email, password, category, basicSalary,
         salaryType, status, phoneNumber, hireDate, hasSss, hasPhilhealth, hasPagibig,
         bpno, mi, prefix, appellation, birthDate, crn, effectivityDate, position,
-        gender, profileImage, campus
+        gender, profileImage, campus, "teachingDepartmentId", "teachingExperience"
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?
+        ?, ?, ?, ?, ?
       )
     `).run(
       id, employeeId, emp.firstName || "", emp.lastName || "", emp.email || "", emp.password || "password123",
@@ -88,7 +88,9 @@ employeesRouter.post("/employees", async (req: any, res: any) => {
       emp.effectivityDate || "",
       emp.position || "Staff", emp.gender || "MALE",
       emp.profileImage || "",
-      emp.campus || "Hinunangan Campus"
+      emp.campus || "Hinunangan Campus",
+      emp.teachingDepartmentId || null,
+      emp.teachingExperience || emp.teachingExperienceYears || ""
     );
 
     // Also register user account
@@ -346,7 +348,7 @@ employeesRouter.put("/employees/:id", async (req: any, res: any) => {
         salaryType = ?, status = ?, phoneNumber = ?, hireDate = ?, hasSss = ?,
         hasPhilhealth = ?, hasPagibig = ?, bpno = ?, mi = ?, prefix = ?,
         appellation = ?, birthDate = ?, crn = ?, effectivityDate = ?, position = ?,
-        gender = ?, profileImage = ?, campus = ?
+        gender = ?, profileImage = ?, campus = ?, "teachingDepartmentId" = ?, "teachingExperience" = ?
       WHERE id = ?
     `).run(
       emp.firstName, emp.lastName, emp.email, emp.category, emp.basicSalary,
@@ -354,7 +356,8 @@ employeesRouter.put("/employees/:id", async (req: any, res: any) => {
       emp.hasSss ? 1 : 0, emp.hasPhilhealth ? 1 : 0, emp.hasPagibig ? 1 : 0,
       emp.bpno, emp.mi, emp.prefix, emp.appellation, emp.birthDate,
       emp.crn, emp.effectivityDate, emp.position, emp.gender,
-      emp.profileImage, emp.campus, id
+      emp.profileImage, emp.campus, emp.teachingDepartmentId || null,
+      emp.teachingExperience || emp.teachingExperienceYears || "", id
     );
 
     if (emp.email) {
@@ -768,13 +771,20 @@ employeesRouter.delete("/holidays/:id", async (req: any, res: any) => {
 employeesRouter.get("/schedules", async (req: any, res: any) => {
   try {
     const { employeeId } = req.query;
-    let query = "SELECT * FROM schedules";
+    let query = `
+      SELECT s.*, 
+             e."firstName", e."lastName", e.category, e.position, 
+             e."basicSalary", e."salaryType", e."employeeId" as "employeeNo",
+             e."hireDate", e.status as "employeeStatus", e."teachingDepartmentId", e."teachingExperience"
+      FROM schedules s
+      LEFT JOIN employees e ON s."employeeId" = e.id
+    `;
     const params: any[] = [];
     if (employeeId) {
-      query += ' WHERE "employeeId" = ?';
+      query += ' WHERE s."employeeId" = ?';
       params.push(employeeId);
     }
-    query += ' ORDER BY "dayOfWeek" ASC, "startTime" ASC';
+    query += ' ORDER BY s."dayOfWeek" ASC, s."startTime" ASC';
     const scheds = await db.prepare(query).all(...params);
     res.json(scheds);
   } catch (err: any) {
@@ -785,7 +795,16 @@ employeesRouter.get("/schedules", async (req: any, res: any) => {
 employeesRouter.get("/schedules/employee/:employeeId", async (req: any, res: any) => {
   try {
     const { employeeId } = req.params;
-    const scheds = await db.prepare('SELECT * FROM schedules WHERE "employeeId" = ? ORDER BY "dayOfWeek" ASC, "startTime" ASC').all(employeeId);
+    const scheds = await db.prepare(`
+      SELECT s.*, 
+             e."firstName", e."lastName", e.category, e.position, 
+             e."basicSalary", e."salaryType", e."employeeId" as "employeeNo",
+             e."hireDate", e.status as "employeeStatus", e."teachingDepartmentId", e."teachingExperience"
+      FROM schedules s
+      LEFT JOIN employees e ON s."employeeId" = e.id
+      WHERE s."employeeId" = ? 
+      ORDER BY s."dayOfWeek" ASC, s."startTime" ASC
+    `).all(employeeId);
     res.json(scheds);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -824,7 +843,7 @@ employeesRouter.get("/schedules/teaching-department/:teachingDepartmentId", asyn
 
 employeesRouter.post("/schedules", async (req: any, res: any) => {
   try {
-    const { employeeId, dayOfWeek, startTime, endTime, timeIn, timeOut, subject, room, specificDate, effectiveFrom, effectiveTo } = req.body;
+    const { employeeId, dayOfWeek, startTime, endTime, timeIn, timeOut, subject, room, specificDate, effectiveFrom, effectiveTo, teachingDepartmentId, studentsCount, workloadUnits } = req.body;
     const id = `sched-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
     const tIn = timeIn || startTime || "08:00";
     const tOut = timeOut || endTime || "17:00";
@@ -833,10 +852,16 @@ employeesRouter.post("/schedules", async (req: any, res: any) => {
     const dWeek = dayOfWeek || "";
 
     await db.prepare(`
-      INSERT INTO schedules (id, "employeeId", "dayOfWeek", "startTime", "endTime", "timeIn", "timeOut", subject, room, "specificDate", "effectiveFrom", "effectiveTo")
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO schedules (
+        id, "employeeId", "dayOfWeek", "startTime", "endTime", "timeIn", "timeOut", 
+        subject, room, "specificDate", "effectiveFrom", "effectiveTo", 
+        "teachingDepartmentId", "studentsCount", "workloadUnits"
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      id, employeeId, dWeek, sTime, eTime, tIn, tOut, subject || "", room || "", specificDate || null, effectiveFrom || null, effectiveTo || null
+      id, employeeId, dWeek, sTime, eTime, tIn, tOut, subject || "", room || "", 
+      specificDate || null, effectiveFrom || null, effectiveTo || null,
+      teachingDepartmentId || null, Number(studentsCount) || 0, Number(workloadUnits) || 0
     );
     res.json({ success: true, id });
   } catch (err: any) {
@@ -847,7 +872,7 @@ employeesRouter.post("/schedules", async (req: any, res: any) => {
 employeesRouter.put("/schedules/:id", async (req: any, res: any) => {
   try {
     const { id } = req.params;
-    const { employeeId, dayOfWeek, startTime, endTime, timeIn, timeOut, subject, room, specificDate, effectiveFrom, effectiveTo } = req.body;
+    const { employeeId, dayOfWeek, startTime, endTime, timeIn, timeOut, subject, room, specificDate, effectiveFrom, effectiveTo, teachingDepartmentId, studentsCount, workloadUnits } = req.body;
     const tIn = timeIn || startTime || "08:00";
     const tOut = timeOut || endTime || "17:00";
     const sTime = startTime || tIn;
@@ -856,9 +881,16 @@ employeesRouter.put("/schedules/:id", async (req: any, res: any) => {
 
     await db.prepare(`
       UPDATE schedules
-      SET "dayOfWeek" = ?, "startTime" = ?, "endTime" = ?, "timeIn" = ?, "timeOut" = ?, subject = ?, room = ?, "specificDate" = ?, "effectiveFrom" = ?, "effectiveTo" = ?
+      SET "dayOfWeek" = ?, "startTime" = ?, "endTime" = ?, "timeIn" = ?, "timeOut" = ?, 
+          subject = ?, room = ?, "specificDate" = ?, "effectiveFrom" = ?, "effectiveTo" = ?,
+          "teachingDepartmentId" = ?, "studentsCount" = ?, "workloadUnits" = ?
       WHERE id = ?
-    `).run(dWeek, sTime, eTime, tIn, tOut, subject || "", room || "", specificDate || null, effectiveFrom || null, effectiveTo || null, id);
+    `).run(
+      dWeek, sTime, eTime, tIn, tOut, subject || "", room || "", 
+      specificDate || null, effectiveFrom || null, effectiveTo || null,
+      teachingDepartmentId || null, Number(studentsCount) || 0, Number(workloadUnits) || 0,
+      id
+    );
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

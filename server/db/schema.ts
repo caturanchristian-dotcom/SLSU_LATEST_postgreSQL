@@ -83,7 +83,7 @@ const CAMEL_CASE_COLUMNS = [
   "effectivityDate", "managedBy", "managedByName", "categoryFilter",
   "approvedBy", "approvedAt", "cycleId", "payrollId", "itemCount", "baseAmount",
   "grossPay", "netPay", "otHours", "teachingHours", "teachingHoursWorked",
-  "hourlyRate", "departmentId", "teachingDepartmentId", "hourlyRate",
+  "hourlyRate", "departmentId", "teachingDepartmentId",
   "dayOfWeek", "startTime", "endTime", "timeIn", "timeOut", "hoursWorked",
   "overtimeHours", "lateMinutes", "undertimeMinutes", "academicYear",
   "hoursPerWeek", "maxHoursPerWeek", "peraAmount", "hazardPay", "baseRate",
@@ -99,7 +99,8 @@ const CAMEL_CASE_COLUMNS = [
   "dedGfal", "dedEmergencyLoan", "dedGsisPremPersonal", "dedEducAsst",
   "dedPagibigPersonal", "dedPagibigMpl", "dedSss", "dedPagibigMp2",
   "dedPhilhealthCont", "dedCsbLoan", "dedTaxWithheld", "isValidated", "basicPay",
-  "employeeName", "createdBy", "sumGross", "sumDeds", "sumNet"
+  "employeeName", "createdBy", "specificDate", "effectiveFrom", "effectiveTo",
+  "studentsCount", "workloadUnits"
 ];
 
 /**
@@ -173,9 +174,7 @@ export function normalizeRow(row: any): any {
   // Priority mapping for camelCase fields so non-null values take precedence
   const setIfValOrEmpty = (targetKey: string, val: any) => {
     if (val !== null && val !== undefined && val !== "") {
-      if (newRow[targetKey] === undefined || newRow[targetKey] === null || newRow[targetKey] === "" || (Number(newRow[targetKey]) === 0 && Number(val) !== 0)) {
-        newRow[targetKey] = val;
-      }
+      newRow[targetKey] = val;
     } else if (newRow[targetKey] === undefined) {
       newRow[targetKey] = val;
     }
@@ -203,9 +202,6 @@ export function normalizeRow(row: any): any {
     if (lower === "totalgross" || lower === "total_gross") setIfValOrEmpty("totalGross", val);
     if (lower === "totaldeductions" || lower === "total_deductions") setIfValOrEmpty("totalDeductions", val);
     if (lower === "totalnet" || lower === "total_net") setIfValOrEmpty("totalNet", val);
-    if (lower === "sumgross" || lower === "sum_gross") setIfValOrEmpty("sumGross", val);
-    if (lower === "sumdeds" || lower === "sum_deds") setIfValOrEmpty("sumDeds", val);
-    if (lower === "sumnet" || lower === "sum_net") setIfValOrEmpty("sumNet", val);
     if (lower === "managedby" || lower === "managed_by") setIfValOrEmpty("managedBy", val);
     if (lower === "managedbyname" || lower === "managed_by_name") setIfValOrEmpty("managedByName", val);
     if (lower === "approvedby" || lower === "approved_by") setIfValOrEmpty("approvedBy", val);
@@ -426,6 +422,8 @@ export const SCHEMA_TABLES = [
     email TEXT,
     password TEXT,
     category VARCHAR(100),
+    "teachingDepartmentId" VARCHAR(191),
+    "teachingExperience" VARCHAR(100),
     "basicSalary" DECIMAL(15, 2),
     "salaryType" VARCHAR(50) DEFAULT 'monthly',
     status VARCHAR(50) DEFAULT 'active',
@@ -714,6 +712,12 @@ export const SCHEMA_TABLES = [
     "timeOut" VARCHAR(20),
     subject VARCHAR(100),
     room VARCHAR(100),
+    "specificDate" DATE,
+    "effectiveFrom" DATE,
+    "effectiveTo" DATE,
+    "teachingDepartmentId" VARCHAR(191),
+    "studentsCount" INTEGER DEFAULT 0,
+    "workloadUnits" DECIMAL(5, 2) DEFAULT 0.00,
     "createdAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY("employeeId") REFERENCES employees(id) ON DELETE CASCADE ON UPDATE CASCADE
   )`,
@@ -889,6 +893,8 @@ export async function initDb() {
         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS "effectivityDate" DATE',
         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS gender VARCHAR(20)',
         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS "hireDate" DATE',
+        'ALTER TABLE employees ADD COLUMN IF NOT EXISTS "teachingDepartmentId" VARCHAR(191)',
+        'ALTER TABLE employees ADD COLUMN IF NOT EXISTS "teachingExperience" VARCHAR(100)',
         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS "hasSss" BOOLEAN DEFAULT true',
         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS "hasPhilhealth" BOOLEAN DEFAULT true',
         'ALTER TABLE employees ADD COLUMN IF NOT EXISTS "hasPagibig" BOOLEAN DEFAULT true',
@@ -905,6 +911,9 @@ export async function initDb() {
         'ALTER TABLE schedules ADD COLUMN IF NOT EXISTS "specificDate" DATE',
         'ALTER TABLE schedules ADD COLUMN IF NOT EXISTS "effectiveFrom" DATE',
         'ALTER TABLE schedules ADD COLUMN IF NOT EXISTS "effectiveTo" DATE',
+        'ALTER TABLE schedules ADD COLUMN IF NOT EXISTS "teachingDepartmentId" VARCHAR(191)',
+        'ALTER TABLE schedules ADD COLUMN IF NOT EXISTS "studentsCount" INTEGER',
+        'ALTER TABLE schedules ADD COLUMN IF NOT EXISTS "workloadUnits" DECIMAL(5, 2)',
 
         'ALTER TABLE visiting_instructors ADD COLUMN IF NOT EXISTS "employeeId" VARCHAR(191)',
         'ALTER TABLE visiting_instructors ADD COLUMN IF NOT EXISTS "hourlyRate" DECIMAL(10, 2) DEFAULT 350.00',

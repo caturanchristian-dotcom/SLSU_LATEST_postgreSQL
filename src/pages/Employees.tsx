@@ -218,6 +218,7 @@ const Employees = () => {
     profileImage: '',
     employeeNo: '',
     teachingDepartmentId: '',
+    teachingExperience: '',
     campus: 'Hinunangan Campus'
   });
 
@@ -418,6 +419,7 @@ const Employees = () => {
       profileImage: emp.profileImage || '',
       employeeNo: emp.employeeNo || '',
       teachingDepartmentId: emp.teachingDepartmentId || '',
+      teachingExperience: emp.teachingExperience || '',
       campus: emp.campus || 'Hinunangan Campus'
     });
     setIsAddOpen(true);
@@ -455,6 +457,7 @@ const Employees = () => {
       profileImage: '',
       employeeNo: '',
       teachingDepartmentId: defaultDeptId,
+      teachingExperience: '',
       campus: 'Hinunangan Campus'
     });
   };
@@ -1596,27 +1599,37 @@ const Employees = () => {
                 </div>
 
                 {formData.category?.toLowerCase() === 'visiting instructor' && (
-                  <div className="space-y-2 bg-neutral-50/50 p-4 rounded-xl border border-dashed border-neutral-200">
-                    <Label htmlFor="teachingDepartmentId" className="font-bold text-neutral-800">Teaching Department</Label>
-                    <Select 
-                      value={formData.teachingDepartmentId || ''} 
-                      onValueChange={(v: string | null) => {
-                        if (v !== null) setFormData(prev => ({...prev, teachingDepartmentId: v}));
-                      }}
-                      disabled={role === 'department_head'}
-                    >
-                      <SelectTrigger className="bg-white disabled:opacity-75 disabled:cursor-not-allowed">
-                        <SelectValue placeholder="Select teaching department" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-neutral-50/50 p-4 rounded-xl border border-dashed border-neutral-200">
+                    <div className="space-y-2">
+                      <Label htmlFor="teachingDepartmentId" className="font-bold text-neutral-800">Teaching Department</Label>
+                      <select 
+                        id="teachingDepartmentId"
+                        value={formData.teachingDepartmentId || ''} 
+                        onChange={(e) => setFormData(prev => ({ ...prev, teachingDepartmentId: e.target.value }))}
+                        disabled={role === 'department_head'}
+                        className="w-full h-10 bg-white border border-neutral-200 rounded-xl px-3 text-sm focus:ring-2 focus:ring-neutral-200 transition-colors font-semibold text-neutral-800 disabled:opacity-85 disabled:bg-neutral-100 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        <option value="">Select Teaching Department</option>
                         {departments
                           .filter(dept => role !== 'department_head' || dept.id === myDepartment?.id)
                           .map(dept => (
-                            <SelectItem key={dept.id} value={dept.id}>{dept.name} ({dept.code})</SelectItem>
+                            <option key={dept.id} value={dept.id}>
+                              {dept.code ? (dept.name ? `${dept.code} - ${dept.name}` : dept.code) : dept.name}
+                            </option>
                           ))
                         }
-                      </SelectContent>
-                    </Select>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="teachingExperience" className="font-bold text-neutral-800">Teaching Experience in Years:</Label>
+                      <Input 
+                        id="teachingExperience"
+                        placeholder="e.g. 1 Year of 2 Years"
+                        value={formData.teachingExperience}
+                        onChange={e => setFormData(prev => ({...prev, teachingExperience: e.target.value}))}
+                        className="bg-white border-neutral-200"
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -2756,13 +2769,26 @@ const Employees = () => {
                             </p>
                           </div>
                           {selectedEmployee.category?.toLowerCase() === 'visiting instructor' && (
-                            <div>
-                              <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-widest mb-1">Teaching Department</p>
-                              <p className="text-sm font-semibold text-neutral-900">
-                                {departments.find(d => d.id === selectedEmployee.teachingDepartmentId)?.name || 'N/A'}
-                                {departments.find(d => d.id === selectedEmployee.teachingDepartmentId)?.code ? ` (${departments.find(d => d.id === selectedEmployee.teachingDepartmentId)?.code})` : ''}
-                              </p>
-                            </div>
+                            <>
+                              <div>
+                                <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-widest mb-1">Teaching Department</p>
+                                <p className="text-sm font-semibold text-neutral-900">
+                                  {(() => {
+                                    const dept = departments.find(d => d.id === selectedEmployee.teachingDepartmentId);
+                                    if (!dept) return selectedEmployee.teachingDepartmentId || 'N/A';
+                                    return dept.code ? (dept.name ? `${dept.code} - ${dept.name}` : dept.code) : dept.name;
+                                  })()}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-widest mb-1">Teaching Experience in Years</p>
+                                <p className="text-sm font-semibold text-neutral-900">
+                                  {selectedEmployee.teachingExperience 
+                                    ? (isNaN(Number(selectedEmployee.teachingExperience)) ? selectedEmployee.teachingExperience : (Number(selectedEmployee.teachingExperience) === 1 ? '1 year' : `${selectedEmployee.teachingExperience} years`))
+                                    : 'N/A'}
+                                </p>
+                              </div>
+                            </>
                           )}
                         </div>
                       </div>
