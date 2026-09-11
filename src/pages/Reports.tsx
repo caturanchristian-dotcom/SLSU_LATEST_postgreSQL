@@ -30,7 +30,6 @@ import {
 } from 'recharts';
 import { 
   TrendingUp, 
-  DollarSign, 
   Percent, 
   Layers, 
   Download, 
@@ -51,7 +50,10 @@ import {
   CreditCard,
   Briefcase,
   HelpCircle,
-  Clock
+  Clock,
+  Wallet,
+  ChevronRight,
+  UserCheck
 } from 'lucide-react';
 
 const COLORS = [
@@ -93,6 +95,14 @@ export default function Reports() {
   const [inspectedCycle, setInspectedCycle] = useState<any | null>(null);
   const [inspectedEntries, setInspectedEntries] = useState<any[]>([]);
   const [loadingEntries, setLoadingEntries] = useState(false);
+
+  // Statutory Agency Inspection Modal
+  const [inspectedAgency, setInspectedAgency] = useState<any | null>(null);
+  const [searchAgencyStaff, setSearchAgencyStaff] = useState<string>('');
+
+  // Personnel Earnings Roster filters
+  const [searchPersonnelEarnings, setSearchPersonnelEarnings] = useState<string>('');
+  const [earningsCategoryFilter, setEarningsCategoryFilter] = useState<string>('all');
 
   const fetchReportData = async () => {
     setLoading(true);
@@ -682,7 +692,7 @@ export default function Reports() {
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Total Expenditure</span>
                   <div className="w-7 h-7 rounded-lg bg-neutral-700/60 flex items-center justify-center text-emerald-400">
-                    <DollarSign className="w-4 h-4" />
+                    <Landmark className="w-4 h-4" />
                   </div>
                 </div>
                 <div>
@@ -1075,7 +1085,14 @@ export default function Reports() {
               {/* Remittance Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {(data?.statutoryRemittances || []).map((agency: any) => (
-                  <Card key={agency.agency} className="rounded-2xl border-neutral-100 shadow-sm overflow-hidden flex flex-col justify-between">
+                  <Card 
+                    key={agency.agency} 
+                    onClick={() => {
+                      setInspectedAgency(agency);
+                      setSearchAgencyStaff('');
+                    }}
+                    className="rounded-2xl border-neutral-100 shadow-sm overflow-hidden flex flex-col justify-between hover:border-neutral-300 hover:shadow-md transition-all cursor-pointer group"
+                  >
                     <div className="p-4 bg-neutral-50/80 border-b border-neutral-100">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[11px] font-mono font-bold text-neutral-500 bg-white px-2 py-0.5 rounded border border-neutral-200">
@@ -1085,7 +1102,7 @@ export default function Reports() {
                           {agency.status}
                         </Badge>
                       </div>
-                      <h4 className="font-bold text-sm text-neutral-900 line-clamp-1">{agency.agency}</h4>
+                      <h4 className="font-bold text-sm text-neutral-900 line-clamp-1 group-hover:text-primary transition-colors">{agency.agency}</h4>
                       <p className="text-[11px] text-neutral-500 line-clamp-1 mt-0.5">{agency.description}</p>
                     </div>
 
@@ -1107,6 +1124,11 @@ export default function Reports() {
                         <span className="text-xs font-bold text-neutral-900 uppercase">Total Remittance Due:</span>
                         <span className="text-base font-bold text-neutral-900">{formatCurrency(agency.totalPayable)}</span>
                       </div>
+
+                      <div className="pt-2 text-[11px] font-semibold text-primary flex items-center justify-end gap-1 opacity-90 group-hover:opacity-100">
+                        <span>View Sub-Schedules & Personnel ({agency.employees?.length || 0})</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </div>
                     </CardContent>
                   </Card>
                 ))}
@@ -1116,7 +1138,7 @@ export default function Reports() {
               <Card className="rounded-2xl border-neutral-100 shadow-sm">
                 <CardHeader>
                   <CardTitle className="text-base font-bold text-neutral-900">Comprehensive Remittance Matrix</CardTitle>
-                  <CardDescription className="text-xs">Itemized schedule for institutional bank check preparation and BIR/GSIS e-portal filing</CardDescription>
+                  <CardDescription className="text-xs">Itemized schedule for institutional bank check preparation and BIR/GSIS e-portal filing (Click any row for personnel breakdown)</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto">
@@ -1130,11 +1152,19 @@ export default function Reports() {
                           <th className="py-3 px-3 text-right">Loans / Savings</th>
                           <th className="py-3 px-4 text-right">Total Payable</th>
                           <th className="py-3 px-4 text-center">Remittance Status</th>
+                          <th className="py-3 px-4 text-center">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-neutral-100">
                         {(data?.statutoryRemittances || []).map((r: any) => (
-                          <tr key={r.agency} className="hover:bg-neutral-50/50 transition-colors">
+                          <tr 
+                            key={r.agency} 
+                            onClick={() => {
+                              setInspectedAgency(r);
+                              setSearchAgencyStaff('');
+                            }}
+                            className="hover:bg-neutral-50/70 transition-colors cursor-pointer"
+                          >
                             <td className="py-3 px-4 font-semibold text-neutral-800">{r.agency}</td>
                             <td className="py-3 px-3 font-mono text-neutral-500">{r.accountCode}</td>
                             <td className="py-3 px-3 text-right text-neutral-700">{formatCurrency(r.personalShare)}</td>
@@ -1145,6 +1175,20 @@ export default function Reports() {
                               <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
                                 {r.status}
                               </Badge>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-6 px-2 text-[11px] font-semibold text-neutral-700 hover:text-neutral-900"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setInspectedAgency(r);
+                                  setSearchAgencyStaff('');
+                                }}
+                              >
+                                Drilldown
+                              </Button>
                             </td>
                           </tr>
                         ))}
@@ -1396,6 +1440,131 @@ export default function Reports() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Remuneration by Personnel Employment Category */}
+              {data?.earningsBreakdown?.byCategory && data.earningsBreakdown.byCategory.length > 0 && (
+                <Card className="rounded-2xl border-neutral-100 shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="text-base font-bold text-neutral-900">Remuneration & Liabilities by Employment Category</CardTitle>
+                    <CardDescription className="text-xs">Audit of compensation, deductions, and university counterpart share partitioned by personnel track</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-neutral-200 text-neutral-400 font-semibold uppercase tracking-wider bg-neutral-50/50">
+                            <th className="py-3 px-4">Employment Track</th>
+                            <th className="py-3 px-3 text-center">Headcount</th>
+                            <th className="py-3 px-3 text-right">Basic Wages</th>
+                            <th className="py-3 px-3 text-right">PERA Allowance</th>
+                            <th className="py-3 px-3 text-right font-semibold">Gross Pay</th>
+                            <th className="py-3 px-3 text-right text-rose-600">Total Deductions</th>
+                            <th className="py-3 px-3 text-right font-bold text-emerald-700">Net Disbursed</th>
+                            <th className="py-3 px-4 text-right text-sky-800">Employer Counterpart</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-neutral-100">
+                          {data.earningsBreakdown.byCategory.map((cat: any) => (
+                            <tr key={cat.category} className="hover:bg-neutral-50/50">
+                              <td className="py-3 px-4 font-bold text-neutral-900">{cat.displayName}</td>
+                              <td className="py-3 px-3 text-center">
+                                <Badge variant="outline" className="text-[11px] font-semibold">{cat.count} staff</Badge>
+                              </td>
+                              <td className="py-3 px-3 text-right text-neutral-700">{formatCurrency(cat.basicPay)}</td>
+                              <td className="py-3 px-3 text-right text-neutral-700">{formatCurrency(cat.pera)}</td>
+                              <td className="py-3 px-3 text-right font-semibold text-neutral-900">{formatCurrency(cat.grossPay)}</td>
+                              <td className="py-3 px-3 text-right text-rose-600">{formatCurrency(cat.deductions)}</td>
+                              <td className="py-3 px-3 text-right font-bold text-emerald-700">{formatCurrency(cat.netPay)}</td>
+                              <td className="py-3 px-4 text-right font-medium text-sky-800">{formatCurrency(cat.employerShare)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Personnel Compensation Ledger Roster */}
+              {data?.earningsBreakdown?.employees && data.earningsBreakdown.employees.length > 0 && (
+                <Card className="rounded-2xl border-neutral-100 shadow-sm">
+                  <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3">
+                    <div>
+                      <CardTitle className="text-base font-bold text-neutral-900">Personnel Remuneration & Disbursed Roster</CardTitle>
+                      <CardDescription className="text-xs">Individual breakdown of employee earnings, allowances, statutory withholdings, and net salary</CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="relative w-60">
+                        <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-3 top-2.5" />
+                        <Input
+                          value={searchPersonnelEarnings}
+                          onChange={(e) => setSearchPersonnelEarnings(e.target.value)}
+                          placeholder="Search employee or position..."
+                          className="h-8 pl-8 text-xs bg-neutral-50 border-neutral-200"
+                        />
+                      </div>
+                      <Select value={earningsCategoryFilter} onValueChange={(val: string | null) => setEarningsCategoryFilter(val ?? 'all')}>
+                        <SelectTrigger className="w-32 h-8 text-xs bg-neutral-50 border-neutral-200">
+                          <SelectValue placeholder="Category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Tracks</SelectItem>
+                          <SelectItem value="FACULTY">Faculty</SelectItem>
+                          <SelectItem value="STAFF">Staff</SelectItem>
+                          <SelectItem value="Job Order">Job Order</SelectItem>
+                          <SelectItem value="Visiting Instructor">Visiting</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto max-h-[450px]">
+                      <table className="w-full text-xs text-left border-collapse">
+                        <thead className="sticky top-0 bg-neutral-50 z-10">
+                          <tr className="border-b border-neutral-200 text-neutral-500 font-semibold uppercase">
+                            <th className="py-2.5 px-3">Personnel Name</th>
+                            <th className="py-2.5 px-3">Position</th>
+                            <th className="py-2.5 px-3">Category</th>
+                            <th className="py-2.5 px-3 text-right">Basic Pay</th>
+                            <th className="py-2.5 px-3 text-right">PERA</th>
+                            <th className="py-2.5 px-3 text-right font-semibold">Gross Pay</th>
+                            <th className="py-2.5 px-3 text-right text-rose-600">Deductions</th>
+                            <th className="py-2.5 px-3 text-right font-bold text-emerald-600">Net Salary</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-neutral-100">
+                          {data.earningsBreakdown.employees
+                            .filter((emp: any) => {
+                              const matchesSearch = !searchPersonnelEarnings || 
+                                emp.name.toLowerCase().includes(searchPersonnelEarnings.toLowerCase()) ||
+                                (emp.employeeNo && emp.employeeNo.toLowerCase().includes(searchPersonnelEarnings.toLowerCase())) ||
+                                (emp.position && emp.position.toLowerCase().includes(searchPersonnelEarnings.toLowerCase()));
+                              const matchesCat = earningsCategoryFilter === 'all' || emp.category === earningsCategoryFilter;
+                              return matchesSearch && matchesCat;
+                            })
+                            .map((emp: any) => (
+                              <tr key={emp.id} className="hover:bg-neutral-50/50">
+                                <td className="py-2 px-3 font-semibold text-neutral-800">
+                                  {emp.name}
+                                  <span className="block text-[10px] font-mono text-neutral-400">{emp.employeeNo || emp.id}</span>
+                                </td>
+                                <td className="py-2 px-3 text-neutral-600">{emp.position || 'N/A'}</td>
+                                <td className="py-2 px-3">
+                                  <Badge variant="outline" className="text-[10px]">{emp.category}</Badge>
+                                </td>
+                                <td className="py-2 px-3 text-right text-neutral-700">{formatCurrency(emp.basicPay)}</td>
+                                <td className="py-2 px-3 text-right text-neutral-700">{formatCurrency(emp.pera)}</td>
+                                <td className="py-2 px-3 text-right font-semibold text-neutral-900">{formatCurrency(emp.grossPay)}</td>
+                                <td className="py-2 px-3 text-right text-rose-600">{formatCurrency(emp.deductions)}</td>
+                                <td className="py-2 px-3 text-right font-bold text-emerald-600">{formatCurrency(emp.netPay)}</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           )}
         </>
@@ -1476,6 +1645,118 @@ export default function Reports() {
                 </table>
               </div>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Statutory Agency Inspection & Sub-item Drilldown Dialog */}
+      <Dialog open={!!inspectedAgency} onOpenChange={(open) => !open && setInspectedAgency(null)}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold flex items-center justify-between">
+              <span>{inspectedAgency?.agency}</span>
+              <Badge className="bg-emerald-100 text-emerald-800 text-xs font-bold border-0">
+                {inspectedAgency?.status}
+              </Badge>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Account Code: <strong>{inspectedAgency?.accountCode}</strong> | {inspectedAgency?.description}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5 my-2">
+            {/* Agency totals overview */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-neutral-50 p-3.5 rounded-xl border border-neutral-100 text-center">
+              <div>
+                <p className="text-[10px] text-neutral-500 uppercase font-bold">Personal Share</p>
+                <p className="text-sm font-bold text-neutral-900">{formatCurrency(inspectedAgency?.personalShare)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-neutral-500 uppercase font-bold">Employer Counterpart</p>
+                <p className="text-sm font-bold text-sky-800">{formatCurrency(inspectedAgency?.employerShare)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-neutral-500 uppercase font-bold">Loans & Amortizations</p>
+                <p className="text-sm font-bold text-neutral-900">{formatCurrency(inspectedAgency?.loans)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-neutral-500 uppercase font-bold">Total Remittance Payable</p>
+                <p className="text-sm font-bold text-emerald-600">{formatCurrency(inspectedAgency?.totalPayable)}</p>
+              </div>
+            </div>
+
+            {/* Sub-item & loan category schedules */}
+            {inspectedAgency?.subItems && inspectedAgency.subItems.length > 0 && (
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-600 mb-2">Itemized Sub-Schedules & Premium Rates</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {inspectedAgency.subItems.map((sub: any, idx: number) => (
+                    <div key={idx} className="flex items-center justify-between p-2.5 bg-white border border-neutral-150 rounded-xl text-xs">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-[9px] py-0">{sub.type}</Badge>
+                        <span className="font-semibold text-neutral-800 line-clamp-1">{sub.name}</span>
+                      </div>
+                      <span className="font-bold text-neutral-900 shrink-0 ml-2">{formatCurrency(sub.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Personnel Withheld List */}
+            <div>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-600">
+                  Contributing Personnel Register ({inspectedAgency?.employees?.length || 0} Staff)
+                </h4>
+                <div className="relative w-56">
+                  <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-2.5 top-2.5" />
+                  <Input
+                    value={searchAgencyStaff}
+                    onChange={(e) => setSearchAgencyStaff(e.target.value)}
+                    placeholder="Search personnel..."
+                    className="h-7 pl-7 text-xs bg-white border-neutral-200"
+                  />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border border-neutral-100 rounded-xl max-h-64">
+                <table className="w-full text-xs text-left">
+                  <thead className="sticky top-0 bg-neutral-50 z-10">
+                    <tr className="border-b border-neutral-200 text-neutral-500 font-semibold uppercase">
+                      <th className="py-2 px-3">Personnel Name</th>
+                      <th className="py-2 px-3">Category</th>
+                      <th className="py-2 px-3 text-right">Personal Share</th>
+                      <th className="py-2 px-3 text-right">Employer Share</th>
+                      <th className="py-2 px-3 text-right">Loans</th>
+                      <th className="py-2 px-3 text-right">Total Withheld</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-100">
+                    {(inspectedAgency?.employees || [])
+                      .filter((e: any) => !searchAgencyStaff || e.name.toLowerCase().includes(searchAgencyStaff.toLowerCase()) || (e.employeeNo && e.employeeNo.toLowerCase().includes(searchAgencyStaff.toLowerCase())))
+                      .map((e: any) => (
+                        <tr key={e.id} className="hover:bg-neutral-50/50">
+                          <td className="py-2 px-3 font-semibold text-neutral-800">
+                            {e.name}
+                            <span className="block text-[10px] font-mono text-neutral-400">{e.employeeNo || e.id}</span>
+                          </td>
+                          <td className="py-2 px-3 text-neutral-600">{e.category || 'STAFF'}</td>
+                          <td className="py-2 px-3 text-right text-neutral-700">{formatCurrency(e.personalShare)}</td>
+                          <td className="py-2 px-3 text-right text-sky-800">{formatCurrency(e.employerShare)}</td>
+                          <td className="py-2 px-3 text-right text-neutral-700">{formatCurrency(e.loans)}</td>
+                          <td className="py-2 px-3 text-right font-bold text-neutral-900">{formatCurrency(e.total)}</td>
+                        </tr>
+                      ))}
+                    {(!inspectedAgency?.employees || inspectedAgency.employees.length === 0) && (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-neutral-400">No personnel contributions recorded under this agency for the current filter scope.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
