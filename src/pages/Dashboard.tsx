@@ -75,7 +75,7 @@ import {
 } from 'recharts';
 import { format, differenceInSeconds } from 'date-fns';
 import { toast } from 'sonner';
-import { formatCurrency, safeDateStr, safeDateOnly, safeSplit } from '../lib/utils';
+import { formatCurrency, formatCompactCurrency, formatCompactNumber, safeDateStr, safeDateOnly, safeSplit, formatHolidayDisplayDate } from '../lib/utils';
 
 const formatTimeTo12Hour = (timeVal: any): string => {
   if (!timeVal) return '';
@@ -224,6 +224,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
   const [recentCycles, setRecentCycles] = useState<any[]>([]);
   const [recentAuditLogs, setRecentAuditLogs] = useState<any[]>([]);
   const [upcomingHolidaysList, setUpcomingHolidaysList] = useState<any[]>([]);
+  const [all2026HolidaysList, setAll2026HolidaysList] = useState<any[]>([]);
+  const [breaksTab, setBreaksTab] = useState<'upcoming' | '2026'>('upcoming');
   const [chartTab, setChartTab] = useState<'trends' | 'categories'>('trends');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -389,7 +391,26 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
 
       setRecentCycles(cycles.slice(0, 6));
       setRecentAuditLogs(auditLogs.slice(0, 5));
-      setUpcomingHolidaysList(holidays.slice(0, 4));
+
+      // 2026 & Upcoming Holidays Filtering
+      const nonWorkingHols = holidays.filter((h: any) => h.type !== 'Special Working');
+
+      // 2026 Full Calendar Breaks
+      const hols2026 = nonWorkingHols.filter((h: any) => {
+        const dStr = safeDateOnly(h.date);
+        return dStr.startsWith('2026');
+      });
+      setAll2026HolidaysList(hols2026.slice(0, 4));
+
+      // Upcoming breaks relative to today
+      const todayStr = safeDateOnly(new Date());
+      const upcoming = nonWorkingHols.filter((h: any) => {
+        const dStr = safeDateOnly(h.date);
+        return dStr >= todayStr;
+      });
+
+      // Populate upcoming breaks (fall back to 2026 calendar breaks if none upcoming)
+      setUpcomingHolidaysList(upcoming.length > 0 ? upcoming.slice(0, 4) : hols2026.slice(0, 4));
 
       // Category breakdown data
       setCategoryBreakdownData([
@@ -466,21 +487,37 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
           emp.category?.toLowerCase() === 'visiting instructor'
         );
 
+        const deptHols = Array.isArray(allHolidays) 
+          ? allHolidays.filter((h: any) => h.type !== 'Special Working') 
+          : [];
+        const todayStr = safeDateOnly(new Date());
+        const deptUpcoming = deptHols.filter((h: any) => safeDateOnly(h.date) >= todayStr);
+        const dept2026 = deptHols.filter((h: any) => safeDateOnly(h.date).startsWith('2026'));
+        const deptDisplayHols = deptUpcoming.length > 0 ? deptUpcoming.slice(0, 5) : dept2026.slice(0, 5);
+
         setDeptHeadData({
           myDepartment: myDept,
           subjects: deptSubjects,
           schedules: deptSchedules,
           faculty: deptFaculty,
-          holidays: Array.isArray(allHolidays) ? allHolidays.slice(0, 5) : [],
+          holidays: deptDisplayHols,
           loading: false
         });
       } else {
+        const deptHols = Array.isArray(allHolidays) 
+          ? allHolidays.filter((h: any) => h.type !== 'Special Working') 
+          : [];
+        const todayStr = safeDateOnly(new Date());
+        const deptUpcoming = deptHols.filter((h: any) => safeDateOnly(h.date) >= todayStr);
+        const dept2026 = deptHols.filter((h: any) => safeDateOnly(h.date).startsWith('2026'));
+        const deptDisplayHols = deptUpcoming.length > 0 ? deptUpcoming.slice(0, 5) : dept2026.slice(0, 5);
+
         setDeptHeadData({
           myDepartment: null,
           subjects: [],
           schedules: [],
           faculty: [],
-          holidays: Array.isArray(allHolidays) ? allHolidays.slice(0, 5) : [],
+          holidays: deptDisplayHols,
           loading: false
         });
       }
@@ -800,7 +837,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
             <div class="container">
               <div class="header">
                 <div class="header-text">
-                  <h3>Southern Luzon State University</h3>
+                  <h3>Southern Leyte State University</h3>
                   <p>Human Resource Management & Payroll Registry Office</p>
                 </div>
                 <div class="badge">OFFICIAL PAYSLIP</div>
@@ -1063,7 +1100,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
             <Card className="border-none shadow-sm bg-white rounded-2xl">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-neutral-500 uppercase tracking-wider">Total Net Pay</CardTitle>
-                <DollarSign className="w-4 h-4 text-neutral-400" />
+                <span className="font-extrabold text-sm text-neutral-500">₱</span>
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-extrabold text-emerald-600">
@@ -1866,7 +1903,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
                         </div>
                         <div>
                           <h5 className="text-xs font-bold text-neutral-800">{hol.name}</h5>
-                          <p className="text-[10px] text-neutral-400 font-mono">{hol.date}</p>
+                          <p className="text-[10px] text-neutral-400 font-mono">{formatHolidayDisplayDate(hol.date)}</p>
                         </div>
                       </div>
                       <Badge className={cn(
@@ -1945,7 +1982,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
             <div className="flex flex-wrap items-center gap-2.5">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-[#1e3a5f]/10 text-[#1e3a5f] border border-[#1e3a5f]/20">
                 <School className="w-3.5 h-3.5 text-[#1e3a5f]" />
-                Southern Luzon State University
+                Southern Leyte State University
               </span>
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-emerald-50 text-emerald-700 border border-emerald-200/60">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -2042,8 +2079,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
             <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">
               Latest Net Disbursement
             </span>
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
-              <DollarSign className="w-4 h-4 stroke-[2.5]" />
+            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold">
+              <span className="font-black text-base leading-none select-none">₱</span>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -2269,7 +2306,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
                           axisLine={false} 
                           tickLine={false} 
                           tick={{ fill: '#64748b', fontSize: 11 }}
-                          tickFormatter={(val) => `₱${val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val}`}
+                          tickFormatter={(val) => formatCompactCurrency(val, '₱')}
                         />
                         <Tooltip 
                           contentStyle={{ 
@@ -2474,7 +2511,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
                 </Badge>
               </div>
               <p className="text-[11px] text-neutral-500">
-                Southern Luzon State University • Hinunangan Campus registry
+                Southern Leyte State University • Hinunangan Campus registry
               </p>
             </div>
           </CardContent>
@@ -2660,43 +2697,81 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
           <Card className="border border-neutral-200/80 shadow-xs bg-white rounded-2xl overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between border-b border-neutral-100 pb-3">
               <div>
-                <CardTitle className="text-sm font-extrabold text-neutral-900 flex items-center gap-1.5">
-                  <CalendarCheck className="w-4 h-4 text-purple-600" />
-                  Upcoming University Breaks
-                </CardTitle>
-                <CardDescription className="text-[11px]">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-sm font-extrabold text-neutral-900 flex items-center gap-1.5">
+                    <CalendarCheck className="w-4 h-4 text-purple-600" />
+                    Upcoming University Breaks
+                  </CardTitle>
+                  <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200">
+                    2026 Latest
+                  </span>
+                </div>
+                <CardDescription className="text-[11px] mt-0.5">
                   Administrative holidays & cutoff dates
                 </CardDescription>
               </div>
 
-              {onNavigate && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onNavigate('holidays')}
-                  className="text-xs font-bold text-neutral-600 hover:bg-neutral-50 rounded-xl"
-                >
-                  Calendar
-                </Button>
-              )}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center bg-neutral-100 p-0.5 rounded-lg text-[11px] font-medium">
+                  <button
+                    type="button"
+                    onClick={() => setBreaksTab('upcoming')}
+                    className={cn(
+                      "px-2.5 py-1 rounded-md transition-all text-[11px]",
+                      breaksTab === 'upcoming'
+                        ? "bg-white text-neutral-900 font-bold shadow-2xs"
+                        : "text-neutral-500 hover:text-neutral-800"
+                    )}
+                  >
+                    Upcoming
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBreaksTab('2026')}
+                    className={cn(
+                      "px-2.5 py-1 rounded-md transition-all text-[11px]",
+                      breaksTab === '2026'
+                        ? "bg-white text-neutral-900 font-bold shadow-2xs"
+                        : "text-neutral-500 hover:text-neutral-800"
+                    )}
+                  >
+                    2026 Schedule
+                  </button>
+                </div>
+
+                {onNavigate && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onNavigate('holidays')}
+                    className="text-xs font-bold text-neutral-600 hover:bg-neutral-50 rounded-xl px-2.5 h-8"
+                  >
+                    Calendar
+                  </Button>
+                )}
+              </div>
             </CardHeader>
 
             <CardContent className="p-4 space-y-2.5">
-              {upcomingHolidaysList.length === 0 ? (
-                <div className="text-center py-6 text-neutral-400 text-xs">
-                  No upcoming holidays scheduled.
-                </div>
-              ) : (
-                upcomingHolidaysList.map((hol: any) => (
-                  <div key={hol.id} className="flex items-center justify-between p-2 rounded-xl hover:bg-neutral-50 transition-colors text-xs">
-                    <div className="flex items-center gap-2.5">
-                      <div className="p-1.5 rounded-lg bg-purple-50 text-purple-700">
-                        <Calendar className="w-3.5 h-3.5" />
+              {(() => {
+                const displayList = breaksTab === 'upcoming' ? upcomingHolidaysList : all2026HolidaysList;
+                if (displayList.length === 0) {
+                  return (
+                    <div className="text-center py-6 text-neutral-400 text-xs">
+                      No university breaks scheduled for this view.
+                    </div>
+                  );
+                }
+                return displayList.map((hol: any) => (
+                  <div key={hol.id} className="flex items-center justify-between p-2.5 rounded-xl hover:bg-neutral-50 transition-colors text-xs border border-transparent hover:border-neutral-150">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-purple-50 text-purple-700 shrink-0">
+                        <Calendar className="w-4 h-4" />
                       </div>
                       <div>
-                        <h4 className="font-bold text-neutral-800 leading-tight">{hol.name}</h4>
-                        <span className="text-[10px] text-neutral-400 font-mono">
-                          {hol.date ? format(new Date(hol.date), 'MMMM dd, yyyy') : 'TBD'}
+                        <h4 className="font-bold text-neutral-900 leading-tight text-xs">{hol.name}</h4>
+                        <span className="text-[10px] text-neutral-500 font-mono font-medium">
+                          {formatHolidayDisplayDate(hol.date)}
                         </span>
                       </div>
                     </div>
@@ -2708,8 +2783,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
                       {hol.type}
                     </Badge>
                   </div>
-                ))
-              )}
+                ));
+              })()}
             </CardContent>
           </Card>
         </div>

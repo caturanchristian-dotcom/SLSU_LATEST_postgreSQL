@@ -6,6 +6,7 @@ import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { api } from '../lib/api';
+import { formatCompactCurrency } from '../lib/utils';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import jsPDF from 'jspdf';
@@ -863,7 +864,7 @@ export default function Reports() {
                             <BarChart data={monthlyExpenseData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
                               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                               <XAxis dataKey="name" fontSize={11} stroke="#94a3b8" tickLine={false} />
-                              <YAxis fontSize={11} stroke="#94a3b8" tickLine={false} tickFormatter={(val) => `₱${val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val}`} />
+                              <YAxis fontSize={11} stroke="#94a3b8" tickLine={false} tickFormatter={(val) => formatCompactCurrency(val, '₱')} />
                               <Tooltip 
                                 formatter={(val: any) => [formatCurrency(val), '']} 
                                 contentStyle={{ backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
@@ -878,7 +879,7 @@ export default function Reports() {
                             <LineChart data={monthlyExpenseData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
                               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                               <XAxis dataKey="name" fontSize={11} stroke="#94a3b8" tickLine={false} />
-                              <YAxis fontSize={11} stroke="#94a3b8" tickLine={false} tickFormatter={(val) => `₱${val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val}`} />
+                              <YAxis fontSize={11} stroke="#94a3b8" tickLine={false} tickFormatter={(val) => formatCompactCurrency(val, '₱')} />
                               <Tooltip 
                                 formatter={(val: any) => [formatCurrency(val), '']} 
                                 contentStyle={{ backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0' }}
