@@ -14,6 +14,7 @@ import { usersRouter } from "./routes/users.js";
 import { reportsRouter } from "./routes/reports.js";
 import { databaseRouter } from "./routes/database.js";
 import { integrationsRouter } from "./routes/integrations.js";
+import { storageRouter } from "./routes/storage.js";
 
 dotenv.config();
 
@@ -123,6 +124,7 @@ export async function startServer() {
   app.use("/api", reportsRouter);
   app.use("/api", databaseRouter);
   app.use("/api", integrationsRouter);
+  app.use("/api", storageRouter);
 
   // Health check
   app.get("/api/health", (req, res) => {

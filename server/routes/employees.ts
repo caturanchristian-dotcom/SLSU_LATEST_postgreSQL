@@ -1,7 +1,12 @@
 import { Router } from "express";
 import { db, logAudit } from "../db/schema.js";
-import { hasSupabaseConfig, syncUserToSupabase, deleteUserFromSupabase } from "../supabase.js";
-import { syncOfficialHolidays } from "../services/officialHolidays.js";
+import { 
+  hasSupabaseConfig, 
+  syncUserToSupabase, 
+  deleteUserFromSupabase, 
+  uploadImageToSupabase,
+  deleteImageFromSupabase 
+} from "../supabase.js";
 
 export const employeesRouter = Router();
 
@@ -43,6 +48,21 @@ employeesRouter.post("/employees", async (req: any, res: any) => {
     const emp = req.body;
     const id = emp.id || `emp-${Date.now()}`;
     const employeeId = emp.employeeId || `EMP-${Date.now().toString().slice(-4)}`;
+
+    // If profileImage is a base64 string, upload to Supabase Storage
+    if (emp.profileImage && emp.profileImage.startsWith("data:image/")) {
+      try {
+        const upload = await uploadImageToSupabase(emp.profileImage, {
+          filename: `emp-${employeeId}`,
+          folder: "employees"
+        });
+        if (upload.success && upload.publicUrl) {
+          emp.profileImage = upload.publicUrl;
+        }
+      } catch (imgErr) {
+        console.warn("[Employees] Supabase image upload fallback:", imgErr);
+      }
+    }
 
     await db.prepare(`
       INSERT INTO employees (
@@ -294,6 +314,32 @@ employeesRouter.put("/employees/:id", async (req: any, res: any) => {
     const { id } = req.params;
     const emp = req.body;
 
+    const existingEmp = await db.prepare('SELECT "profileImage" FROM employees WHERE id = ?').get(id) as any;
+    const oldImage = existingEmp?.profileImage;
+
+    // If profileImage is a base64 string, upload to Supabase Storage
+    if (emp.profileImage && emp.profileImage.startsWith("data:image/")) {
+      try {
+        const upload = await uploadImageToSupabase(emp.profileImage, {
+          filename: `emp-${id}`,
+          folder: "employees",
+          oldImageUrl: oldImage || undefined
+        });
+        if (upload.success && upload.publicUrl) {
+          emp.profileImage = upload.publicUrl;
+        }
+      } catch (imgErr) {
+        console.warn("[Employees] Supabase image upload fallback on update:", imgErr);
+      }
+    }
+
+    // If profileImage changed or was cleared, delete old photo from Supabase Storage
+    if (oldImage && emp.profileImage !== undefined && oldImage !== emp.profileImage) {
+      deleteImageFromSupabase(oldImage).catch(delErr => {
+        console.warn("[Employees] Failed to delete old employee photo from storage:", delErr);
+      });
+    }
+
     await db.prepare(`
       UPDATE employees SET
         firstName = ?, lastName = ?, email = ?, category = ?, basicSalary = ?,
@@ -347,6 +393,13 @@ employeesRouter.delete("/employees/:id", async (req: any, res: any) => {
       deleteUserFromSupabase(existing.email).catch(err => console.error("[Employees] Delete sync error:", err));
     }
 
+    // Automatically remove photo from Supabase Storage
+    if (existing?.profileImage) {
+      deleteImageFromSupabase(existing.profileImage).catch(delErr => {
+        console.warn("[Employees] Failed to delete employee photo on employee removal:", delErr);
+      });
+    }
+
     await logAudit(req, "DELETE_EMPLOYEE", `Deleted employee with ID ${id}`);
     res.json({ success: true });
   } catch (err: any) {
@@ -357,10 +410,36 @@ employeesRouter.delete("/employees/:id", async (req: any, res: any) => {
 employeesRouter.post("/employees/:id/upload-image", async (req: any, res: any) => {
   try {
     const { id } = req.params;
-    const { profileImage } = req.body;
-    await db.prepare("UPDATE employees SET profileImage = ? WHERE id = ?").run(profileImage, id);
-    await db.prepare("UPDATE users SET profileImage = ? WHERE id = ?").run(profileImage, id);
-    res.json({ success: true });
+    let { profileImage } = req.body;
+
+    const existingEmp = await db.prepare('SELECT "profileImage" FROM employees WHERE id = ?').get(id) as any;
+    const oldImage = existingEmp?.profileImage;
+
+    if (profileImage && profileImage.startsWith("data:image/")) {
+      try {
+        const upload = await uploadImageToSupabase(profileImage, {
+          filename: `emp-${id}`,
+          folder: "employees",
+          oldImageUrl: oldImage || undefined
+        });
+        if (upload.success && upload.publicUrl) {
+          profileImage = upload.publicUrl;
+        }
+      } catch (imgErr) {
+        console.warn("[Employees] Supabase upload-image fallback:", imgErr);
+      }
+    }
+
+    // If profileImage changed or was cleared, delete old photo from Supabase Storage
+    if (oldImage && oldImage !== profileImage) {
+      deleteImageFromSupabase(oldImage).catch(delErr => {
+        console.warn("[Employees] Failed to delete old employee photo from storage:", delErr);
+      });
+    }
+
+    await db.prepare('UPDATE employees SET "profileImage" = ? WHERE id = ?').run(profileImage, id);
+    await db.prepare('UPDATE users SET "profileImage" = ? WHERE id = ?').run(profileImage, id);
+    res.json({ success: true, profileImage });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -646,33 +725,8 @@ employeesRouter.delete("/teaching-loads/:id", async (req: any, res: any) => {
 // Holidays
 employeesRouter.get("/holidays", async (req: any, res: any) => {
   try {
-    // Auto-sync official Philippine holidays if database has empty or dummy test data
-    await syncOfficialHolidays(db, false);
-
-    const hols = await db.prepare("SELECT * FROM holidays ORDER BY date ASC").all() as any[];
-    // Normalize date to YYYY-MM-DD string to avoid timezone shifts
-    const formatted = hols.map((h: any) => {
-      let dStr = h.date;
-      if (dStr instanceof Date) {
-        dStr = dStr.toISOString().split('T')[0];
-      } else if (typeof dStr === 'string') {
-        dStr = dStr.split('T')[0];
-      }
-      return {
-        ...h,
-        date: dStr
-      };
-    });
-    res.json(formatted);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-employeesRouter.post("/holidays/sync-official", async (req: any, res: any) => {
-  try {
-    const result = await syncOfficialHolidays(db, true);
-    res.json({ success: true, count: result.count, updated: result.updated });
+    const hols = await db.prepare("SELECT * FROM holidays ORDER BY date ASC").all();
+    res.json(hols);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -680,16 +734,9 @@ employeesRouter.post("/holidays/sync-official", async (req: any, res: any) => {
 
 employeesRouter.post("/holidays", async (req: any, res: any) => {
   try {
-    const { name, date, type, description } = req.body;
+    const { name, date, type } = req.body;
     const id = `hol-${Date.now()}`;
-    const cleanDate = typeof date === 'string' ? date.split('T')[0] : date;
-    await db.prepare("INSERT INTO holidays (id, name, date, type, description) VALUES (?, ?, ?, ?, ?)").run(
-      id, 
-      name, 
-      cleanDate, 
-      type || "Regular",
-      description || null
-    );
+    await db.prepare("INSERT INTO holidays (id, name, date, type) VALUES (?, ?, ?, ?)").run(id, name, date, type || "Regular");
     res.json({ success: true, id });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -699,15 +746,8 @@ employeesRouter.post("/holidays", async (req: any, res: any) => {
 employeesRouter.put("/holidays/:id", async (req: any, res: any) => {
   try {
     const { id } = req.params;
-    const { name, date, type, description } = req.body;
-    const cleanDate = typeof date === 'string' ? date.split('T')[0] : date;
-    await db.prepare("UPDATE holidays SET name = ?, date = ?, type = ?, description = ? WHERE id = ?").run(
-      name, 
-      cleanDate, 
-      type, 
-      description || null,
-      id
-    );
+    const { name, date, type } = req.body;
+    await db.prepare("UPDATE holidays SET name = ?, date = ?, type = ? WHERE id = ?").run(name, date, type, id);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

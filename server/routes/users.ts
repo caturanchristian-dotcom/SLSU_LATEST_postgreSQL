@@ -5,7 +5,9 @@ import {
   syncUserToSupabase, 
   deleteUserFromSupabase, 
   syncAllUsersToSupabase,
-  listSupabaseAuthUsers
+  listSupabaseAuthUsers,
+  uploadImageToSupabase,
+  deleteImageFromSupabase
 } from "../supabase.js";
 
 export const usersRouter = Router();
@@ -198,6 +200,13 @@ usersRouter.delete("/users/:id", async (req: any, res: any) => {
       await deleteUserFromSupabase(existing.email);
     }
 
+    // Automatically remove profile image from Supabase Storage if present
+    if (existing?.profileImage) {
+      deleteImageFromSupabase(existing.profileImage).catch(delErr => {
+        console.warn("[Users] Could not delete user avatar from storage:", delErr);
+      });
+    }
+
     await logAudit(req, "DELETE_USER", `Deleted user account ID ${id} (${existing?.email || ''})`);
     res.json({ success: true });
   } catch (err: any) {
@@ -233,12 +242,35 @@ usersRouter.put("/profile", async (req: any, res: any) => {
     const user = await db.prepare("SELECT * FROM users WHERE LOWER(email) = ?").get(cleanEmail) as any;
     if (!user) return res.status(404).json({ error: "User not found" });
 
+    let finalProfileImage = profileImage;
+    if (finalProfileImage && finalProfileImage.startsWith("data:image/")) {
+      try {
+        const upload = await uploadImageToSupabase(finalProfileImage, {
+          filename: `avatar-${user.id}`,
+          folder: "avatars",
+          oldImageUrl: user.profileImage || undefined
+        });
+        if (upload.success && upload.publicUrl) {
+          finalProfileImage = upload.publicUrl;
+        }
+      } catch (imgErr) {
+        console.warn("[Users] Supabase avatar upload fallback:", imgErr);
+      }
+    }
+
+    // If profile image changed (even if passed as URL or empty string to remove), delete the old image from Supabase Storage
+    if (finalProfileImage !== undefined && user.profileImage && user.profileImage !== finalProfileImage) {
+      deleteImageFromSupabase(user.profileImage).catch(err => {
+        console.warn("[Users] Failed to delete previous profile image from storage:", err);
+      });
+    }
+
     let query = "UPDATE users SET displayName = ?";
     let params: any[] = [displayName];
 
-    if (profileImage !== undefined) {
+    if (finalProfileImage !== undefined) {
       query += ", profileImage = ?";
-      params.push(profileImage);
+      params.push(finalProfileImage);
     }
     if (password?.trim()) {
       query += ", password = ?";
@@ -250,6 +282,13 @@ usersRouter.put("/profile", async (req: any, res: any) => {
 
     await db.prepare(query).run(...params);
 
+    // Also update profileImage on employee record if exists
+    if (finalProfileImage !== undefined) {
+      try {
+        await db.prepare('UPDATE employees SET "profileImage" = ? WHERE LOWER(email) = ? OR id = ?').run(finalProfileImage, cleanEmail, user.id);
+      } catch {}
+    }
+
     // Sync profile updates to Supabase Auth
     if (hasSupabaseConfig && cleanEmail) {
       await syncUserToSupabase({
@@ -257,13 +296,13 @@ usersRouter.put("/profile", async (req: any, res: any) => {
         email: cleanEmail,
         displayName,
         password: password?.trim() || undefined,
-        profileImage,
+        profileImage: finalProfileImage,
         role: user.role,
         campus: user.campus
       });
     }
 
-    res.json({ success: true });
+    res.json({ success: true, profileImage: finalProfileImage });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

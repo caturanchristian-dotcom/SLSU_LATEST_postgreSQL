@@ -1453,9 +1453,19 @@ const Employees = () => {
                     {formData.profileImage && (
                       <button
                         type="button"
-                        onClick={() => setFormData({ ...formData, profileImage: '' })}
-                        className="absolute -top-1 -right-1 p-1 bg-red-100 text-red-600 rounded-full hover:bg-red-200 transition-colors border border-red-200"
-                        title="Remove photo"
+                        onClick={async () => {
+                          const old = formData.profileImage;
+                          setFormData({ ...formData, profileImage: '' });
+                          if (old && !old.startsWith('data:')) {
+                            try {
+                              await api.storage.deleteImage(old);
+                            } catch (e) {
+                              console.warn("Storage deletion warning:", e);
+                            }
+                          }
+                        }}
+                        className="absolute -top-1 -right-1 p-1 bg-red-100 text-red-600 rounded-full hover:bg-red-200 transition-colors border border-red-200 cursor-pointer"
+                        title="Remove photo & delete from storage"
                       >
                         <XCircle className="w-4 h-4" />
                       </button>
@@ -1476,13 +1486,30 @@ const Employees = () => {
                       onChange={async (e) => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          const toastId = toast.loading("Compressing profile photo...");
+                          const oldImage = formData.profileImage;
+                          const toastId = toast.loading("Uploading photo to Supabase Storage...");
                           try {
-                            const base64 = await compressImage(file, 250, 250, 0.7);
+                            const base64 = await compressImage(file, 400, 400, 0.8);
+                            try {
+                              const res = await api.storage.uploadImage(
+                                base64, 
+                                `emp-${formData.employeeId || 'photo'}`, 
+                                'employees',
+                                undefined,
+                                oldImage
+                              );
+                              if (res?.publicUrl) {
+                                setFormData({ ...formData, profileImage: res.publicUrl });
+                                toast.success("Photo uploaded to Supabase Storage!", { id: toastId });
+                                return;
+                              }
+                            } catch (uploadErr) {
+                              console.warn("Supabase storage upload fallback:", uploadErr);
+                            }
                             setFormData({ ...formData, profileImage: base64 });
-                            toast.success("Profile photo loaded and optimized!", { id: toastId });
+                            toast.success("Profile photo loaded!", { id: toastId });
                           } catch (err: any) {
-                            toast.error("Failed to load or compress image: " + (err.message || err), { id: toastId });
+                            toast.error("Failed to process image: " + (err.message || err), { id: toastId });
                           }
                         }
                       }}

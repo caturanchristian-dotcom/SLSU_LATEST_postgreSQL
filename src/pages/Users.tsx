@@ -17,7 +17,10 @@ import {
   Database,
   KeyRound,
   ExternalLink,
-  Layers
+  Layers,
+  HardDrive,
+  Image as ImageIcon,
+  UploadCloud
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
@@ -75,6 +78,10 @@ const Users = () => {
   const [isSyncingSupabase, setIsSyncingSupabase] = useState(false);
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
 
+  // Supabase Storage Management State
+  const [storageStatus, setStorageStatus] = useState<any>(null);
+  const [isMigratingStorage, setIsMigratingStorage] = useState(false);
+
   const [formData, setFormData] = useState({
     email: '',
     displayName: '',
@@ -86,6 +93,7 @@ const Users = () => {
   useEffect(() => {
     fetchUsers();
     fetchSupabaseStatus();
+    fetchStorageStatus();
   }, []);
 
   const fetchUsers = async () => {
@@ -105,6 +113,33 @@ const Users = () => {
       setSupabaseStatus(status);
     } catch (error) {
       console.warn("Failed to fetch Supabase status:", error);
+    }
+  };
+
+  const fetchStorageStatus = async () => {
+    try {
+      const status = await api.storage.getStatus();
+      setStorageStatus(status);
+    } catch (error) {
+      console.warn("Failed to fetch storage status:", error);
+    }
+  };
+
+  const handleMigrateStorage = async () => {
+    setIsMigratingStorage(true);
+    const toastId = toast.loading('Uploading all employee images to Supabase Storage bucket...');
+    try {
+      const result = await api.storage.migrateAll();
+      toast.success(
+        `Migration complete! Migrated ${result.employeesMigrated || 0} employee photos and ${result.usersMigrated || 0} user avatars to Supabase Storage.`, 
+        { id: toastId }
+      );
+      await fetchStorageStatus();
+      await fetchUsers();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to migrate images to Supabase Storage', { id: toastId });
+    } finally {
+      setIsMigratingStorage(false);
     }
   };
 
@@ -333,36 +368,77 @@ const Users = () => {
         </div>
       </div>
 
-      {/* Supabase Status Summary Banner */}
-      <div className="bg-gradient-to-r from-emerald-900 via-neutral-900 to-slate-900 rounded-2xl p-5 text-white shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center shrink-0">
-            <ShieldCheck className="w-6 h-6 text-emerald-400" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-base font-bold">Supabase Authentication Active</h3>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+      {/* Supabase Status Summary Banners */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Supabase Auth Banner */}
+        <div className="bg-gradient-to-r from-emerald-950 via-neutral-900 to-slate-900 rounded-2xl p-5 text-white shadow-sm flex flex-col justify-between gap-4 border border-emerald-900/40">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-6 h-6 text-emerald-400" />
             </div>
-            <p className="text-xs text-neutral-300 mt-0.5">
-              All {supabaseStatus?.totalAuthUsers || users.length} user accounts and employee profiles are fully synchronized with Supabase Auth for unified single-sign-on and role validation.
-            </p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold">Supabase Auth Active</h3>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              </div>
+              <p className="text-xs text-neutral-300 mt-1">
+                {supabaseStatus?.totalAuthUsers || users.length} user accounts & employee records synchronized for unified authentication.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center justify-between pt-2 border-t border-white/10">
+            <div className="bg-white/10 px-3 py-1 rounded-lg text-xs font-semibold backdrop-blur-xs flex items-center gap-1.5">
+              <UserIcon className="w-3.5 h-3.5 text-emerald-400" />
+              <span>{supabaseStatus?.totalAuthUsers || users.length} Supabase Accounts</span>
+            </div>
+            <Button 
+              size="sm"
+              onClick={handleSyncSupabase}
+              disabled={isSyncingSupabase}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold gap-1.5 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingSupabase ? 'animate-spin' : ''}`} />
+              <span>Sync Auth</span>
+            </Button>
           </div>
         </div>
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <div className="bg-white/10 px-3.5 py-1.5 rounded-lg text-xs font-semibold backdrop-blur-xs flex items-center gap-1.5">
-            <UserIcon className="w-3.5 h-3.5 text-emerald-400" />
-            <span>{supabaseStatus?.totalAuthUsers || users.length} Supabase Accounts</span>
+
+        {/* Supabase Storage Banner */}
+        <div className="bg-gradient-to-r from-blue-950 via-neutral-900 to-slate-900 rounded-2xl p-5 text-white shadow-sm flex flex-col justify-between gap-4 border border-blue-900/40">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center shrink-0">
+              <HardDrive className="w-6 h-6 text-blue-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold">Supabase Cloud Storage</h3>
+                <span className={`w-2 h-2 rounded-full ${storageStatus?.isConfigured ? 'bg-blue-400 animate-pulse' : 'bg-amber-400'}`}></span>
+                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold">
+                  {storageStatus?.bucketName || 'employee-images'}
+                </span>
+              </div>
+              <p className="text-xs text-neutral-300 mt-1">
+                All employee photos & user avatars are saved in Supabase CDN storage bucket with public CDN URLs.
+              </p>
+            </div>
           </div>
-          <Button 
-            size="sm"
-            onClick={handleSyncSupabase}
-            disabled={isSyncingSupabase}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold gap-1.5 cursor-pointer"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingSupabase ? 'animate-spin' : ''}`} />
-            <span>Sync Now</span>
-          </Button>
+          <div className="flex items-center justify-between pt-2 border-t border-white/10">
+            <div className="bg-white/10 px-3 py-1 rounded-lg text-xs font-semibold backdrop-blur-xs flex items-center gap-1.5">
+              <ImageIcon className="w-3.5 h-3.5 text-blue-400" />
+              <span>
+                {storageStatus?.fileCount !== undefined ? `${storageStatus.fileCount} Stored Files` : 'Bucket Ready'}
+              </span>
+            </div>
+            <Button 
+              size="sm"
+              onClick={handleMigrateStorage}
+              disabled={isMigratingStorage}
+              className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold gap-1.5 cursor-pointer"
+            >
+              <UploadCloud className={`w-3.5 h-3.5 ${isMigratingStorage ? 'animate-spin' : ''}`} />
+              <span>Migrate Images</span>
+            </Button>
+          </div>
         </div>
       </div>
 

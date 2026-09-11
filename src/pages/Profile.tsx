@@ -133,32 +133,92 @@ const Profile = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const toastId = toast.loading("Compressing and saving your new profile photo...");
+    const oldImage = profile?.profileImage || user?.profileImage;
+    const toastId = toast.loading("Uploading profile photo to Supabase Storage...");
     try {
-      const base64 = await compressImage(file, 250, 250, 0.7);
+      const base64 = await compressImage(file, 400, 400, 0.8);
+      let finalUrl = base64;
+
+      try {
+        const uploadRes = await api.storage.uploadImage(
+          base64,
+          `avatar-${user?.id || 'me'}`,
+          'avatars',
+          undefined,
+          oldImage
+        );
+        if (uploadRes?.publicUrl) {
+          finalUrl = uploadRes.publicUrl;
+        }
+      } catch (uploadErr) {
+        console.warn("Supabase avatar upload fallback:", uploadErr);
+      }
+
       await api.profile.update({
         email: user?.email,
         displayName: profile?.displayName || user?.displayName || '',
         firstName: profile?.firstName || '',
         lastName: profile?.lastName || '',
         phoneNumber: profile?.phoneNumber || '',
-        profileImage: base64
+        profileImage: finalUrl
       });
       const saved = localStorage.getItem('payroll_user');
       if (saved) {
         try {
           const u = JSON.parse(saved);
-          u.profileImage = base64;
+          u.profileImage = finalUrl;
           localStorage.setItem('payroll_user', JSON.stringify(u));
           window.dispatchEvent(new Event('user-updated'));
         } catch (e) {
           console.error(e);
         }
       }
-      toast.success("Profile photo updated successfully!", { id: toastId });
+      toast.success("Profile photo saved! Old image automatically cleaned from storage.", { id: toastId });
       fetchProfile();
     } catch (error: any) {
       toast.error(error.message || "Failed to upload photo", { id: toastId });
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    const oldImage = profile?.profileImage || user?.profileImage;
+    if (!oldImage) return;
+
+    const toastId = toast.loading("Removing photo from Supabase Storage...");
+    try {
+      if (!oldImage.startsWith("data:")) {
+        try {
+          await api.storage.deleteImage(oldImage);
+        } catch (e) {
+          console.warn("Storage deletion error:", e);
+        }
+      }
+
+      await api.profile.update({
+        email: user?.email,
+        displayName: profile?.displayName || user?.displayName || '',
+        firstName: profile?.firstName || '',
+        lastName: profile?.lastName || '',
+        phoneNumber: profile?.phoneNumber || '',
+        profileImage: ''
+      });
+
+      const saved = localStorage.getItem('payroll_user');
+      if (saved) {
+        try {
+          const u = JSON.parse(saved);
+          u.profileImage = '';
+          localStorage.setItem('payroll_user', JSON.stringify(u));
+          window.dispatchEvent(new Event('user-updated'));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      toast.success("Profile photo removed and deleted from storage.", { id: toastId });
+      fetchProfile();
+    } catch (err: any) {
+      toast.error("Failed to remove photo: " + (err.message || err), { id: toastId });
     }
   };
 
@@ -279,8 +339,8 @@ const Profile = () => {
               </div>
             </div>
 
-            {/* Fully Functional Upload Photo trigger right next to profile box */}
-            <div className="pb-1">
+            {/* Fully Functional Upload & Remove Photo triggers right next to profile box */}
+            <div className="pb-1 flex items-center gap-2">
               <input 
                 type="file" 
                 ref={fileInputRef} 
@@ -290,11 +350,23 @@ const Profile = () => {
               />
               <Button
                 onClick={handleTriggerUpload}
-                className="bg-[#1a55cc] hover:bg-blue-700 text-white font-extrabold text-xs tracking-wider uppercase py-2 px-5 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500/20 active:scale-95 transition-all flex items-center gap-2 border border-blue-700"
+                className="bg-[#1a55cc] hover:bg-blue-700 text-white font-extrabold text-xs tracking-wider uppercase py-2 px-5 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500/20 active:scale-95 transition-all flex items-center gap-2 border border-blue-700 cursor-pointer"
               >
                 <Upload className="w-3.5 h-3.5" />
                 Upload new photo
               </Button>
+
+              {profile?.profileImage && (
+                <Button
+                  onClick={handleRemovePhoto}
+                  variant="outline"
+                  className="bg-white hover:bg-red-50 text-red-600 border-red-200 font-extrabold text-xs tracking-wider uppercase py-2 px-4 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Delete current photo from Supabase Storage"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Remove
+                </Button>
+              )}
             </div>
           </div>
 

@@ -631,4 +631,42 @@ export const api = {
       return handleResponse(res);
     },
   },
+  storage: {
+    uploadImage: async (image: string, filename?: string, folder?: string, bucket?: string, oldImage?: string) => {
+      const res = await fetchWithAuth(`${API_BASE}/storage/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image, filename, folder, bucket, oldImage }),
+      });
+      return handleResponse(res);
+    },
+    deleteImage: async (image: string, bucket?: string) => {
+      const res = await fetchWithAuth(`${API_BASE}/storage/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image, bucket }),
+      });
+      return handleResponse(res);
+    },
+    getStatus: async () => {
+      const res = await fetchWithAuth(`${API_BASE}/storage/status`);
+      return handleResponse(res);
+    },
+    ensureBucket: async (bucket?: string) => {
+      const res = await fetchWithAuth(`${API_BASE}/storage/ensure-bucket`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bucket }),
+      });
+      return handleResponse(res);
+    },
+    migrateAll: async (bucket?: string) => {
+      const res = await fetchWithAuth(`${API_BASE}/storage/migrate-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bucket }),
+      });
+      return handleResponse(res);
+    },
+  },
 };
