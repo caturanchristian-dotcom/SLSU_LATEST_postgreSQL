@@ -278,6 +278,12 @@ export function normalizeRow(row: any): any {
     if (lower === "subjectcode" || lower === "subject_code") setIfValOrEmpty("subjectCode", val);
     if (lower === "hoursrendered" || lower === "hours_rendered") setIfValOrEmpty("hoursRendered", val);
     if (lower === "totalpay" || lower === "total_pay") setIfValOrEmpty("totalPay", val);
+    if (lower === "sentat" || lower === "sent_at") setIfValOrEmpty("sentAt", val);
+    if (lower === "phonenumber" || lower === "phone_number") setIfValOrEmpty("phoneNumber", val);
+    if (lower === "recipient") {
+      setIfValOrEmpty("recipient", val);
+      setIfValOrEmpty("phoneNumber", val);
+    }
   }
   return newRow;
 }
@@ -976,7 +982,16 @@ export async function initDb() {
         'ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS notes TEXT',
         'ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS "recordDataJson" TEXT',
         'ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS "createdBy" VARCHAR(191)',
-        'ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP'
+        'ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP',
+
+        'ALTER TABLE sms_logs ADD COLUMN IF NOT EXISTS "employeeId" VARCHAR(191)',
+        'ALTER TABLE sms_logs ADD COLUMN IF NOT EXISTS "phoneNumber" VARCHAR(50)',
+        'ALTER TABLE sms_logs ADD COLUMN IF NOT EXISTS recipient VARCHAR(50)',
+        'ALTER TABLE sms_logs ADD COLUMN IF NOT EXISTS message TEXT',
+        "ALTER TABLE sms_logs ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'SENT'",
+        'ALTER TABLE sms_logs ADD COLUMN IF NOT EXISTS response TEXT',
+        'ALTER TABLE sms_logs ADD COLUMN IF NOT EXISTS "sentAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP',
+        'ALTER TABLE sms_logs ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP'
       ];
 
       for (const alt of canonicalAlters) {

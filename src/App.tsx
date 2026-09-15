@@ -25,21 +25,27 @@ import ErrorBoundary from './components/ErrorBoundary';
 const AppContent = () => {
   const { user, loading } = useAuth();
   const [currentPage, setCurrentPage] = useState('dashboard');
+  const [dashboardKey, setDashboardKey] = useState(0);
   const [employeeCategory, setEmployeeCategory] = useState<string | null>(null);
 
+  // When user logs in or user context changes, ensure employee role always lands on the home dashboard
   useEffect(() => {
-    if (user && user.role === 'employee') {
-      fetch('/api/employees')
-        .then(res => res.json())
-        .then(emps => {
-          const matched = emps.find((e: any) => e.email.toLowerCase() === user.email.toLowerCase());
-          if (matched) {
-            setEmployeeCategory(matched.category);
-          }
-        })
-        .catch(err => console.error("Could not fetch employee profile matching user context", err));
+    if (user) {
+      if (user.role === 'employee') {
+        setCurrentPage('dashboard');
+        setDashboardKey((prev) => prev + 1);
+        fetch('/api/employees')
+          .then(res => res.json())
+          .then(emps => {
+            const matched = emps.find((e: any) => e.email.toLowerCase() === user.email.toLowerCase());
+            if (matched) {
+              setEmployeeCategory(matched.category);
+            }
+          })
+          .catch(err => console.error("Could not fetch employee profile matching user context", err));
+      }
     }
-  }, [user]);
+  }, [user?.id, user?.role, user?.email]);
 
   if (loading) {
     return (
@@ -53,15 +59,25 @@ const AppContent = () => {
     return <Login />;
   }
 
+  const handleNavigate = (page: string) => {
+    if (page === 'dashboard' || page === 'home') {
+      setCurrentPage('dashboard');
+      setDashboardKey((prev) => prev + 1);
+    } else {
+      setCurrentPage(page);
+    }
+  };
+
   const renderPage = () => {
     switch (currentPage) {
-      case 'dashboard': return <Dashboard onNavigate={setCurrentPage} />;
-      case 'account': return <Dashboard onNavigate={setCurrentPage} initialSubview="account" />;
+      case 'home':
+      case 'dashboard': return <Dashboard onNavigate={handleNavigate} key={`dashboard-${dashboardKey}`} initialSubview={null} />;
+      case 'account': return <Dashboard onNavigate={handleNavigate} initialSubview="account" />;
       case 'employees': return <Employees />;
       case 'payroll': return <Payroll />;
       case 'deductions': {
         if (user?.role === 'employee') {
-          return <Dashboard onNavigate={setCurrentPage} initialSubview="deductions" />;
+          return <Dashboard onNavigate={handleNavigate} initialSubview="deductions" />;
         }
         return <Deductions />;
       }
@@ -85,12 +101,12 @@ const AppContent = () => {
       case 'audit': return <AuditLogs />;
       case 'holidays': return <HolidaysPage />;
       case 'departments': return <Departments />;
-      default: return <Dashboard onNavigate={setCurrentPage} />;
+      default: return <Dashboard onNavigate={handleNavigate} key={`dashboard-default-${dashboardKey}`} initialSubview={null} />;
     }
   };
 
   return (
-    <Layout onNavigate={setCurrentPage} currentPage={currentPage}>
+    <Layout onNavigate={handleNavigate} currentPage={currentPage}>
       {renderPage()}
     </Layout>
   );

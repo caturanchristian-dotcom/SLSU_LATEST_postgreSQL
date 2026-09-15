@@ -106,13 +106,14 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
   const getPageTitle = (page: string) => {
     switch (page) {
       case 'dashboard': 
-        if (role === 'employee') return 'My Profile';
+        if (role === 'employee') return 'Home';
         if (role === 'department_head') return 'Department Dashboard';
         return 'System Dashboard';
       case 'employees': return 'Employees Registry';
       case 'schedules': 
         if (role === 'department_head') return 'Faculty Schedules';
-        return 'My Profile';
+        if (role === 'employee') return 'My Schedules';
+        return 'Schedules Registry';
       case 'payroll': return 'Payroll Hub';
       case 'account': return 'My Account';
       case 'deductions': return 'Deductions';
@@ -135,6 +136,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
   const getPageSublabel = (page: string) => {
     switch (page) {
       case 'dashboard': 
+        if (role === 'employee') return 'Employee Portal & Self-Service';
         if (role === 'department_head') return 'Department Overview & Analytics';
         return 'System Dashboard';
       case 'employees': return 'Staff Registry';
