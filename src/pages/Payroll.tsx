@@ -49,7 +49,7 @@ import {
   Receipt,
   Check,
   Layers,
-  ChevronDown
+  Filter
 } from 'lucide-react';
 import { SLSU_CAMPUSES } from '../lib/constants';
 import { PayrollRecords } from '../components/PayrollRecords';
@@ -128,20 +128,58 @@ function formatEmployeeName(emp: { lastName: string; firstName: string; mi?: str
   return nameStr;
 }
 
-function getEmployeeGroupAndGender(entry: any): { group: 'FACULTY' | 'STAFF' | 'OTHERS'; isMale: boolean } {
-  const category = (entry.category || '').toUpperCase();
-  const firstName = (entry.firstName || '').toUpperCase();
-  const lastName = (entry.lastName || '').toUpperCase();
+export function isEmployeeMatchingCategoryFilter(empCategory?: string, cycleCategoryFilter?: string): boolean {
+  if (!cycleCategoryFilter || cycleCategoryFilter === 'all' || cycleCategoryFilter === 'ALL') return true;
+  const filter = cycleCategoryFilter.toLowerCase().trim();
+  const cat = (empCategory || '').toUpperCase().trim();
 
-  // Determine group
-  let group: 'FACULTY' | 'STAFF' | 'OTHERS' = 'OTHERS';
-  if (category.includes('FACULTY')) {
+  if (filter === 'visiting-instructor' || filter === 'visiting instructor' || filter === 'visiting' || filter.includes('visiting')) {
+    return cat.includes('VISITING') || cat.includes('PART-TIME') || cat.includes('LECTURER');
+  }
+
+  if (filter === 'faculty-staff' || filter === 'faculty & staff' || filter === 'faculty_staff' || filter.includes('faculty')) {
+    return cat.includes('FACULTY') || cat.includes('STAFF') || cat === 'REGULAR EMPLOYEE' || cat === 'PERMANENT';
+  }
+
+  if (filter === 'job-order' || filter === 'job order' || filter === 'jo' || filter.includes('job')) {
+    return cat.includes('JOB ORDER') || cat.includes('JOB_ORDER') || cat === 'JO';
+  }
+
+  return cat === filter.toUpperCase() || cat.includes(filter.toUpperCase());
+}
+
+function getEmployeeGroupAndGender(entry: any): { group: 'VISITING' | 'FACULTY' | 'STAFF' | 'OTHERS'; isMale: boolean } {
+  if (!entry) return { group: 'OTHERS', isMale: true };
+  const category = (entry?.category || '').toUpperCase().trim();
+  const firstName = (entry?.firstName || '').toUpperCase();
+  const lastName = (entry?.lastName || '').toUpperCase();
+  const pos = (entry?.position || '').toUpperCase();
+
+  // Determine group - Check Visiting first
+  let group: 'VISITING' | 'FACULTY' | 'STAFF' | 'OTHERS' = 'OTHERS';
+  if (
+    category.includes('VISITING') || 
+    category.includes('PART-TIME') || 
+    category.includes('PART TIME') || 
+    category.includes('LECTURER') ||
+    category === 'VI' ||
+    category.startsWith('VI ') ||
+    category.endsWith(' VI') ||
+    pos.includes('VISITING') ||
+    pos.includes('PART-TIME') ||
+    pos.includes('PART TIME') ||
+    pos.includes('LECTURER') ||
+    pos === 'VI' ||
+    pos.includes('VI ') ||
+    pos.endsWith(' VI')
+  ) {
+    group = 'VISITING';
+  } else if (category.includes('FACULTY')) {
     group = 'FACULTY';
   } else if (category.includes('STAFF')) {
     group = 'STAFF';
   } else {
     // Fallback based on position
-    const pos = (entry.position || '').toUpperCase();
     if (pos.includes('PROFESSOR') || pos.includes('INSTRUCTOR') || pos.includes('ASST') || pos.includes('PROF')) {
       group = 'FACULTY';
     } else if (pos) {
@@ -294,9 +332,63 @@ const Payroll = () => {
     }
   };
   const [searchTerm, setSearchTerm] = useState('');
-  const [entryClusterFilter, setEntryClusterFilter] = useState<string>('all');
-  const [entryCategoryFilter, setEntryCategoryFilter] = useState<string>('all');
-  const [entryValidationFilter, setEntryValidationFilter] = useState<string>('all');
+  // Category Filter state for GENERAL PAYROLL
+  const [tableCategoryFilter, setTableCategoryFilter] = useState<string>('all');
+
+  // Sync category filter with selected cycle
+  useEffect(() => {
+    if (selectedCycle) {
+      const rawCat = selectedCycle.categoryFilter || (selectedCycle as any).category_filter || ((selectedCycle.name && (selectedCycle.name.trim().toUpperCase() === 'VI' || selectedCycle.name.toLowerCase().includes('visiting'))) ? 'visiting-instructor' : 'all');
+      setTableCategoryFilter(rawCat);
+    }
+  }, [selectedCycle?.id, selectedCycle?.categoryFilter, (selectedCycle as any)?.category_filter, selectedCycle?.name]);
+
+  const effectiveCategoryFilter = useMemo(() => {
+    if (tableCategoryFilter && tableCategoryFilter !== 'all') return tableCategoryFilter;
+    if (selectedCycle?.categoryFilter && selectedCycle.categoryFilter !== 'all') return selectedCycle.categoryFilter;
+    if ((selectedCycle as any)?.category_filter && (selectedCycle as any).category_filter !== 'all') return (selectedCycle as any).category_filter;
+    if (selectedCycle?.name && (selectedCycle.name.trim().toUpperCase() === 'VI' || selectedCycle.name.toLowerCase().includes('visiting'))) return 'visiting-instructor';
+    return 'all';
+  }, [tableCategoryFilter, selectedCycle?.categoryFilter, (selectedCycle as any)?.category_filter, selectedCycle?.name]);
+
+  const isVisitingOnly = useMemo(() => {
+    const f = (effectiveCategoryFilter || '').toLowerCase().trim();
+    return f === 'visiting-instructor' || f === 'visiting instructor' || f === 'visiting' || f.includes('visiting') || (selectedCycle?.name && selectedCycle.name.trim().toUpperCase() === 'VI');
+  }, [effectiveCategoryFilter, selectedCycle?.name]);
+
+  const isFacultyStaffOnly = useMemo(() => {
+    const f = (effectiveCategoryFilter || '').toLowerCase().trim();
+    return f === 'faculty-staff' || f === 'faculty & staff' || f === 'faculty_staff' || f.includes('faculty');
+  }, [effectiveCategoryFilter]);
+
+  const isJobOrderOnly = useMemo(() => {
+    const f = (effectiveCategoryFilter || '').toLowerCase().trim();
+    return f === 'job-order' || f === 'job order' || f === 'jo' || f.includes('job');
+  }, [effectiveCategoryFilter]);
+
+  const handleCategoryFilterChange = async (newFilter: string) => {
+    setTableCategoryFilter(newFilter);
+    if (!selectedCycle?.id) return;
+    
+    // Update local cycle immediately
+    const updated = { ...selectedCycle, categoryFilter: newFilter, category_filter: newFilter };
+    setSelectedCycle(updated);
+    selectedCycleRef.current = updated;
+
+    try {
+      await (api.payroll as any).updateCycleCategoryFilter(selectedCycle.id, newFilter);
+      toast.success(
+        newFilter === 'visiting-instructor' ? 'Restricted to Visiting Instructors only. Faculty & staff removed.' :
+        newFilter === 'faculty-staff' ? 'Restricted to Faculty & Staff only. Visiting instructors removed.' :
+        newFilter === 'job-order' ? 'Restricted to Job Order only.' :
+        'All categories visible.'
+      );
+      await fetchEntries(selectedCycle.id);
+      fetchCycles();
+    } catch (err: any) {
+      toast.error('Failed to update category filter: ' + err.message);
+    }
+  };
   const [showGsisFormula, setShowGsisFormula] = useState(false);
   const [showPhilhealthFormula, setShowPhilhealthFormula] = useState(false);
   const [showGrossFormula, setShowGrossFormula] = useState(false);
@@ -518,114 +610,141 @@ const Payroll = () => {
     return [...baseGov, ...baseComp, ...standardDeductions, ...extraDeductionCols];
   }, [deductionTypes, entries, standardDeductions, standardAliasSet]);
 
-  const getCellValue = (entry: any, key: string) => {
-    // 1. Resolve current active basic pay / wages (compSal2nd)
-    const rawEmpSalary = Number(entry.basicSalary || entry.basic_salary || 0);
-    const resolvedWages = Number(
-      entry.customValues?.compSal2nd !== undefined 
-        ? entry.customValues.compSal2nd 
-        : (entry.compSal2nd !== undefined && entry.compSal2nd !== null && Number(entry.compSal2nd) > 0
-            ? entry.compSal2nd 
-            : (entry.basicPay !== undefined && entry.basicPay !== null && Number(entry.basicPay) > 0 
-                ? entry.basicPay 
-                : rawEmpSalary))
-    );
+  const getCellValue = (entry: any, key: string): number => {
+    if (!entry) return 0;
+    try {
+      // 1. Resolve current active basic pay / wages (compSal2nd)
+      const rawEmpSalary = Number(entry?.basicSalary || entry?.basic_salary || 0);
+      const resolvedWages = Number(
+        entry?.customValues?.compSal2nd !== undefined 
+          ? entry.customValues.compSal2nd 
+          : (entry?.compSal2nd !== undefined && entry?.compSal2nd !== null && Number(entry.compSal2nd) > 0
+              ? entry.compSal2nd 
+              : (entry?.basicPay !== undefined && entry?.basicPay !== null && Number(entry.basicPay) > 0 
+                  ? entry.basicPay 
+                  : rawEmpSalary))
+      );
 
-    // 1b. For absences column: Live DTR calculation takes precedence unless explicit manual cell override is set
-    if (key === 'absences') {
-      if (entry.customValues && entry.customValues['absencesOverride'] !== undefined) {
-        return Number(entry.customValues['absencesOverride']);
+      // 1b. For absences column: Live DTR calculation takes precedence unless explicit manual cell override is set
+      if (key === 'absences') {
+        if (entry?.customValues && entry.customValues['absencesOverride'] !== undefined) {
+          return Number(entry.customValues['absencesOverride']) || 0;
+        }
+        return Number(entry?.absences !== undefined ? entry.absences : (entry?.customValues?.absences !== undefined ? entry.customValues.absences : 0)) || 0;
       }
-      return Number(entry.absences !== undefined ? entry.absences : (entry.customValues?.absences !== undefined ? entry.customValues.absences : 0));
-    }
 
-    const isRegular = String(entry.category || '').toUpperCase() === 'FACULTY' || 
-                      String(entry.category || '').toUpperCase() === 'STAFF' ||
-                      String(entry.category || '').toLowerCase().includes('regular') ||
-                      String(entry.category || '').toLowerCase().includes('permanent');
-    const isSemi = selectedCycle?.periodType === 'semi-monthly' || selectedCycle?.type === 'semi-monthly';
-    const isJobOrder = String(entry.category || '').toLowerCase().includes('job order');
-    const hasPh = isRegular || (isJobOrder && (entry.hasPhilhealth || entry.has_philhealth));
-    const hasHdmf = isRegular || (isJobOrder && (entry.hasPagibig || entry.has_pagibig));
+      // Check if entry belongs to the VI (Visiting Instructor) category
+      const info = getEmployeeGroupAndGender(entry);
+      const isVI = info.group === 'VISITING' || 
+                   isEmployeeMatchingCategoryFilter(entry?.category, 'visiting-instructor') ||
+                   (entry?.category || '').toUpperCase() === 'VI' ||
+                   (entry?.position || '').toUpperCase().includes('VISITING') ||
+                   isVisitingOnly ||
+                   (selectedCycle?.categoryFilter && isEmployeeMatchingCategoryFilter(selectedCycle.categoryFilter, 'visiting-instructor'));
 
-    // 2. GOVERNMENT SHARE columns:
-    // Automatically recalculates whenever Salaries and Wages-2nd Tranch (resolvedWages) changes
-    if (key === 'govSecGsis') {
-      if (entry.customValues?.govSecGsisOverride !== undefined) {
-        return Number(entry.customValues.govSecGsisOverride);
-      }
-      return isRegular ? Number((resolvedWages * 0.12).toFixed(2)) : 0;
-    }
-    if (key === 'govSecPh') {
-      if (entry.customValues?.govSecPhOverride !== undefined) {
-        return Number(entry.customValues.govSecPhOverride);
-      }
-      return hasPh ? Number(((resolvedWages * 0.05) / 2).toFixed(2)) : 0;
-    }
-    if (key === 'govSecHdmf') {
-      if (entry.customValues?.govSecHdmfOverride !== undefined) {
-        return Number(entry.customValues.govSecHdmfOverride);
-      }
-      return hasHdmf ? (isSemi ? 100.00 : 200.00) : 0;
-    }
-    if (key === 'govSecEcip') {
-      if (entry.customValues?.govSecEcipOverride !== undefined) {
-        return Number(entry.customValues.govSecEcipOverride);
-      }
-      return isRegular ? (isSemi ? 50.00 : 100.00) : 0;
-    }
-
-    // 3. For the primary wages column:
-    if (key === 'compSal2nd') return resolvedWages;
-
-    // 4. Dynamic Gross Pay calculation based on active wages
-    if (key === 'compGross') {
-      const compPera = entry.customValues?.compPera !== undefined ? Number(entry.customValues.compPera) : (entry.compPera !== undefined ? Number(entry.compPera) : 2000.00);
-      const absVal = Number(entry.customValues?.absences !== undefined ? entry.customValues.absences : (entry.absences || 0));
-      const otVal = Number(entry.customValues?.overtime !== undefined ? entry.customValues.overtime : (entry.overtime || 0));
-      const allowVal = Number(entry.customValues?.allowances !== undefined ? entry.customValues.allowances : (entry.allowances || 0));
-      const bonusVal = Number(entry.customValues?.bonuses !== undefined ? entry.customValues.bonuses : (entry.bonuses || 0));
-      return Math.max(0, Number((resolvedWages + compPera - absVal + allowVal + otVal + bonusVal).toFixed(2)));
-    }
-
-    // 5. If there is a manual override for this specific column, that wins
-    if (entry.customValues && entry.customValues[key] !== undefined) {
-      return Number(entry.customValues[key]);
-    }
-
-    // 6. For dynamically computed components based on basicPay:
-    if (key === 'dedGsisPremPersonal') {
-      return isRegular ? Number((resolvedWages * 0.09).toFixed(2)) : 0;
-    }
-    if (key === 'dedSss') {
-      return (isJobOrder && (entry.hasSss || entry.has_sss)) ? Number((resolvedWages * 0.045).toFixed(2)) : 0;
-    }
-    if (key === 'dedPhilhealthCont') {
-      return hasPh ? Number((resolvedWages * 0.025).toFixed(2)) : 0;
-    }
-    if (key === 'dedPagibigPersonal') {
-      return hasHdmf ? Number((resolvedWages * 0.02).toFixed(2)) : 0;
-    }
-
-    // 7. If it's cached in deductions, use that
-    if (entry.deductions && entry.deductions[key] !== undefined) {
-      return Number(entry.deductions[key]);
-    }
-
-    // 7b. Check normalized key match in deductions
-    if (entry.deductions) {
-      const normKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-      for (const [dK, dV] of Object.entries(entry.deductions)) {
-        if (dK.toLowerCase().replace(/[^a-z0-9]/g, '') === normKey) {
-          return Number(dV);
+      // In VI category: GOVERNMENT SHARE automatically changes based on salary (resolvedWages)
+      if (isVI && (key === 'govSecGsis' || key === 'govSecHdmf' || key === 'govSecPh' || key === 'govSecEcip')) {
+        const isSemi = selectedCycle?.type === 'semi-monthly';
+        if (key === 'govSecGsis') {
+          return Number((resolvedWages * 0.12).toFixed(2));
+        }
+        if (key === 'govSecPh') {
+          return Number(((resolvedWages * 0.05) / 2).toFixed(2));
+        }
+        if (key === 'govSecHdmf') {
+          return resolvedWages > 0 ? (isSemi ? 100.00 : 200.00) : 0;
+        }
+        if (key === 'govSecEcip') {
+          return resolvedWages > 0 ? (isSemi ? 50.00 : 100.00) : 0;
         }
       }
+
+      // 2. If there is a manual override for this specific column, that always wins
+      if (entry?.customValues && entry.customValues[key] !== undefined) {
+        return Number(entry.customValues[key]) || 0;
+      }
+
+      // 3. For the primary wages column:
+      if (key === 'compSal2nd') return isNaN(resolvedWages) ? 0 : resolvedWages;
+
+      // 4. For dynamically computed components based on basicPay:
+      if (key === 'govSecGsis') {
+        const isRegular = entry?.category === 'FACULTY' || entry?.category === 'STAFF';
+        return isRegular ? Number((resolvedWages * 0.12).toFixed(2)) : 0;
+      }
+      if (key === 'govSecPh') {
+        return Number(((resolvedWages * 0.05) / 2).toFixed(2)) || 0;
+      }
+      if (key === 'dedGsisPremPersonal') {
+        const isRegular = entry?.category === 'FACULTY' || entry?.category === 'STAFF';
+        return isRegular ? Number((resolvedWages * 0.09).toFixed(2)) : 0;
+      }
+      if (key === 'dedSss') {
+        return (entry?.category === 'Job Order' && entry?.hasSss) ? Number((resolvedWages * 0.045).toFixed(2)) : 0;
+      }
+      if (key === 'dedPhilhealthCont') {
+        const isRegular = entry?.category === 'FACULTY' || entry?.category === 'STAFF';
+        return (isRegular || (entry?.category === 'Job Order' && entry?.hasPhilhealth)) 
+          ? Number((resolvedWages * 0.025).toFixed(2)) : 0;
+      }
+      if (key === 'dedPagibigPersonal') {
+        const isRegular = entry?.category === 'FACULTY' || entry?.category === 'STAFF';
+        const hasPagibig = isRegular || (entry?.category === 'Job Order' && entry?.hasPagibig);
+        return hasPagibig ? Number((resolvedWages * 0.02).toFixed(2)) : 0;
+      }
+
+      // 5. If it's cached in deductions, use that
+      if (entry?.deductions && entry.deductions[key] !== undefined) {
+        return Number(entry.deductions[key]) || 0;
+      }
+
+      // 5b. Check normalized key match in deductions
+      if (entry?.deductions) {
+        const normKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+        for (const [dK, dV] of Object.entries(entry.deductions)) {
+          if (dK.toLowerCase().replace(/[^a-z0-9]/g, '') === normKey) {
+            return Number(dV) || 0;
+          }
+        }
+      }
+
+      // 5c. Check direct property on entry
+      if (entry[key] !== undefined && entry[key] !== null) {
+        const valNum = Number(entry[key]);
+        if (!isNaN(valNum) && valNum !== 0) return valNum;
+      }
+
+      // 6. Dynamic Gross Pay calculation
+      if (key === 'compGross') {
+        const compPera = entry?.customValues?.compPera !== undefined 
+          ? Number(entry.customValues.compPera) 
+          : (entry?.compPera !== undefined ? Number(entry.compPera) : (isVI ? 0.00 : 2000.00));
+        const absVal = Number(entry?.customValues?.absences !== undefined ? entry.customValues.absences : (entry?.absences || 0));
+        const otVal = Number(entry?.customValues?.overtime !== undefined ? entry.customValues.overtime : (entry?.overtime || 0));
+        const allowVal = Number(entry?.customValues?.allowances !== undefined ? entry.customValues.allowances : (entry?.allowances || 0));
+        const bonusVal = Number(entry?.customValues?.bonuses !== undefined ? entry.customValues.bonuses : (entry?.bonuses || 0));
+        const computed = Math.max(0, Number((resolvedWages + compPera - absVal + allowVal + otVal + bonusVal).toFixed(2)));
+        if (computed > 0) return computed;
+        if (Number(entry?.grossPay || 0) > 0) return Number(entry.grossPay);
+        return 0;
+      }
+
+      // 7. Static/Smart defaults
+      if (key === 'compPera') return isVI ? 0.00 : 2000.00;
+      if (key === 'govSecHdmf') {
+        const isRegular = entry?.category === 'FACULTY' || entry?.category === 'STAFF';
+        const hasHdmf = isRegular || (entry?.category === 'Job Order' && entry?.hasPagibig) || isVI;
+        return hasHdmf ? (selectedCycle?.type === 'semi-monthly' ? 100.00 : 200.00) : 0;
+      }
+      if (key === 'govSecEcip') {
+        const isRegular = entry?.category === 'FACULTY' || entry?.category === 'STAFF';
+        return (isRegular || isVI) ? (selectedCycle?.type === 'semi-monthly' ? 50.00 : 100.00) : 0;
+      }
+
+      return 0;
+    } catch {
+      return 0;
     }
-
-    // 8. Static/Smart defaults
-    if (key === 'compPera') return 2000.00;
-
-    return 0;
   };
 
   const startEditCell = (entryId: string, key: string, currentVal: any) => {
@@ -646,70 +765,43 @@ const Payroll = () => {
           updatedCustom.absencesOverride = numVal;
           updatedCustom.absences = numVal;
         }
-
-        const isRegular = String(e.category || '').toUpperCase() === 'FACULTY' || 
-                          String(e.category || '').toUpperCase() === 'STAFF' ||
-                          String(e.category || '').toLowerCase().includes('regular') ||
-                          String(e.category || '').toLowerCase().includes('permanent');
-        const isSemi = selectedCycle?.periodType === 'semi-monthly' || selectedCycle?.type === 'semi-monthly';
-        const isJobOrder = String(e.category || '').toLowerCase().includes('job order');
-        const hasPh = isRegular || (isJobOrder && (e.hasPhilhealth || e.has_philhealth));
-        const hasHdmf = isRegular || (isJobOrder && (e.hasPagibig || e.has_pagibig));
-
-        if (key === 'compSal2nd') {
-          updatedCustom.compSal2nd = numVal;
-          // Clear any explicit override so automatic formula updates
-          delete updatedCustom.govSecGsisOverride;
-          delete updatedCustom.govSecPhOverride;
-          delete updatedCustom.govSecHdmfOverride;
-          delete updatedCustom.govSecEcipOverride;
-
-          const newGovGsis = isRegular ? Number((numVal * 0.12).toFixed(2)) : 0;
-          const newGovPh = hasPh ? Number(((numVal * 0.05) / 2).toFixed(2)) : 0;
-          const newGovHdmf = hasHdmf ? (isSemi ? 100.00 : 200.00) : 0;
-          const newGovEcip = isRegular ? (isSemi ? 50.00 : 100.00) : 0;
-
-          updatedCustom.govSecGsis = newGovGsis;
-          updatedCustom.govSecPh = newGovPh;
-          updatedCustom.govSecHdmf = newGovHdmf;
-          updatedCustom.govSecEcip = newGovEcip;
-        }
-
-        if (['govSecGsis', 'govSecPh', 'govSecHdmf', 'govSecEcip'].includes(key)) {
-          updatedCustom[`${key}Override`] = numVal;
-          updatedCustom[key] = numVal;
-        }
-
         const updatedEntry = {
           ...e,
           customValues: updatedCustom
         };
-
         if (key === 'compSal2nd') {
           updatedEntry.basicPay = numVal;
           updatedEntry.compSal2nd = numVal;
-          updatedEntry.govSecGsis = isRegular ? Number((numVal * 0.12).toFixed(2)) : 0;
-          updatedEntry.govSecPh = hasPh ? Number(((numVal * 0.05) / 2).toFixed(2)) : 0;
-          updatedEntry.govSecHdmf = hasHdmf ? (isSemi ? 100.00 : 200.00) : 0;
-          updatedEntry.govSecEcip = isRegular ? (isSemi ? 50.00 : 100.00) : 0;
 
-          const compPera = updatedCustom.compPera !== undefined ? Number(updatedCustom.compPera) : 2000.00;
-          const absVal = Number(updatedCustom.absences !== undefined ? updatedCustom.absences : (e.absences || 0));
-          const otVal = Number(updatedCustom.overtime !== undefined ? updatedCustom.overtime : (e.overtime || 0));
-          const allowVal = Number(updatedCustom.allowances !== undefined ? updatedCustom.allowances : (e.allowances || 0));
-          const bonusVal = Number(updatedCustom.bonuses !== undefined ? updatedCustom.bonuses : (e.bonuses || 0));
-          const newGross = Math.max(0, Number((numVal + compPera - absVal + allowVal + otVal + bonusVal).toFixed(2)));
-          updatedEntry.compGross = newGross;
-          updatedEntry.grossPay = newGross;
+          const info = getEmployeeGroupAndGender(e);
+          const isVI = info.group === 'VISITING' || 
+                       isEmployeeMatchingCategoryFilter(e?.category, 'visiting-instructor') || 
+                       (e?.category || '').toUpperCase() === 'VI' ||
+                       (e?.position || '').toUpperCase().includes('VISITING') ||
+                       isVisitingOnly ||
+                       (selectedCycle?.categoryFilter && isEmployeeMatchingCategoryFilter(selectedCycle.categoryFilter, 'visiting-instructor'));
+          if (isVI) {
+            const isSemi = selectedCycle?.type === 'semi-monthly';
+            const gsisVal = Number((numVal * 0.12).toFixed(2));
+            const phVal = Number(((numVal * 0.05) / 2).toFixed(2));
+            const hdmfVal = numVal > 0 ? (isSemi ? 100.00 : 200.00) : 0;
+            const ecipVal = numVal > 0 ? (isSemi ? 50.00 : 100.00) : 0;
+
+            updatedCustom.govSecGsis = gsisVal;
+            updatedCustom.govSecPh = phVal;
+            updatedCustom.govSecHdmf = hdmfVal;
+            updatedCustom.govSecEcip = ecipVal;
+
+            updatedEntry.govSecGsis = gsisVal;
+            updatedEntry.govSecPh = phVal;
+            updatedEntry.govSecHdmf = hdmfVal;
+            updatedEntry.govSecEcip = ecipVal;
+          }
         }
-
         if (key === 'absences') updatedEntry.absences = numVal;
         if (key === 'overtime') updatedEntry.overtime = numVal;
         if (key === 'allowances') updatedEntry.allowances = numVal;
         if (key === 'bonuses') updatedEntry.bonuses = numVal;
-        if (['govSecGsis', 'govSecPh', 'govSecHdmf', 'govSecEcip'].includes(key)) {
-          updatedEntry[key] = numVal;
-        }
         return updatedEntry;
       }
       return e;
@@ -719,20 +811,32 @@ const Payroll = () => {
       const payload: any = {
         customValues: { [key]: numVal }
       };
-      if (key === 'compSal2nd') {
-        payload.basicPay = numVal;
-        payload.compSal2nd = numVal;
-        payload.customValues = {
-          compSal2nd: numVal,
-          recomputeGovShare: true
-        };
-      }
       if (key === 'absences') {
         payload.absences = numVal;
         payload.customValues = { absences: numVal, absencesOverride: numVal };
       }
-      if (['govSecGsis', 'govSecPh', 'govSecHdmf', 'govSecEcip'].includes(key)) {
-        payload.customValues = { [key]: numVal, [`${key}Override`]: numVal };
+      if (key === 'compSal2nd') {
+        payload.basicPay = numVal;
+        payload.compSal2nd = numVal;
+        const targetEntry = entries.find(e => e.id === entryId);
+        const info = getEmployeeGroupAndGender(targetEntry);
+        const isVI = info.group === 'VISITING' || 
+                     isEmployeeMatchingCategoryFilter(targetEntry?.category, 'visiting-instructor') || 
+                     (targetEntry?.category || '').toUpperCase() === 'VI' ||
+                     (targetEntry?.position || '').toUpperCase().includes('VISITING') ||
+                     isVisitingOnly ||
+                     (selectedCycle?.categoryFilter && isEmployeeMatchingCategoryFilter(selectedCycle.categoryFilter, 'visiting-instructor'));
+        if (isVI) {
+          const isSemi = selectedCycle?.type === 'semi-monthly';
+          const gsisVal = Number((numVal * 0.12).toFixed(2));
+          const phVal = Number(((numVal * 0.05) / 2).toFixed(2));
+          const hdmfVal = numVal > 0 ? (isSemi ? 100.00 : 200.00) : 0;
+          const ecipVal = numVal > 0 ? (isSemi ? 50.00 : 100.00) : 0;
+          payload.customValues.govSecGsis = gsisVal;
+          payload.customValues.govSecPh = phVal;
+          payload.customValues.govSecHdmf = hdmfVal;
+          payload.customValues.govSecEcip = ecipVal;
+        }
       }
       const res = await api.payroll.updateEntry(entryId, payload);
       if (res?.cycleTotals && selectedCycle) {
@@ -892,11 +996,28 @@ const Payroll = () => {
     try {
       const data = await api.payroll.getEntries(cycleId);
       if (Array.isArray(data)) {
-        setEntries(data);
+        const catFilter = (effectiveCategoryFilter || selectedCycleRef.current?.categoryFilter || selectedCycle?.categoryFilter || 'all').toLowerCase();
+        const validEntries = catFilter !== 'all' 
+          ? data.filter((e: any) => {
+              if (catFilter === 'visiting-instructor' || catFilter === 'visiting instructor' || catFilter === 'visiting' || catFilter.includes('visiting')) {
+                const info = getEmployeeGroupAndGender(e);
+                if (info.group === 'FACULTY' || info.group === 'STAFF') return false;
+                return info.group === 'VISITING' && isEmployeeMatchingCategoryFilter(e.category, 'visiting-instructor');
+              }
+              if (catFilter === 'faculty-staff' || catFilter.includes('faculty')) {
+                const info = getEmployeeGroupAndGender(e);
+                if (info.group === 'VISITING') return false;
+                return (info.group === 'FACULTY' || info.group === 'STAFF') && isEmployeeMatchingCategoryFilter(e.category, 'faculty-staff');
+              }
+              return isEmployeeMatchingCategoryFilter(e.category, catFilter);
+            })
+          : data;
+
+        setEntries(validEntries);
         // Instantly update cycle totals in memory without extra network waterfall
-        const sumGross = data.reduce((acc: number, curr: any) => acc + (Number(curr.grossPay) || 0), 0);
-        const sumDeds = data.reduce((acc: number, curr: any) => acc + (Number(curr.totalDeductions) || 0), 0);
-        const sumNet = data.reduce((acc: number, curr: any) => acc + (Number(curr.netPay) || 0), 0);
+        const sumGross = validEntries.reduce((acc: number, curr: any) => acc + (Number(curr.grossPay) || 0), 0);
+        const sumDeds = validEntries.reduce((acc: number, curr: any) => acc + (Number(curr.totalDeductions) || 0), 0);
+        const sumNet = validEntries.reduce((acc: number, curr: any) => acc + (Number(curr.netPay) || 0), 0);
         setSelectedCycle((prev: any) => prev ? {
           ...prev,
           totalGross: Number(sumGross.toFixed(2)),
@@ -929,12 +1050,42 @@ const Payroll = () => {
   };
 
   const fetchAvailableEmployees = async () => {
+    if (!selectedCycle?.id) return;
+    try {
+      const availableFromApi = await (api.payroll as any).getAvailableEmployees(selectedCycle.id);
+      if (Array.isArray(availableFromApi)) {
+        setAvailableEmployees(availableFromApi);
+        return;
+      }
+    } catch (apiErr) {
+      console.warn("Could not fetch available employees from specific endpoint, using fallback filter:", apiErr);
+    }
+
     try {
       const allEmployees = await api.employees.list();
       const currentEmployeeIds = entries.map(e => e.employeeId);
-      const available = allEmployees.filter((emp: any) => 
-        emp.status === 'active' && !currentEmployeeIds.includes(emp.id)
-      );
+      const catFilter = (effectiveCategoryFilter || selectedCycle?.categoryFilter || 'all').toLowerCase();
+      
+      const available = allEmployees.filter((emp: any) => {
+        const isActive = emp.status === 'active' || !emp.status;
+        const notYetEnrolled = !currentEmployeeIds.includes(emp.id);
+        if (!isActive || !notYetEnrolled) return false;
+
+        const empCat = (emp.category || '').toUpperCase();
+        if (catFilter === 'visiting-instructor' || catFilter === 'visiting instructor' || catFilter === 'visiting' || catFilter.includes('visiting')) {
+          const isVisiting = empCat.includes('VISITING') || empCat.includes('PART-TIME') || empCat.includes('LECTURER');
+          const isFacultyOrStaff = empCat.includes('FACULTY') || empCat.includes('STAFF') || empCat === 'REGULAR EMPLOYEE' || empCat === 'PERMANENT';
+          return isVisiting && !isFacultyOrStaff;
+        }
+        if (catFilter === 'faculty-staff' || catFilter === 'faculty & staff' || catFilter === 'faculty_staff' || catFilter.includes('faculty')) {
+          const isVisiting = empCat.includes('VISITING') || empCat.includes('PART-TIME') || empCat.includes('LECTURER');
+          return !isVisiting && (empCat.includes('FACULTY') || empCat.includes('STAFF') || empCat === 'REGULAR EMPLOYEE');
+        }
+        if (catFilter === 'job-order' || catFilter === 'job order' || catFilter === 'jo' || catFilter.includes('job')) {
+          return empCat.includes('JOB ORDER') || empCat.includes('JOB_ORDER') || empCat === 'JO';
+        }
+        return true;
+      });
       setAvailableEmployees(available);
     } catch (error: any) {
       toast.error('Failed to fetch available employees');
@@ -942,11 +1093,18 @@ const Payroll = () => {
   };
 
   const handleAddEmployee = async (employeeId: string) => {
+    if (isVisitingOnly) {
+      const emp = availableEmployees.find(e => e.id === employeeId);
+      if (emp && !isEmployeeMatchingCategoryFilter(emp.category, 'visiting-instructor')) {
+        toast.error(`Cannot enroll "${emp.firstName || ''} ${emp.lastName || ''}". Only Visiting Instructors are permitted in this cycle.`);
+        return;
+      }
+    }
     setIsAddingEmployee(employeeId);
     try {
       await api.payroll.addEmployee(selectedCycle.id, employeeId);
       toast.success('Employee added to cycle');
-      fetchEntries();
+      await fetchEntries(selectedCycle.id);
       fetchAvailableEmployees();
     } catch (error: any) {
       toast.error(error.message);
@@ -1741,7 +1899,7 @@ const Payroll = () => {
           dedTaxWithheld: 'BIR Withholding Tax',
         };
 
-        entries.forEach((entry, index) => {
+        filteredEntries.forEach((entry, index) => {
           if (index > 0) doc.addPage();
           
           // Header
@@ -2050,15 +2208,20 @@ const Payroll = () => {
     ];
 
     // Partition entries for beautiful grouping
+    const visitingMale: any[] = [];
+    const visitingFemale: any[] = [];
     const facultyMale: any[] = [];
     const facultyFemale: any[] = [];
     const staffMale: any[] = [];
     const staffFemale: any[] = [];
     const others: any[] = [];
 
-    for (const entry of entries) {
+    for (const entry of filteredEntries) {
       const info = getEmployeeGroupAndGender(entry);
-      if (info.group === 'FACULTY') {
+      if (info.group === 'VISITING') {
+        if (info.isMale) visitingMale.push(entry);
+        else visitingFemale.push(entry);
+      } else if (info.group === 'FACULTY') {
         if (info.isMale) facultyMale.push(entry);
         else facultyFemale.push(entry);
       } else if (info.group === 'STAFF') {
@@ -2069,7 +2232,13 @@ const Payroll = () => {
       }
     }
 
-    const sortByName = (a: any, b: any) => a.employeeName.localeCompare(b.employeeName);
+    const sortByName = (a: any, b: any) => {
+      const nameA = a?.employeeName || (a?.lastName && a?.firstName ? `${a.lastName}, ${a.firstName}` : (a?.name || ''));
+      const nameB = b?.employeeName || (b?.lastName && b?.firstName ? `${b.lastName}, ${b.firstName}` : (b?.name || ''));
+      return nameA.localeCompare(nameB);
+    };
+    visitingMale.sort(sortByName);
+    visitingFemale.sort(sortByName);
     facultyMale.sort(sortByName);
     facultyFemale.sort(sortByName);
     staffMale.sort(sortByName);
@@ -2083,62 +2252,89 @@ const Payroll = () => {
     const sectionHeaderRowIndices: number[] = [];
     const dataRowIndices: number[] = [];
 
-    const sections = [
-      { label: 'FACULTY: MALE', entries: facultyMale, isGenderSub: false },
-      { label: 'Female:', entries: facultyFemale, isGenderSub: true },
-      { label: 'STAFF: MALE', entries: staffMale, isGenderSub: false },
-      { label: 'Female:', entries: staffFemale, isGenderSub: true },
-      { label: 'OTHERS', entries: others, isGenderSub: false }
-    ].filter(sect => sect.entries.length > 0);
+    let rawSections: any[] = [];
+    if (isVisitingOnly) {
+      rawSections = [
+        { label: 'VISITING INSTRUCTORS: MALE', entries: visitingMale, isGenderSub: false },
+        { label: 'Female:', entries: visitingFemale, isGenderSub: true }
+      ];
+    } else if (isFacultyStaffOnly) {
+      rawSections = [
+        { label: 'FACULTY: MALE', entries: facultyMale, isGenderSub: false },
+        { label: 'Female:', entries: facultyFemale, isGenderSub: true },
+        { label: 'STAFF: MALE', entries: staffMale, isGenderSub: false },
+        { label: 'Female:', entries: staffFemale, isGenderSub: true }
+      ];
+    } else {
+      rawSections = [
+        { label: 'VISITING INSTRUCTORS: MALE', entries: visitingMale, isGenderSub: false },
+        { label: 'Female:', entries: visitingFemale, isGenderSub: true },
+        { label: 'FACULTY: MALE', entries: facultyMale, isGenderSub: false },
+        { label: 'Female:', entries: facultyFemale, isGenderSub: true },
+        { label: 'STAFF: MALE', entries: staffMale, isGenderSub: false },
+        { label: 'Female:', entries: staffFemale, isGenderSub: true },
+        { label: 'OTHERS', entries: others, isGenderSub: false }
+      ];
+    }
+
+    const sections = rawSections.filter(sect => sect && Array.isArray(sect.entries) && sect.entries.length > 0);
 
     let globalIdx = 1;
 
     sections.forEach(section => {
+      if (!section || !Array.isArray(section.entries)) return;
       // Add section group header row
       const sectionLabelRow = Array(31).fill('');
       sectionLabelRow[1] = section.label;
       sectionHeaderRowIndices.push(sheetData.length);
       sheetData.push(sectionLabelRow);
 
-      section.entries.forEach(entry => {
+      section.entries.forEach((entry: any) => {
+        if (!entry) return;
         const totalDed = [
           'dedPolicyLoan', 'dedConsolLoan', 'dedMplLite', 'dedMpl', 'dedCpl', 'dedGfal', 
           'dedEmergencyLoan', 'dedGsisPremPersonal', 'dedEducAsst', 'dedPagibigPersonal', 
           'dedPagibigMpl', 'dedSss', 'dedPagibigMp2', 'dedPhilhealthCont', 'dedCsbLoan', 'dedTaxWithheld'
-        ].reduce((sum, key) => sum + getCellValue(entry, key), 0);
+        ].reduce((sum, key) => sum + (getCellValue(entry, key) || 0), 0);
 
-        const netPayVal = Number((getCellValue(entry, 'compGross') - totalDed).toFixed(2));
+        const grossVal = getCellValue(entry, 'compGross') || 0;
+        const netPayVal = Number((grossVal - totalDed).toFixed(2));
+
+        const empName = entry.employeeName || 
+          (entry.lastName && entry.firstName ? `${entry.lastName}, ${entry.firstName}` : (entry.name || 'Unnamed Employee'));
+        const empPos = entry.position || entry.category || 'No Position';
+        const empNum = entry.employeeNo || entry.friendlyEmployeeId || entry.employeeId || '';
 
         const row = [
           globalIdx,                                         // Col 0: No.
-          entry.employeeName,                               // Col 1: Name
-          entry.position || entry.category || 'No Position', // Col 2: Position
-          entry.employeeNo || entry.friendlyEmployeeId || entry.employeeId,    // Col 3: Emp. No.
-          getCellValue(entry, 'govSecGsis'),                // Col 4: GSIS PREM
-          getCellValue(entry, 'govSecHdmf'),                // Col 5: HDMF PREM
-          getCellValue(entry, 'govSecPh'),                  // Col 6: PHILHEALTH ES
-          getCellValue(entry, 'govSecEcip'),                // Col 7: ECIP
-          getCellValue(entry, 'compSal2nd'),                // Col 8: Salaries and Wages
-          getCellValue(entry, 'compPera'),                  // Col 9: PERA
-          getCellValue(entry, 'compGross'),                 // Col 10: Gross Amount
-          getCellValue(entry, 'absences'),                  // Col 11: Absences (Abs.)
-          getCellValue(entry, 'dedPolicyLoan'),             // Col 12: GSIS Policy Loan
-          getCellValue(entry, 'dedConsolLoan'),             // Col 13: GSIS Consol Loan
-          getCellValue(entry, 'dedMplLite'),                // Col 14: GSIS MPL Lite
-          getCellValue(entry, 'dedMpl'),                    // Col 15: GSIS MPL
-          getCellValue(entry, 'dedCpl'),                    // Col 16: GSIS CPL
-          getCellValue(entry, 'dedGfal'),                   // Col 17: GSIS GFAL
-          getCellValue(entry, 'dedEmergencyLoan'),          // Col 18: GSIS Emergency Loan
-          getCellValue(entry, 'dedGsisPremPersonal'),       // Col 19: GSIS Personal Premium
-          getCellValue(entry, 'dedEducAsst'),               // Col 20: GSIS Educ Asst
-          getCellValue(entry, 'dedPagibigPersonal'),        // Col 21: Pag-IBIG Personal EE
-          getCellValue(entry, 'dedPagibigMpl'),             // Col 22: Pag-IBIG MPL
-          getCellValue(entry, 'dedSss'),                    // Col 23: SSS Contrib
-          getCellValue(entry, 'dedPagibigMp2'),             // Col 24: Pag-IBIG MP2
-          getCellValue(entry, 'dedPhilhealthCont'),         // Col 25: PhilHealth EE (PHILHLTH CONT)
-          getCellValue(entry, 'dedCsbLoan'),                // Col 26: CSB Sal Loan
-          getCellValue(entry, 'dedTaxWithheld'),            // Col 27: Tax Withheld
-          Number(totalDed.toFixed(2)),                      // Col 28: TOTAL DEDUCTION
+          empName,                                           // Col 1: Name
+          empPos,                                            // Col 2: Position
+          empNum,                                            // Col 3: Emp. No.
+          getCellValue(entry, 'govSecGsis') || 0,            // Col 4: GSIS PREM
+          getCellValue(entry, 'govSecHdmf') || 0,            // Col 5: HDMF PREM
+          getCellValue(entry, 'govSecPh') || 0,              // Col 6: PHILHEALTH ES
+          getCellValue(entry, 'govSecEcip') || 0,            // Col 7: ECIP
+          getCellValue(entry, 'compSal2nd') || 0,            // Col 8: Salaries and Wages
+          getCellValue(entry, 'compPera') || 0,              // Col 9: PERA
+          grossVal,                                          // Col 10: Gross Amount
+          getCellValue(entry, 'absences') || 0,              // Col 11: Absences (Abs.)
+          getCellValue(entry, 'dedPolicyLoan') || 0,         // Col 12: GSIS Policy Loan
+          getCellValue(entry, 'dedConsolLoan') || 0,         // Col 13: GSIS Consol Loan
+          getCellValue(entry, 'dedMplLite') || 0,            // Col 14: GSIS MPL Lite
+          getCellValue(entry, 'dedMpl') || 0,                // Col 15: GSIS MPL
+          getCellValue(entry, 'dedCpl') || 0,                // Col 16: GSIS CPL
+          getCellValue(entry, 'dedGfal') || 0,               // Col 17: GSIS GFAL
+          getCellValue(entry, 'dedEmergencyLoan') || 0,      // Col 18: GSIS Emergency Loan
+          getCellValue(entry, 'dedGsisPremPersonal') || 0,   // Col 19: GSIS Personal Premium
+          getCellValue(entry, 'dedEducAsst') || 0,           // Col 20: GSIS Educ Asst
+          getCellValue(entry, 'dedPagibigPersonal') || 0,    // Col 21: Pag-IBIG Personal EE
+          getCellValue(entry, 'dedPagibigMpl') || 0,         // Col 22: Pag-IBIG MPL
+          getCellValue(entry, 'dedSss') || 0,                // Col 23: SSS Contrib
+          getCellValue(entry, 'dedPagibigMp2') || 0,         // Col 24: Pag-IBIG MP2
+          getCellValue(entry, 'dedPhilhealthCont') || 0,     // Col 25: PhilHealth EE (PHILHLTH CONT)
+          getCellValue(entry, 'dedCsbLoan') || 0,            // Col 26: CSB Sal Loan
+          getCellValue(entry, 'dedTaxWithheld') || 0,        // Col 27: Tax Withheld
+          Number(totalDed.toFixed(2)),                       // Col 28: TOTAL DEDUCTION
           netPayVal,                                         // Col 29: Net Amount Due
           globalIdx                                          // Col 30: Signature guide index
         ];
@@ -2505,68 +2701,37 @@ const Payroll = () => {
     }
   };
 
-  const availableCategories = useMemo(() => {
-    const cats = new Set<string>();
-    entries.forEach((e: any) => {
-      const cat = (e.category || '').trim();
-      if (cat) cats.add(cat);
-    });
-    return Array.from(cats).sort();
-  }, [entries]);
-
-  const isAnyEntryFilterActive = useMemo(() => {
-    return Boolean(
-      searchTerm.trim() ||
-      entryClusterFilter !== 'all' ||
-      entryCategoryFilter !== 'all' ||
-      entryValidationFilter !== 'all'
-    );
-  }, [searchTerm, entryClusterFilter, entryCategoryFilter, entryValidationFilter]);
-
-  const resetEntryFilters = () => {
-    setSearchTerm('');
-    setEntryClusterFilter('all');
-    setEntryCategoryFilter('all');
-    setEntryValidationFilter('all');
-  };
-
   const filteredEntries = useMemo(() => {
     return entries.filter(e => {
-      // 1. Text Search (Name, Employee ID / No, Position)
-      if (searchTerm.trim()) {
-        const q = searchTerm.toLowerCase().trim();
-        const matchesName = (e.employeeName || '').toLowerCase().includes(q);
-        const matchesId = (e.employeeId || e.employeeNo || '').toLowerCase().includes(q);
-        const matchesPos = (e.position || '').toLowerCase().includes(q);
-        if (!matchesName && !matchesId && !matchesPos) return false;
-      }
+      const matchesSearch = (e.employeeName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (e.employeeId || '').toLowerCase().includes(searchTerm.toLowerCase());
+      if (!matchesSearch) return false;
 
-      // 2. Cluster / Group & Gender Filter
-      if (entryClusterFilter !== 'all') {
+      if (isVisitingOnly) {
+        // STRICT: ONLY Visiting Instructors in GENERAL PAYROLL
+        // Remove Faculty and Staff completely
         const info = getEmployeeGroupAndGender(e);
-        if (entryClusterFilter === 'faculty' && info.group !== 'FACULTY') return false;
-        if (entryClusterFilter === 'staff' && info.group !== 'STAFF') return false;
-        if (entryClusterFilter === 'faculty-male' && (info.group !== 'FACULTY' || !info.isMale)) return false;
-        if (entryClusterFilter === 'faculty-female' && (info.group !== 'FACULTY' || info.isMale)) return false;
-        if (entryClusterFilter === 'staff-male' && (info.group !== 'STAFF' || !info.isMale)) return false;
-        if (entryClusterFilter === 'staff-female' && (info.group !== 'STAFF' || info.isMale)) return false;
-        if (entryClusterFilter === 'male' && !info.isMale) return false;
-        if (entryClusterFilter === 'female' && info.isMale) return false;
+        if (info.group === 'FACULTY' || info.group === 'STAFF') return false;
+        return info.group === 'VISITING' && isEmployeeMatchingCategoryFilter(e.category, 'visiting-instructor');
       }
 
-      // 3. Employment Category Filter
-      if (entryCategoryFilter !== 'all') {
-        const cat = (e.category || '').trim().toLowerCase();
-        if (cat !== entryCategoryFilter.trim().toLowerCase()) return false;
+      if (isFacultyStaffOnly) {
+        // STRICT: ONLY Faculty & Staff; remove visiting instructors
+        const info = getEmployeeGroupAndGender(e);
+        if (info.group === 'VISITING') return false;
+        return (info.group === 'FACULTY' || info.group === 'STAFF') && isEmployeeMatchingCategoryFilter(e.category, 'faculty-staff');
       }
 
-      // 4. Validation Status Filter
-      if (entryValidationFilter === 'validated' && !e.isValidated) return false;
-      if (entryValidationFilter === 'pending' && !!e.isValidated) return false;
+      if (isJobOrderOnly) {
+        return isEmployeeMatchingCategoryFilter(e.category, 'job-order');
+      }
 
+      if (effectiveCategoryFilter && effectiveCategoryFilter !== 'all') {
+        return isEmployeeMatchingCategoryFilter(e.category, effectiveCategoryFilter);
+      }
       return true;
     });
-  }, [entries, searchTerm, entryClusterFilter, entryCategoryFilter, entryValidationFilter]);
+  }, [entries, searchTerm, isVisitingOnly, isFacultyStaffOnly, isJobOrderOnly, effectiveCategoryFilter]);
 
   const filteredCycles = cycles.filter(c => {
     const matchesSearch = c.name.toLowerCase().includes(cycleSearchTerm.toLowerCase());
@@ -2587,10 +2752,11 @@ const Payroll = () => {
     let cycleNet = 0;
 
     for (const entry of entries) {
+      if (!entry) continue;
       const gross = getCellValue(entry, 'compGross');
-      const rowDed = deductionCols.reduce((sum, col) => sum + getCellValue(entry, col.key), 0);
-      const effectiveDed = rowDed > 0 ? rowDed : Number(entry.totalDeductions || entry.total_deductions || 0);
-      const effectiveGross = gross > 0 ? gross : Number(entry.grossPay || entry.gross_pay || 0);
+      const rowDed = deductionCols.reduce((sum, col) => sum + (getCellValue(entry, col.key) || 0), 0);
+      const effectiveDed = rowDed > 0 ? rowDed : Number(entry?.totalDeductions || entry?.total_deductions || 0);
+      const effectiveGross = gross > 0 ? gross : Number(entry?.grossPay || entry?.gross_pay || 0);
       const effectiveNet = Math.max(0, Number((effectiveGross - effectiveDed).toFixed(2)));
 
       cycleGross += effectiveGross;
@@ -2604,10 +2770,11 @@ const Payroll = () => {
     let filteredNet = 0;
 
     for (const entry of filteredEntries) {
+      if (!entry) continue;
       const gross = getCellValue(entry, 'compGross');
-      const rowDed = deductionCols.reduce((sum, col) => sum + getCellValue(entry, col.key), 0);
-      const effectiveDed = rowDed > 0 ? rowDed : Number(entry.totalDeductions || entry.total_deductions || 0);
-      const effectiveGross = gross > 0 ? gross : Number(entry.grossPay || entry.gross_pay || 0);
+      const rowDed = deductionCols.reduce((sum, col) => sum + (getCellValue(entry, col.key) || 0), 0);
+      const effectiveDed = rowDed > 0 ? rowDed : Number(entry?.totalDeductions || entry?.total_deductions || 0);
+      const effectiveGross = gross > 0 ? gross : Number(entry?.grossPay || entry?.gross_pay || 0);
       const effectiveNet = Math.max(0, Number((effectiveGross - effectiveDed).toFixed(2)));
 
       filteredGross += effectiveGross;
@@ -2739,6 +2906,16 @@ const Payroll = () => {
                       </span>
                     </>
                   )}
+                  {(isVisitingOnly || (effectiveCategoryFilter && effectiveCategoryFilter !== 'all')) && (
+                    <>
+                      <span className="text-neutral-300">•</span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 border border-blue-200/80 rounded-md text-[10px] font-bold text-blue-700 uppercase tracking-wider">
+                        {isVisitingOnly ? 'Visiting Instructor Only' :
+                         isFacultyStaffOnly ? 'Faculty & Staff Only' :
+                         isJobOrderOnly ? 'Job Order Only' : effectiveCategoryFilter}
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -2778,12 +2955,24 @@ const Payroll = () => {
                       <DialogHeader>
                         <DialogTitle>Add Employee to Cycle</DialogTitle>
                         <DialogDescription>
-                          Select an employee to add to this payroll cycle.
+                          {isVisitingOnly 
+                            ? 'Select an eligible Visiting Instructor to enroll in this payroll cycle. Faculty and staff are excluded.'
+                            : isFacultyStaffOnly
+                            ? 'Select an eligible Faculty or Staff member to enroll in this payroll cycle. Visiting instructors are excluded.'
+                            : isJobOrderOnly
+                            ? 'Select an eligible Job Order employee to enroll in this payroll cycle.'
+                            : 'Select an active employee to add to this payroll cycle.'}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="max-h-[400px] overflow-y-auto space-y-2 py-4">
                         {availableEmployees.length === 0 ? (
-                          <p className="text-center text-neutral-500 py-4">No available active employees to add.</p>
+                          <p className="text-center text-neutral-500 py-4 text-xs">
+                            {isVisitingOnly
+                              ? 'No available active Visiting Instructors found for this cycle.'
+                              : isFacultyStaffOnly
+                              ? 'No available active Faculty or Staff found for this cycle.'
+                              : 'No available active employees to add.'}
+                          </p>
                         ) : (
                           availableEmployees.map(emp => (
                             <div key={emp.id} className="flex items-center justify-between p-3 border border-neutral-100 rounded-lg hover:bg-neutral-50 transition-colors">
@@ -3087,7 +3276,9 @@ const Payroll = () => {
               <div className="flex items-center justify-between mb-1">
                 <p className="text-xs text-neutral-500 font-semibold uppercase tracking-wider">Total Entries</p>
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-neutral-100 text-neutral-700">
-                  Cycle Staff
+                  {isVisitingOnly ? 'Visiting Instructors' :
+                   isFacultyStaffOnly ? 'Faculty & Staff' :
+                   isJobOrderOnly ? 'Job Order' : 'Cycle Staff'}
                 </span>
               </div>
               <h3 className="text-2xl font-black text-neutral-900 font-mono tracking-tight">
@@ -3110,10 +3301,10 @@ const Payroll = () => {
           "bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden transition-all duration-200",
           isFullscreen && "fixed inset-0 z-[1000] rounded-none border-none p-2 sm:p-3 bg-white flex flex-col h-screen w-screen"
         )}>
-          {/* Top Bar: In fullscreen, shows ONLY the search bar, employee count, and exit fullscreen button */}
+          {/* Top Bar: In fullscreen, shows ONLY the search bar, category filter, employee count, and exit fullscreen button */}
           {isFullscreen ? (
             <div className="px-4 py-3 bg-neutral-900 text-white rounded-lg shadow-sm flex items-center justify-between gap-4 shrink-0 mb-2.5">
-              <div className="flex items-center gap-4 flex-1 max-w-2xl">
+              <div className="flex items-center gap-3 flex-1 max-w-3xl">
                 <div className="relative flex-1">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
                   <Input 
@@ -3132,8 +3323,34 @@ const Payroll = () => {
                     </button>
                   )}
                 </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded-lg shadow-2xs text-white">
+                    <Filter className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                    <Select
+                      value={effectiveCategoryFilter}
+                      onValueChange={handleCategoryFilterChange}
+                    >
+                      <SelectTrigger className="h-7 border-0 bg-transparent text-xs font-bold text-white p-0 focus:ring-0 gap-1 w-[165px]">
+                        <SelectValue placeholder="Category Filter" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-neutral-800 border-neutral-700 text-white">
+                        <SelectItem value="all" className="text-white hover:bg-neutral-700">All Categories</SelectItem>
+                        <SelectItem value="visiting-instructor" className="text-white hover:bg-neutral-700">Visiting Instructor Only</SelectItem>
+                        <SelectItem value="faculty-staff" className="text-white hover:bg-neutral-700">Faculty & Staff Only</SelectItem>
+                        <SelectItem value="job-order" className="text-white hover:bg-neutral-700">Job Order Only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
                 <div className="text-xs text-neutral-300 font-medium whitespace-nowrap hidden sm:flex items-center gap-3">
-                  <span><strong className="font-bold text-white text-sm">{filteredEntries.length}</strong> of {entries.length} Staff</span>
+                  <span>
+                    <strong className="font-bold text-white text-sm">{filteredEntries.length}</strong> of {entries.length}{' '}
+                    {isVisitingOnly ? 'Visiting Instructors' :
+                     isFacultyStaffOnly ? 'Faculty & Staff' :
+                     isJobOrderOnly ? 'Job Order Employees' : 'Staff'}
+                  </span>
                   <span className="text-neutral-600">|</span>
                   <span>Gross: <strong className="text-emerald-400 font-mono font-bold">₱{formatCurrency(realTimeTotals.totalGross)}</strong></span>
                   <span className="text-neutral-600">|</span>
@@ -3156,220 +3373,118 @@ const Payroll = () => {
               </div>
             </div>
           ) : (
-            <div className="p-3 bg-neutral-50/90 border-b border-neutral-200/80 flex flex-col gap-2.5">
-              {/* Primary Search, Filter Suite, and Action Tools */}
-              <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-                {/* Left: Search & Filter Suite */}
-                <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
-                  {/* Search Bar */}
-                  <div className="relative min-w-[200px] max-w-xs flex-1">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
-                    <Input 
-                      id="payroll-employee-search-filter"
-                      placeholder="Filter name, ID, or position..." 
-                      className="pl-8 pr-7 h-8.5 bg-white border-neutral-200 text-xs rounded-lg focus:border-neutral-400 shadow-2xs placeholder:text-neutral-400"
-                      value={searchTerm}
-                      onChange={e => setSearchTerm(e.target.value)}
-                    />
-                    {searchTerm && (
-                      <button 
-                        type="button"
-                        onClick={() => setSearchTerm('')}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 text-xs font-bold p-0.5"
-                        title="Clear search"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Filter Icon and Label */}
-                  <div className="hidden sm:flex items-center gap-1 text-neutral-400 text-xs font-semibold px-0.5">
-                    <SlidersHorizontal className="w-3.5 h-3.5 text-neutral-500" />
-                  </div>
-
-                  {/* Cluster / Group Filter */}
-                  <Select 
-                    value={entryClusterFilter} 
-                    onValueChange={(v: string | null) => { if (v) setEntryClusterFilter(v); }}
-                  >
-                    <SelectTrigger className="h-8.5 min-w-[145px] text-xs bg-white border-neutral-200 rounded-lg shadow-2xs font-medium text-neutral-700" id="payroll-cluster-filter">
-                      <div className="flex items-center gap-1.5 truncate">
-                        <Users className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                        <SelectValue placeholder="Group / Cluster" />
-                      </div>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Groups / Clusters</SelectItem>
-                      <SelectItem value="faculty">Faculty (All)</SelectItem>
-                      <SelectItem value="staff">Staff / Admin (All)</SelectItem>
-                      <SelectItem value="faculty-male">Faculty - Male</SelectItem>
-                      <SelectItem value="faculty-female">Faculty - Female</SelectItem>
-                      <SelectItem value="staff-male">Staff - Male</SelectItem>
-                      <SelectItem value="staff-female">Staff - Female</SelectItem>
-                      <SelectItem value="male">All Male Staff</SelectItem>
-                      <SelectItem value="female">All Female Staff</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  {/* Category Filter */}
-                  <Select 
-                    value={entryCategoryFilter} 
-                    onValueChange={(v: string | null) => { if (v) setEntryCategoryFilter(v); }}
-                  >
-                    <SelectTrigger className="h-8.5 min-w-[135px] text-xs bg-white border-neutral-200 rounded-lg shadow-2xs font-medium text-neutral-700" id="payroll-category-filter">
-                      <div className="flex items-center gap-1.5 truncate">
-                        <Building2 className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                        <SelectValue placeholder="Category" />
-                      </div>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Categories</SelectItem>
-                      {availableCategories.map((cat) => (
-                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  {/* Validation Status Filter */}
-                  <Select 
-                    value={entryValidationFilter} 
-                    onValueChange={(v: string | null) => { if (v) setEntryValidationFilter(v); }}
-                  >
-                    <SelectTrigger className="h-8.5 min-w-[125px] text-xs bg-white border-neutral-200 rounded-lg shadow-2xs font-medium text-neutral-700" id="payroll-validation-filter">
-                      <div className="flex items-center gap-1.5 truncate">
-                        <ShieldCheck className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                        <SelectValue placeholder="Validation" />
-                      </div>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Status</SelectItem>
-                      <SelectItem value="validated">Validated Only</SelectItem>
-                      <SelectItem value="pending">Pending Check</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  {/* Reset Filter Button */}
-                  {isAnyEntryFilterActive && (
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={resetEntryFilters}
-                      className="h-8.5 px-2 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg font-medium gap-1"
-                      id="btn-reset-payroll-filters"
-                      title="Reset all filters"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      <span>Reset</span>
-                    </Button>
-                  )}
-
-                  {/* Count indicator */}
-                  <div className="hidden lg:flex items-center gap-1 text-xs text-neutral-500 font-medium pl-1">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded bg-neutral-200/70 text-neutral-800 font-semibold text-[11px] font-mono">
-                      {filteredEntries.length} / {entries.length}
-                    </span>
-                    <span>Staff</span>
-                  </div>
+            <div className="p-4 border-b border-neutral-100 bg-neutral-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-3 flex-1 max-w-3xl">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                  <Input 
+                    placeholder="Search employee name or ID..." 
+                    className="pl-10 h-9 bg-white"
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                  />
                 </div>
 
-                {/* Right: Actions Suite (Export, Sync, Import, Fullscreen) */}
-                <div className="flex flex-wrap items-center gap-2 shrink-0 border-t xl:border-t-0 pt-2 xl:pt-0 border-neutral-200/60">
-                  {/* Export Dropdown */}
-                  <Popover>
-                    <PopoverTrigger render={(props) => (
-                      <Button 
-                        {...props} 
-                        variant="outline" 
-                        size="sm" 
-                        className="h-8.5 px-3 bg-white border-neutral-200 text-neutral-800 hover:bg-neutral-50 text-xs font-semibold rounded-lg gap-1.5 shadow-2xs"
-                        disabled={isExportingPDF || isExportingExcel || isExportingSlips}
-                        id="btn-payroll-export-menu"
-                      >
-                        {isExportingPDF || isExportingExcel || isExportingSlips ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-neutral-600" />
-                        ) : (
-                          <Download className="w-3.5 h-3.5 text-neutral-600" />
-                        )}
-                        <span>Export</span>
-                        <ChevronDown className="w-3 h-3 text-neutral-400" />
-                      </Button>
-                    )} />
-                    <PopoverContent align="end" className="w-56 p-1.5 bg-white border border-neutral-200 shadow-lg rounded-xl z-50">
-                      <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Reports & Payslips</div>
-                      <button 
-                        onClick={downloadTablePDF} 
-                        disabled={isExportingPDF || isExportingExcel || isExportingSlips}
-                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-medium text-neutral-700 hover:bg-neutral-100 rounded-lg transition-colors text-left disabled:opacity-50 cursor-pointer"
-                      >
-                        <FileText className="w-4 h-4 text-rose-600 shrink-0" />
-                        <div>
-                          <div className="font-semibold text-neutral-900">PDF General Payroll</div>
-                          <div className="text-[10px] text-neutral-400">Official landscape document</div>
-                        </div>
-                      </button>
-                      <button 
-                        onClick={downloadAllExcel} 
-                        disabled={isExportingPDF || isExportingExcel || isExportingSlips}
-                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-medium text-neutral-700 hover:bg-neutral-100 rounded-lg transition-colors text-left disabled:opacity-50 cursor-pointer"
-                      >
-                        <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <div>
-                          <div className="font-semibold text-neutral-900">Excel Spreadsheet</div>
-                          <div className="text-[10px] text-neutral-400">Complete XLSX report</div>
-                        </div>
-                      </button>
-                      <div className="h-px bg-neutral-100 my-1" />
-                      <button 
-                        onClick={downloadAllPDF} 
-                        disabled={isExportingPDF || isExportingExcel || isExportingSlips}
-                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-medium text-neutral-700 hover:bg-neutral-100 rounded-lg transition-colors text-left disabled:opacity-50 cursor-pointer"
-                      >
-                        <Receipt className="w-4 h-4 text-blue-600 shrink-0" />
-                        <div>
-                          <div className="font-semibold text-neutral-900">All Payslips</div>
-                          <div className="text-[10px] text-neutral-400">Combined batch PDF slips</div>
-                        </div>
-                      </button>
-                    </PopoverContent>
-                  </Popover>
-
-                  {/* Sync Tools (when draft) */}
-                  {selectedCycle.status === 'draft' && (
-                    <>
+                <div className="flex items-center gap-1.5 shrink-0" id="payroll-category-filter-dropdown">
+                  <div className="flex items-center gap-1.5 px-3 py-1 bg-white border border-neutral-200 rounded-lg shadow-2xs">
+                    <Filter className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
+                    <span className="text-[11px] font-semibold text-neutral-600 hidden sm:inline">Category:</span>
+                    <Select
+                      value={effectiveCategoryFilter}
+                      onValueChange={handleCategoryFilterChange}
+                    >
+                      <SelectTrigger className="h-7 border-0 bg-transparent text-xs font-bold p-0 focus:ring-0 gap-1 w-[165px]">
+                        <SelectValue placeholder="Category Filter" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Categories</SelectItem>
+                        <SelectItem value="visiting-instructor">Visiting Instructor Only</SelectItem>
+                        <SelectItem value="faculty-staff">Faculty & Staff Only</SelectItem>
+                        <SelectItem value="job-order">Job Order Only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 border-l border-neutral-200 pl-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 mr-2">Export Report</p>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={downloadTablePDF} 
+                    className="gap-2 h-9 bg-white"
+                    disabled={isExportingPDF || isExportingExcel || isExportingSlips}
+                  >
+                    {isExportingPDF ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-neutral-600" />
+                    ) : (
+                      <FileText className="w-4 h-4" />
+                    )}
+                    {isExportingPDF ? 'Exporting PDF...' : 'PDF Report'}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={downloadAllExcel} 
+                    className="gap-2 h-9 bg-white"
+                    disabled={isExportingPDF || isExportingExcel || isExportingSlips}
+                  >
+                    {isExportingExcel ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-neutral-600" />
+                    ) : (
+                      <Download className="w-4 h-4" />
+                    )}
+                    {isExportingExcel ? 'Exporting Excel...' : 'Excel Report'}
+                  </Button>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 border-r border-neutral-200 pr-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 font-sans">Payslips</p>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={downloadAllPDF} 
+                    className="gap-2 h-9 text-neutral-600 hover:text-neutral-900 font-sans"
+                    disabled={isExportingPDF || isExportingExcel || isExportingSlips}
+                  >
+                    {isExportingSlips ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-neutral-600" />
+                    ) : (
+                      <Download className="w-4 h-4" />
+                    )}
+                    {isExportingSlips ? 'Generating...' : 'All Slips'}
+                  </Button>
+                </div>
+                {selectedCycle.status === 'draft' && (
+                  <>
+                    <div className="flex items-center gap-2 border-r pr-3 border-neutral-200">
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={handlePopulateCycle}
-                        className="gap-1.5 h-8.5 px-2.5 bg-white border-neutral-200 text-neutral-800 hover:bg-neutral-50 text-xs font-semibold rounded-lg shadow-2xs"
-                        id="btn-sync-populate-employees"
-                        title="Populate or refresh employees from masterlist"
+                        className="gap-1.5 h-9 bg-white border-neutral-300 text-neutral-800 hover:bg-neutral-50 text-xs font-semibold"
                       >
                         <RotateCcw className="w-3.5 h-3.5 text-neutral-600" />
-                        <span className="hidden sm:inline">Sync Staff</span>
+                        Sync / Populate Employees
                       </Button>
-
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={handleSyncDtr}
                         disabled={isSyncingDtr}
-                        className="gap-1.5 h-8.5 px-2.5 bg-orange-50/80 border-orange-200 text-orange-950 hover:bg-orange-100 text-xs font-semibold rounded-lg shadow-2xs"
-                        id="btn-sync-dtr-absences"
+                        className="gap-1.5 h-9 bg-orange-50/80 border-orange-200 text-orange-950 hover:bg-orange-100 text-xs font-semibold"
                         title="Force recalculate Absences & Undertime from DTR records in real-time"
                       >
                         <RefreshCw className={cn("w-3.5 h-3.5 text-orange-600", isSyncingDtr && "animate-spin")} />
-                        <span>{isSyncingDtr ? "Syncing..." : "Sync DTR"}</span>
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <span>{isSyncingDtr ? "Syncing DTR..." : "Sync DTR Abs."}</span>
+                        <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5" title="Realtime DTR Sync Active" />
                       </Button>
-
-                      <label 
-                        className="flex items-center gap-1.5 px-2.5 h-8.5 bg-neutral-900 hover:bg-neutral-800 text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors shadow-2xs select-none"
-                        id="btn-import-deductions-xlsx"
-                        title="Import deductions from XLSX file"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Deductions</span>
+                    </div>
+                    <div className="flex items-center gap-2 border-r pr-3 border-neutral-200">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 font-sans">Import</p>
+                      <label className="flex items-center gap-1.5 px-3 h-9 bg-zinc-950 hover:bg-zinc-805 text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors shadow-sm select-none font-sans">
+                        <Plus className="w-4 h-4" />
+                        Deductions XLSX/XLS
                         <input
                           type="file"
                           accept=".xlsx, .xls"
@@ -3377,63 +3492,23 @@ const Payroll = () => {
                           className="hidden"
                         />
                       </label>
-                    </>
-                  )}
-
-                  {/* Fullscreen Button */}
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={toggleFullscreen} 
-                    className="gap-1.5 h-8.5 px-2.5 border-neutral-200 bg-white text-neutral-800 hover:bg-neutral-50 font-sans shadow-2xs text-xs font-semibold rounded-lg transition-colors"
-                    id="btn-toggle-fullscreen"
-                    title="Expand spreadsheet to fullscreen view"
-                  >
-                    <Maximize2 className="w-3.5 h-3.5 text-neutral-700" />
-                    <span className="hidden md:inline">Fullscreen</span>
-                  </Button>
+                    </div>
+                  </>
+                )}
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={toggleFullscreen} 
+                  className="gap-2 h-9 border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-50 font-sans shadow-xs font-semibold transition-colors"
+                  title="Expand spreadsheet to fullscreen view"
+                >
+                  <Maximize2 className="w-4 h-4 text-neutral-700" />
+                  <span>Fullscreen</span>
+                </Button>
+                <div className="text-xs font-medium text-neutral-500">
+                  {filteredEntries.length} Employees
                 </div>
               </div>
-
-              {/* Active Filter Chips Bar (rendered whenever any filter is applied) */}
-              {isAnyEntryFilterActive && (
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 px-0.5 text-xs border-t border-neutral-200/60">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Filtered by:</span>
-                    {searchTerm && (
-                      <Badge variant="outline" className="text-[11px] font-normal gap-1 bg-white border-neutral-200 text-neutral-700 py-0.5">
-                        Keyword: "{searchTerm}"
-                        <button onClick={() => setSearchTerm('')} className="hover:text-rose-600 font-bold ml-0.5">×</button>
-                      </Badge>
-                    )}
-                    {entryClusterFilter !== 'all' && (
-                      <Badge variant="outline" className="text-[11px] font-normal gap-1 bg-white border-neutral-200 text-neutral-700 py-0.5">
-                        Group: {entryClusterFilter}
-                        <button onClick={() => setEntryClusterFilter('all')} className="hover:text-rose-600 font-bold ml-0.5">×</button>
-                      </Badge>
-                    )}
-                    {entryCategoryFilter !== 'all' && (
-                      <Badge variant="outline" className="text-[11px] font-normal gap-1 bg-white border-neutral-200 text-neutral-700 py-0.5">
-                        Category: {entryCategoryFilter}
-                        <button onClick={() => setEntryCategoryFilter('all')} className="hover:text-rose-600 font-bold ml-0.5">×</button>
-                      </Badge>
-                    )}
-                    {entryValidationFilter !== 'all' && (
-                      <Badge variant="outline" className="text-[11px] font-normal gap-1 bg-white border-neutral-200 text-neutral-700 py-0.5">
-                        Status: {entryValidationFilter === 'validated' ? 'Validated Only' : 'Pending Check'}
-                        <button onClick={() => setEntryValidationFilter('all')} className="hover:text-rose-600 font-bold ml-0.5">×</button>
-                      </Badge>
-                    )}
-                  </div>
-
-                  <div className="text-[11px] text-neutral-500 font-medium">
-                    Showing <strong className="text-neutral-900 font-semibold">{filteredEntries.length}</strong> of {entries.length} staff
-                    {realTimeTotals.isFiltered && (
-                      <> • Filtered Net: <strong className="text-emerald-700 font-mono font-semibold">₱{formatCurrency(realTimeTotals.filteredNet)}</strong></>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -3960,6 +4035,8 @@ const Payroll = () => {
                 </thead>
                 <tbody className="divide-y divide-neutral-200 bg-white">
                   {(() => {
+                    const visitingMale: any[] = [];
+                    const visitingFemale: any[] = [];
                     const facultyMale: any[] = [];
                     const facultyFemale: any[] = [];
                     const staffMale: any[] = [];
@@ -3967,8 +4044,12 @@ const Payroll = () => {
                     const others: any[] = [];
 
                     for (const entry of filteredEntries) {
+                      if (!entry) continue;
                       const info = getEmployeeGroupAndGender(entry);
-                      if (info.group === 'FACULTY') {
+                      if (info.group === 'VISITING') {
+                        if (info.isMale) visitingMale.push(entry);
+                        else visitingFemale.push(entry);
+                      } else if (info.group === 'FACULTY') {
                         if (info.isMale) facultyMale.push(entry);
                         else facultyFemale.push(entry);
                       } else if (info.group === 'STAFF') {
@@ -3980,60 +4061,62 @@ const Payroll = () => {
                     }
 
                     const sortByName = (a: any, b: any) => {
-                      return a.employeeName.localeCompare(b.employeeName);
+                      const nameA = a?.employeeName || (a?.lastName && a?.firstName ? `${a.lastName}, ${a.firstName}` : (a?.name || ''));
+                      const nameB = b?.employeeName || (b?.lastName && b?.firstName ? `${b.lastName}, ${b.firstName}` : (b?.name || ''));
+                      return nameA.localeCompare(nameB);
                     };
 
+                    visitingMale.sort(sortByName);
+                    visitingFemale.sort(sortByName);
                     facultyMale.sort(sortByName);
                     facultyFemale.sort(sortByName);
                     staffMale.sort(sortByName);
                     staffFemale.sort(sortByName);
                     others.sort(sortByName);
 
-                    const sections = [
-                      { label: 'FACULTY: MALE', entries: facultyMale, isGenderSub: false },
-                      { label: 'Female:', entries: facultyFemale, isGenderSub: true },
-                      { label: 'STAFF: MALE', entries: staffMale, isGenderSub: false },
-                      { label: 'Female:', entries: staffFemale, isGenderSub: true },
-                      { label: 'OTHERS', entries: others, isGenderSub: false }
-                    ].filter(sect => sect.entries.length > 0);
+                    let rawSections: any[] = [];
+                    if (isVisitingOnly) {
+                      rawSections = [
+                        { label: 'VISITING INSTRUCTORS: MALE', entries: visitingMale, isGenderSub: false },
+                        { label: 'Female:', entries: visitingFemale, isGenderSub: true }
+                      ];
+                    } else if (isFacultyStaffOnly) {
+                      rawSections = [
+                        { label: 'FACULTY: MALE', entries: facultyMale, isGenderSub: false },
+                        { label: 'Female:', entries: facultyFemale, isGenderSub: true },
+                        { label: 'STAFF: MALE', entries: staffMale, isGenderSub: false },
+                        { label: 'Female:', entries: staffFemale, isGenderSub: true }
+                      ];
+                    } else {
+                      rawSections = [
+                        { label: 'VISITING INSTRUCTORS: MALE', entries: visitingMale, isGenderSub: false },
+                        { label: 'Female:', entries: visitingFemale, isGenderSub: true },
+                        { label: 'FACULTY: MALE', entries: facultyMale, isGenderSub: false },
+                        { label: 'Female:', entries: facultyFemale, isGenderSub: true },
+                        { label: 'STAFF: MALE', entries: staffMale, isGenderSub: false },
+                        { label: 'Female:', entries: staffFemale, isGenderSub: true },
+                        { label: 'OTHERS', entries: others, isGenderSub: false }
+                      ];
+                    }
+
+                    const sections = rawSections.filter(sect => sect && Array.isArray(sect.entries) && sect.entries.length > 0);
 
                     if (sections.length === 0) {
-                      if (entries.length > 0 && isAnyEntryFilterActive) {
-                        return (
-                          <tr key="empty-filter-results">
-                            <td colSpan={columnsList.length + 7} className="p-12 text-center bg-white text-neutral-500 font-sans">
-                              <div className="flex flex-col items-center justify-center gap-3 max-w-md mx-auto">
-                                <SlidersHorizontal className="w-9 h-9 text-neutral-300" />
-                                <div>
-                                  <h3 className="text-sm font-semibold text-neutral-800">No Employees Match Filter Criteria</h3>
-                                  <p className="text-xs text-neutral-500 mt-1">
-                                    No records match your selected keyword, group, category, or validation status.
-                                  </p>
-                                </div>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={resetEntryFilters}
-                                  className="mt-2 gap-1.5 text-xs font-semibold bg-white border-neutral-300 text-neutral-800 hover:bg-neutral-50"
-                                >
-                                  <X className="w-3.5 h-3.5 text-rose-500" />
-                                  Reset All Filters
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      }
-
                       return (
                         <tr key="empty-payroll-entries">
                           <td colSpan={columnsList.length + 7} className="p-12 text-center bg-white text-neutral-500 font-sans">
                             <div className="flex flex-col items-center justify-center gap-3 max-w-md mx-auto">
                               <Users className="w-10 h-10 text-neutral-300" />
                               <div>
-                                <h3 className="text-sm font-semibold text-neutral-800">No Employees in this Payroll Cycle</h3>
+                                <h3 className="text-sm font-semibold text-neutral-800">
+                                  {isVisitingOnly ? 'No Visiting Instructors in this Payroll Cycle' :
+                                   isFacultyStaffOnly ? 'No Faculty or Staff in this Payroll Cycle' :
+                                   'No Employees in this Payroll Cycle'}
+                                </h3>
                                 <p className="text-xs text-neutral-500 mt-1">
-                                  Click below to automatically populate all employees matching this cycle's campus and category, along with their salary, DTR metrics, and deductions.
+                                  {isVisitingOnly 
+                                    ? "Click below to automatically populate active Visiting Instructors for this cycle."
+                                    : "Click below to automatically populate all employees matching this cycle's campus and category, along with their salary, DTR metrics, and deductions."}
                                 </p>
                               </div>
                               <Button
@@ -4054,6 +4137,7 @@ const Payroll = () => {
                     let globalIdx = 0;
                     
                     return sections.flatMap((section, sIndex) => {
+                      if (!section || !Array.isArray(section.entries)) return [];
                       const headerRow = (
                         <tr key={`sec-hdr-${section.label}-${section.isGenderSub}-${sIndex}`} className="bg-neutral-100/90 border-y border-neutral-300 divide-x divide-neutral-200">
                           {/* Blank for Seq */}
@@ -4065,19 +4149,20 @@ const Payroll = () => {
                         </tr>
                       );
 
-                      const rows = section.entries.map((entry) => {
+                      const rows = section.entries.map((entry: any) => {
+                        if (!entry) return null;
                         globalIdx++;
                         const currentIdx = globalIdx;
-                        const gross = getCellValue(entry, 'compGross');
+                        const gross = getCellValue(entry, 'compGross') || 0;
                         const totalDed = columnsList
                           .filter(col => col.category === "DEDUCTIONS")
-                          .reduce((sum, col) => sum + getCellValue(entry, col.key), 0);
+                          .reduce((sum, col) => sum + (getCellValue(entry, col.key) || 0), 0);
                         const net = Number((gross - totalDed).toFixed(2));
                         const firstHalf = Number((net / 2).toFixed(2));
                         const secondHalf = Number((net - firstHalf).toFixed(2));
 
                         return (
-                          <tr key={entry.id} className="hover:bg-slate-50/75 divide-x divide-neutral-200 transition-colors">
+                          <tr key={entry.id || `entry-${currentIdx}`} className="hover:bg-slate-50/75 divide-x divide-neutral-200 transition-colors">
                             {/* Seq No */}
                             <td className="p-2 text-center sticky left-0 z-10 bg-slate-50 font-mono border-r border-neutral-200 text-neutral-500 font-medium" style={{ minWidth: "60px", width: "60px" }}>{currentIdx}</td>
                             {/* Name */}

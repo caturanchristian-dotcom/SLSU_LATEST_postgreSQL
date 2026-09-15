@@ -5,26 +5,67 @@ import { broadcastRealtime } from "../index.js";
 
 export const payrollRouter = Router();
 
+export function isEmployeeMatchingCategoryFilter(empCategory: string, cycleCategoryFilter: string): boolean {
+  if (!cycleCategoryFilter || cycleCategoryFilter === 'all' || cycleCategoryFilter === 'ALL') return true;
+  const filter = cycleCategoryFilter.toLowerCase().trim();
+  const cat = (empCategory || '').toUpperCase().trim();
+
+  if (filter === 'visiting-instructor' || filter === 'visiting instructor' || filter === 'visiting' || filter.includes('visiting')) {
+    return cat.includes('VISITING') || cat.includes('PART-TIME') || cat.includes('LECTURER');
+  }
+
+  if (filter === 'faculty-staff' || filter === 'faculty & staff' || filter === 'faculty_staff' || filter.includes('faculty')) {
+    return cat.includes('FACULTY') || cat.includes('STAFF') || cat === 'REGULAR EMPLOYEE' || cat === 'PERMANENT';
+  }
+
+  if (filter === 'job-order' || filter === 'job order' || filter === 'jo' || filter.includes('job')) {
+    return cat.includes('JOB ORDER') || cat.includes('JOB_ORDER') || cat === 'JO';
+  }
+
+  return cat === filter.toUpperCase() || cat.includes(filter.toUpperCase());
+}
+
 // Helper to populate initial employees and calculate calculations
 export async function populateCycleEmployees(cycleId: string) {
   try {
     const cycle = await db.prepare("SELECT * FROM payroll_cycles WHERE id = ?").get(cycleId) as any;
     if (!cycle) return;
 
-    const existingEntries = await db.prepare("SELECT employeeId FROM payroll_entries WHERE cycleId = ?").all(cycleId) as any[];
-    const existingEmpIds = new Set(existingEntries.map(e => e.employeeId));
+    const rawCat = cycle.categoryFilter || cycle.category_filter || ((cycle.name && (cycle.name.trim().toUpperCase() === 'VI' || cycle.name.toLowerCase().includes('visiting'))) ? 'visiting-instructor' : 'all');
+    const catFilter = (rawCat || 'all').toLowerCase();
+    const isStrictVisiting = catFilter === 'visiting-instructor' || catFilter === 'visiting instructor' || catFilter === 'visiting' || catFilter.includes('visiting');
+    const isStrictFacultyStaff = catFilter === 'faculty-staff' || catFilter === 'faculty & staff' || catFilter === 'faculty_staff' || catFilter.includes('faculty');
+    const isStrictJobOrder = catFilter === 'job-order' || catFilter === 'job order' || catFilter === 'jo' || catFilter.includes('job');
+
+    // Remove any entries that violate the cycle's category filter if it's strict
+    if (isStrictVisiting || isStrictFacultyStaff || isStrictJobOrder) {
+      const existingEntries = await db.prepare(`
+        SELECT pe.id, pe.employeeId, e.category 
+        FROM payroll_entries pe 
+        LEFT JOIN employees e ON pe.employeeId = e.id 
+        WHERE pe.cycleId = ?
+      `).all(cycleId) as any[];
+
+      for (const ent of existingEntries) {
+        if (!isEmployeeMatchingCategoryFilter(ent.category, rawCat)) {
+          await db.prepare("DELETE FROM payroll_entries WHERE id = ?").run(ent.id);
+        }
+      }
+    }
+
+    const currentEntries = await db.prepare("SELECT employeeId FROM payroll_entries WHERE cycleId = ?").all(cycleId) as any[];
+    const currentEmpIds = new Set(currentEntries.map(e => e.employeeId));
 
     let empQuery = "SELECT * FROM employees WHERE status = 'active' OR status IS NULL";
     const empParams: any[] = [];
 
     // Filter category
-    const catFilter = (cycle.categoryFilter || 'all').toLowerCase();
-    if (catFilter === 'faculty-staff' || catFilter === 'faculty & staff' || catFilter === 'faculty_staff') {
-      empQuery += " AND (UPPER(category) LIKE '%FACULTY%' OR UPPER(category) LIKE '%STAFF%')";
-    } else if (catFilter === 'visiting-instructor' || catFilter === 'visiting instructor' || catFilter === 'visiting') {
+    if (isStrictVisiting) {
       empQuery += " AND (UPPER(category) LIKE '%VISITING%' OR UPPER(category) LIKE '%PART-TIME%' OR UPPER(category) LIKE '%LECTURER%')";
-    } else if (catFilter === 'job-order' || catFilter === 'job order' || catFilter === 'jo') {
-      empQuery += " AND (UPPER(category) LIKE '%JOB ORDER%' OR UPPER(category) LIKE '%JOB_ORDER%' OR UPPER(category) LIKE '%JO%')";
+    } else if (isStrictFacultyStaff) {
+      empQuery += " AND (UPPER(category) LIKE '%FACULTY%' OR UPPER(category) LIKE '%STAFF%' OR UPPER(category) LIKE '%REGULAR%')";
+    } else if (isStrictJobOrder) {
+      empQuery += " AND (UPPER(category) LIKE '%JOB ORDER%' OR UPPER(category) LIKE '%JOB_ORDER%' OR UPPER(category) = 'JO')";
     } else if (catFilter !== 'all') {
       empQuery += " AND (category = ? OR UPPER(category) = UPPER(?) OR category LIKE ?)";
       empParams.push(cycle.categoryFilter, cycle.categoryFilter, `%${cycle.categoryFilter}%`);
@@ -39,16 +80,16 @@ export async function populateCycleEmployees(cycleId: string) {
 
     let matchingEmployees = await db.prepare(empQuery).all(...empParams) as any[];
 
-    // If no employees matched the strict campus filter, fallback to all active employees in that category
+    // If no employees matched the strict campus filter, fallback to active employees matching that category across any campus
     if (matchingEmployees.length === 0 && cycle.campus && cycle.campus !== 'All Campuses') {
       let fallbackQuery = "SELECT * FROM employees WHERE status = 'active' OR status IS NULL";
       const fallbackParams: any[] = [];
-      if (catFilter === 'faculty-staff' || catFilter === 'faculty & staff' || catFilter === 'faculty_staff') {
-        fallbackQuery += " AND (UPPER(category) LIKE '%FACULTY%' OR UPPER(category) LIKE '%STAFF%')";
-      } else if (catFilter === 'visiting-instructor' || catFilter === 'visiting instructor' || catFilter === 'visiting') {
+      if (isStrictVisiting) {
         fallbackQuery += " AND (UPPER(category) LIKE '%VISITING%' OR UPPER(category) LIKE '%PART-TIME%' OR UPPER(category) LIKE '%LECTURER%')";
-      } else if (catFilter === 'job-order' || catFilter === 'job order' || catFilter === 'jo') {
-        fallbackQuery += " AND (UPPER(category) LIKE '%JOB ORDER%' OR UPPER(category) LIKE '%JOB_ORDER%' OR UPPER(category) LIKE '%JO%')";
+      } else if (isStrictFacultyStaff) {
+        fallbackQuery += " AND (UPPER(category) LIKE '%FACULTY%' OR UPPER(category) LIKE '%STAFF%' OR UPPER(category) LIKE '%REGULAR%')";
+      } else if (isStrictJobOrder) {
+        fallbackQuery += " AND (UPPER(category) LIKE '%JOB ORDER%' OR UPPER(category) LIKE '%JOB_ORDER%' OR UPPER(category) = 'JO')";
       } else if (catFilter !== 'all') {
         fallbackQuery += " AND (category = ? OR UPPER(category) = UPPER(?) OR category LIKE ?)";
         fallbackParams.push(cycle.categoryFilter, cycle.categoryFilter, `%${cycle.categoryFilter}%`);
@@ -56,13 +97,16 @@ export async function populateCycleEmployees(cycleId: string) {
       matchingEmployees = await db.prepare(fallbackQuery).all(...fallbackParams) as any[];
     }
 
-    // If still empty, fallback to all active employees
-    if (matchingEmployees.length === 0) {
+    // Note: If still empty and catFilter is strict, do NOT fallback to other categories!
+    if (matchingEmployees.length === 0 && catFilter === 'all') {
       matchingEmployees = await db.prepare("SELECT * FROM employees WHERE status = 'active' OR status IS NULL").all() as any[];
     }
 
     for (const emp of matchingEmployees) {
-      if (existingEmpIds.has(emp.id)) continue;
+      if (currentEmpIds.has(emp.id)) continue;
+      // Double check category validity
+      if (!isEmployeeMatchingCategoryFilter(emp.category, cycle.categoryFilter)) continue;
+
       const entryId = `entry-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
       const empName = `${emp.lastName ? emp.lastName + ', ' : ''}${emp.firstName || ''} ${emp.mi ? emp.mi + '.' : ''}`.trim();
       const isSemi = cycle.type === 'semi-monthly';
@@ -119,46 +163,59 @@ payrollRouter.get("/payroll-cycles", async (req: any, res: any) => {
       cycles = [];
     }
 
-    const formattedCycles = await Promise.all(cycles.map(async (c) => {
-      let totalGross = Number(c.totalGross ?? c.total_gross ?? 0);
-      let totalDeductions = Number(c.totalDeductions ?? c.total_deductions ?? 0);
-      let totalNet = Number(c.totalNet ?? c.total_net ?? 0);
-
-      if (totalGross === 0 && totalNet === 0) {
-        try {
-          const sumRow = await db.prepare(`
-            SELECT 
-              COALESCE(SUM("grossPay"), 0) as "sumGross", 
-              COALESCE(SUM("totalDeductions"), 0) as "sumDeds", 
-              COALESCE(SUM("netPay"), 0) as "sumNet" 
-            FROM payroll_entries 
-            WHERE "cycleId" = ?
-          `).get(c.id) as any;
-          if (sumRow) {
-            const g = Number(sumRow.sumGross ?? sumRow.sumgross ?? 0);
-            const d = Number(sumRow.sumDeds ?? sumRow.sumdeds ?? 0);
-            const n = Number(sumRow.sumNet ?? sumRow.sumnet ?? 0);
-            if (g > 0 || n !== 0) {
-              totalGross = Number(g.toFixed(2));
-              totalDeductions = Number(d.toFixed(2));
-              totalNet = Number(n.toFixed(2));
-            }
-          }
-        } catch {}
-      }
-
-      return {
-        ...c,
-        totalGross,
-        totalDeductions,
-        totalNet
-      };
+    cycles = cycles.map(c => ({
+      ...c,
+      categoryFilter: c.categoryFilter || c.category_filter || ((c.name && (c.name.trim().toUpperCase() === 'VI' || c.name.toLowerCase().includes('visiting'))) ? 'visiting-instructor' : 'all')
     }));
 
-    res.json(formattedCycles);
+    res.json(cycles);
   } catch (err: any) {
     console.error("[Payroll] Error in GET /payroll-cycles:", err);
     res.status(500).json({ error: err.message || "Failed to fetch payroll cycles" });
+  }
+});
+
+payrollRouter.put("/payroll-cycles/:id/category-filter", async (req: any, res: any) => {
+  try {
+    const { id } = req.params;
+    const { categoryFilter } = req.body;
+    if (!categoryFilter) return res.status(400).json({ error: "categoryFilter required" });
+
+    try {
+      await db.prepare(`
+        UPDATE payroll_cycles 
+        SET "categoryFilter" = ?, category_filter = ? 
+        WHERE id = ?
+      `).run(categoryFilter, categoryFilter, id);
+    } catch {
+      await db.prepare(`
+        UPDATE payroll_cycles 
+        SET category_filter = ? 
+        WHERE id = ?
+      `).run(categoryFilter, id);
+    }
+
+    // If filtering to visiting-instructor, immediately purge non-visiting entries
+    if (categoryFilter === 'visiting-instructor' || categoryFilter.includes('visiting')) {
+      const entries = await db.prepare("SELECT pe.id, e.category, e.position FROM payroll_entries pe LEFT JOIN employees e ON pe.employeeId = e.id WHERE pe.cycleId = ?").all(id) as any[];
+      for (const ent of entries) {
+        if (!isEmployeeMatchingCategoryFilter(ent.category, 'visiting-instructor')) {
+          await db.prepare("DELETE FROM payroll_entries WHERE id = ?").run(ent.id);
+        }
+      }
+    } else if (categoryFilter === 'faculty-staff' || categoryFilter.includes('faculty')) {
+      const entries = await db.prepare("SELECT pe.id, e.category, e.position FROM payroll_entries pe LEFT JOIN employees e ON pe.employeeId = e.id WHERE pe.cycleId = ?").all(id) as any[];
+      for (const ent of entries) {
+        if (!isEmployeeMatchingCategoryFilter(ent.category, 'faculty-staff')) {
+          await db.prepare("DELETE FROM payroll_entries WHERE id = ?").run(ent.id);
+        }
+      }
+    }
+
+    res.json({ success: true, categoryFilter });
+  } catch (err: any) {
+    console.error("[Payroll] Error in PUT /payroll-cycles/:id/category-filter:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -184,9 +241,9 @@ payrollRouter.post("/payroll-cycles", async (req: any, res: any) => {
 
     try {
       await db.prepare(`
-        INSERT INTO payroll_cycles (id, name, startDate, endDate, type, categoryFilter, status, managedBy, managedByName, campus)
-        VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
-      `).run(id, name || `Cycle ${new Date().toISOString().split('T')[0]}`, sDate, eDate, type || 'all', categoryFilter || 'all', managedBy || 'accountant-1', accountantName, assignedCampus);
+        INSERT INTO payroll_cycles (id, name, "startDate", "endDate", type, "categoryFilter", category_filter, status, "managedBy", "managedByName", campus)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
+      `).run(id, name || `Cycle ${new Date().toISOString().split('T')[0]}`, sDate, eDate, type || 'all', categoryFilter || 'all', categoryFilter || 'all', managedBy || 'accountant-1', accountantName, assignedCampus);
     } catch (insertErr: any) {
       console.warn("[Payroll] Standard insert failed, trying snake_case insert:", insertErr?.message);
       await db.prepare(`
@@ -233,6 +290,10 @@ payrollRouter.get("/payroll-cycles/:id", async (req: any, res: any) => {
       console.warn(`[Payroll] Auto-populate warning for cycle ${id}:`, popErr);
     }
 
+    if (cycle) {
+      cycle.categoryFilter = cycle.categoryFilter || cycle.category_filter || ((cycle.name && (cycle.name.trim().toUpperCase() === 'VI' || cycle.name.toLowerCase().includes('visiting'))) ? 'visiting-instructor' : 'all');
+    }
+
     res.json(cycle);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -242,14 +303,25 @@ payrollRouter.get("/payroll-cycles/:id", async (req: any, res: any) => {
 payrollRouter.get("/payroll-cycles/:id/entries", async (req: any, res: any) => {
   try {
     const { id } = req.params;
+    const cycle = await db.prepare("SELECT * FROM payroll_cycles WHERE id = ?").get(id) as any;
 
     let entries = await db.prepare(`
-      SELECT pe.*, e.employeeId as employeeNo, e.category, e.position, e.campus, e.email, e.phoneNumber, e.hasPhilhealth, e.hasPagibig, e.hasSss
+      SELECT pe.*, e.employeeId as employeeNo, e.category, e.position, e.campus, e.email, e.phoneNumber, e.hasPhilhealth, e.hasPagibig, e.hasSss, e.basicSalary, e.salaryType, e.bpno, e.crn
       FROM payroll_entries pe
       LEFT JOIN employees e ON pe.employeeId = e.id
       WHERE pe.cycleId = ?
       ORDER BY pe.employeeName ASC
     `).all(id) as any[];
+
+    // If cycle has a specific category filter, enforce strict matching and purge any mismatched entries from DB
+    const rawCycleCat = cycle?.categoryFilter || cycle?.category_filter || ((cycle?.name && (cycle.name.trim().toUpperCase() === 'VI' || cycle.name.toLowerCase().includes('visiting'))) ? 'visiting-instructor' : 'all');
+    if (cycle && rawCycleCat && rawCycleCat !== 'all') {
+      const nonMatching = entries.filter((pe) => !isEmployeeMatchingCategoryFilter(pe.category, rawCycleCat));
+      for (const nm of nonMatching) {
+        await db.prepare("DELETE FROM payroll_entries WHERE id = ?").run(nm.id);
+      }
+      entries = entries.filter((pe) => isEmployeeMatchingCategoryFilter(pe.category, rawCycleCat));
+    }
 
     if (entries.length === 0) {
       try {
@@ -261,6 +333,10 @@ payrollRouter.get("/payroll-cycles/:id/entries", async (req: any, res: any) => {
           WHERE pe.cycleId = ?
           ORDER BY pe.employeeName ASC
         `).all(id) as any[];
+
+        if (cycle && rawCycleCat && rawCycleCat !== 'all') {
+          entries = entries.filter((pe) => isEmployeeMatchingCategoryFilter(pe.category, rawCycleCat));
+        }
       } catch (err) {
         console.warn(`[Payroll] Populate error for cycle ${id}:`, err);
       }
@@ -291,13 +367,47 @@ payrollRouter.get("/payroll-cycles/:id/entries", async (req: any, res: any) => {
         ? Number(pe.absences)
         : (customValues.absences !== undefined ? Number(customValues.absences) : (deductions.absences !== undefined ? Number(deductions.absences) : 0));
 
+      const isViEmp = Boolean(
+        (pe.category && (
+          String(pe.category).toUpperCase().includes('VISITING') ||
+          String(pe.category).toUpperCase().includes('PART-TIME') ||
+          String(pe.category).toUpperCase().includes('PART TIME') ||
+          String(pe.category).toUpperCase().includes('LECTURER') ||
+          String(pe.category).toUpperCase() === 'VI'
+        )) || 
+        (pe.position && (
+          String(pe.position).toUpperCase().includes('VISITING') ||
+          String(pe.position).toUpperCase().includes('VI ') ||
+          String(pe.position).toUpperCase().endsWith(' VI')
+        )) ||
+        (cycle && (
+          String(cycle.categoryFilter || cycle.category_filter || '').toLowerCase().includes('visiting') ||
+          String(cycle.name || '').toUpperCase().trim() === 'VI' ||
+          String(cycle.name || '').toLowerCase().includes('visiting')
+        ))
+      );
+
+      const isSemi = cycle?.type === 'semi-monthly';
+      const viGovGsis = isViEmp ? Number((resolvedSal2nd * 0.12).toFixed(2)) : (Number(pe.govSecGsis) || 0);
+      const viGovPh = isViEmp ? Number(((resolvedSal2nd * 0.05) / 2).toFixed(2)) : (Number(pe.govSecPh) || 0);
+      const viGovHdmf = isViEmp ? (resolvedSal2nd > 0 ? (isSemi ? 100.00 : 200.00) : 0) : (Number(pe.govSecHdmf) || 0);
+      const viGovEcip = isViEmp ? (resolvedSal2nd > 0 ? (isSemi ? 50.00 : 100.00) : 0) : (Number(pe.govSecEcip) || 0);
+
+      const viGovOverrides = isViEmp ? {
+        govSecGsis: viGovGsis,
+        govSecPh: viGovPh,
+        govSecHdmf: viGovHdmf,
+        govSecEcip: viGovEcip
+      } : {};
+
       return {
         ...pe,
+        ...viGovOverrides,
         absences: resolvedAbsences,
         compSal2nd: resolvedSal2nd,
         basicPay: pe.basicPay || resolvedSal2nd,
-        customValues: { ...deductions, ...customValues, compSal2nd: resolvedSal2nd, absences: resolvedAbsences },
-        deductions: { ...deductions, absences: resolvedAbsences }
+        customValues: { ...deductions, ...customValues, compSal2nd: resolvedSal2nd, absences: resolvedAbsences, ...viGovOverrides },
+        deductions: { ...deductions, absences: resolvedAbsences, ...viGovOverrides }
       };
     });
 
@@ -326,14 +436,28 @@ payrollRouter.get("/payroll-cycles/:id/available-employees", async (req: any, re
 
     let query = `
       SELECT * FROM employees 
-      WHERE status = 'active'
+      WHERE (status = 'active' OR status IS NULL)
       AND id NOT IN (SELECT employeeId FROM payroll_entries WHERE cycleId = ?)
     `;
     const params: any[] = [id];
 
+    const rawCat = cycle.categoryFilter || cycle.category_filter || ((cycle.name && (cycle.name.trim().toUpperCase() === 'VI' || cycle.name.toLowerCase().includes('visiting'))) ? 'visiting-instructor' : 'all');
+    const catFilter = (rawCat || 'all').toLowerCase();
+    if (catFilter === 'visiting-instructor' || catFilter === 'visiting instructor' || catFilter === 'visiting' || catFilter.includes('visiting')) {
+      query += " AND (UPPER(category) LIKE '%VISITING%' OR UPPER(category) LIKE '%PART-TIME%' OR UPPER(category) LIKE '%LECTURER%')";
+    } else if (catFilter === 'faculty-staff' || catFilter === 'faculty & staff' || catFilter === 'faculty_staff' || catFilter.includes('faculty')) {
+      query += " AND (UPPER(category) LIKE '%FACULTY%' OR UPPER(category) LIKE '%STAFF%' OR UPPER(category) LIKE '%REGULAR%')";
+    } else if (catFilter === 'job-order' || catFilter === 'job order' || catFilter === 'jo' || catFilter.includes('job')) {
+      query += " AND (UPPER(category) LIKE '%JOB ORDER%' OR UPPER(category) LIKE '%JOB_ORDER%' OR UPPER(category) = 'JO')";
+    } else if (catFilter !== 'all') {
+      query += " AND (category = ? OR UPPER(category) = UPPER(?))";
+      params.push(rawCat, rawCat);
+    }
+
     if (cycle.campus && cycle.campus !== 'All Campuses') {
-      query += " AND (campus = ? OR campus IS NULL OR campus = '')";
-      params.push(cycle.campus);
+      const campusBase = cycle.campus.replace(/Campus/i, '').trim();
+      query += " AND (campus = ? OR campus LIKE ? OR campus IS NULL OR campus = '')";
+      params.push(cycle.campus, `%${campusBase}%`);
     }
 
     const available = await db.prepare(query).all(...params);
@@ -349,24 +473,32 @@ payrollRouter.post("/payroll-cycles/:id/entries", async (req: any, res: any) => 
     const { employeeIds } = req.body;
     if (!Array.isArray(employeeIds)) return res.status(400).json({ error: "employeeIds array required" });
 
+    const cycle = await db.prepare("SELECT * FROM payroll_cycles WHERE id = ?").get(id) as any;
+    if (!cycle) return res.status(404).json({ error: "Cycle not found" });
+
+    const cycleCat = cycle.categoryFilter || cycle.category_filter || ((cycle.name && (cycle.name.trim().toUpperCase() === 'VI' || cycle.name.toLowerCase().includes('visiting'))) ? 'visiting-instructor' : 'all');
+
+    let addedCount = 0;
     for (const empId of employeeIds) {
       const emp = await db.prepare("SELECT * FROM employees WHERE id = ?").get(empId) as any;
-      if (emp) {
+      if (emp && isEmployeeMatchingCategoryFilter(emp.category, cycleCat)) {
         // Check if already in cycle
         const existing = await db.prepare("SELECT id FROM payroll_entries WHERE cycleId = ? AND employeeId = ?").get(id, emp.id);
         if (!existing) {
           const entryId = `entry-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
           const empName = `${emp.lastName ? emp.lastName + ', ' : ''}${emp.firstName || ''} ${emp.mi ? emp.mi + '.' : ''}`.trim();
+          const basicPay = cycle?.type === 'semi-monthly' ? (Number(emp.basicSalary || 0) / 2) : Number(emp.basicSalary || 0);
           await db.prepare(`
             INSERT INTO payroll_entries (id, cycleId, employeeId, employeeName, basicPay, grossPay, netPay, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-          `).run(entryId, id, emp.id, empName, emp.basicSalary || 0, emp.basicSalary || 0, emp.basicSalary || 0);
+          `).run(entryId, id, emp.id, empName, basicPay || 0, basicPay || 0, basicPay || 0);
+          addedCount++;
         }
       }
     }
 
     await calculateNetSalary(id);
-    res.json({ success: true });
+    res.json({ success: true, count: addedCount });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -379,6 +511,9 @@ payrollRouter.post("/payroll-cycles/:id/add-employee", async (req: any, res: any
     const { employeeId } = req.body;
     if (!employeeId) return res.status(400).json({ error: "employeeId required" });
 
+    const cycle = await db.prepare("SELECT * FROM payroll_cycles WHERE id = ?").get(id) as any;
+    if (!cycle) return res.status(404).json({ error: "Cycle not found" });
+
     // Check if already in cycle
     const existing = await db.prepare("SELECT id FROM payroll_entries WHERE cycleId = ? AND employeeId = ?").get(id, employeeId);
     if (existing) return res.json({ success: true, message: "Employee already in cycle" });
@@ -386,10 +521,21 @@ payrollRouter.post("/payroll-cycles/:id/add-employee", async (req: any, res: any
     const emp = await db.prepare("SELECT * FROM employees WHERE id = ?").get(employeeId) as any;
     if (!emp) return res.status(404).json({ error: "Employee not found" });
 
-    const cycle = await db.prepare("SELECT * FROM payroll_cycles WHERE id = ?").get(id) as any;
+    const cycleCat = cycle.categoryFilter || cycle.category_filter || ((cycle.name && (cycle.name.trim().toUpperCase() === 'VI' || cycle.name.toLowerCase().includes('visiting'))) ? 'visiting-instructor' : 'all');
+
+    // Strict validation: Only allow employees matching the cycle's category
+    if (!isEmployeeMatchingCategoryFilter(emp.category, cycleCat)) {
+      const targetCategoryName = cycleCat === 'visiting-instructor' ? 'Visiting Instructor' :
+        cycleCat === 'faculty-staff' ? 'Faculty & Staff' :
+        cycleCat === 'job-order' ? 'Job Order' : cycleCat;
+      return res.status(400).json({ 
+        error: `Cannot enroll "${emp.firstName || ''} ${emp.lastName || ''}" (${emp.category || 'Regular'}). This payroll cycle is restricted to "${targetCategoryName}" only.` 
+      });
+    }
+
     const entryId = `entry-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const empName = `${emp.lastName ? emp.lastName + ', ' : ''}${emp.firstName || ''} ${emp.mi ? emp.mi + '.' : ''}`.trim();
-    const basicPay = cycle?.type === 'semi-monthly' ? (emp.basicSalary / 2) : emp.basicSalary;
+    const basicPay = cycle?.type === 'semi-monthly' ? (Number(emp.basicSalary || 0) / 2) : Number(emp.basicSalary || 0);
 
     await db.prepare(`
       INSERT INTO payroll_entries (id, cycleId, employeeId, employeeName, basicPay, grossPay, netPay, status)
@@ -397,7 +543,7 @@ payrollRouter.post("/payroll-cycles/:id/add-employee", async (req: any, res: any
     `).run(entryId, id, emp.id, empName, basicPay || 0, basicPay || 0, basicPay || 0);
 
     await calculateNetSalary(id);
-    await logAudit(req, "ADD_EMPLOYEE_TO_CYCLE", `Added employee ${empName} to cycle ${id}`);
+    await logAudit(req, "ADD_EMPLOYEE_TO_CYCLE", `Added employee ${empName} (${emp.category}) to cycle ${id}`);
     res.json({ success: true, id: entryId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -675,16 +821,56 @@ payrollRouter.put("/payroll-entries/:id", async (req: any, res: any) => {
     const entry = await db.prepare("SELECT * FROM payroll_entries WHERE id = ?").get(id) as any;
     if (!entry) return res.status(404).json({ error: "Entry not found" });
 
-    const resolvedSal2nd = compSal2nd !== undefined 
+    const cycle = await db.prepare("SELECT * FROM payroll_cycles WHERE id = ?").get(entry.cycleId) as any;
+
+    const isViEmp = Boolean(
+      (entry.category && (
+        String(entry.category).toUpperCase().includes('VISITING') ||
+        String(entry.category).toUpperCase().includes('PART-TIME') ||
+        String(entry.category).toUpperCase().includes('PART TIME') ||
+        String(entry.category).toUpperCase().includes('LECTURER') ||
+        String(entry.category).toUpperCase() === 'VI'
+      )) || 
+      (entry.position && (
+        String(entry.position).toUpperCase().includes('VISITING') ||
+        String(entry.position).toUpperCase().includes('VI ') ||
+        String(entry.position).toUpperCase().endsWith(' VI')
+      )) ||
+      (cycle && (
+        String(cycle.categoryFilter || cycle.category_filter || '').toLowerCase().includes('visiting') ||
+        String(cycle.name || '').toUpperCase().trim() === 'VI' ||
+        String(cycle.name || '').toLowerCase().includes('visiting')
+      ))
+    );
+
+    const effectiveSalary = compSal2nd !== undefined 
       ? Number(compSal2nd) 
       : (customValues?.compSal2nd !== undefined 
           ? Number(customValues.compSal2nd) 
-          : (basicPay !== undefined ? Number(basicPay) : undefined));
+          : (basicPay !== undefined ? Number(basicPay) : Number(entry.basicPay || entry.compSal2nd || 0)));
 
-    const resolvedBasicPay = resolvedSal2nd !== undefined ? resolvedSal2nd : entry.basicPay;
+    let effectiveCustomValues = { ...(customValues && typeof customValues === 'object' ? customValues : {}) };
+    if (compSal2nd !== undefined) {
+      effectiveCustomValues.compSal2nd = Number(compSal2nd);
+    }
+    if (basicPay !== undefined) {
+      effectiveCustomValues.basicPay = Number(basicPay);
+    }
+
+    if (isViEmp && (compSal2nd !== undefined || basicPay !== undefined || customValues?.compSal2nd !== undefined)) {
+      const isSemi = cycle?.type === 'semi-monthly';
+      const viGovGsis = Number((effectiveSalary * 0.12).toFixed(2));
+      const viGovPh = Number(((effectiveSalary * 0.05) / 2).toFixed(2));
+      const viGovHdmf = effectiveSalary > 0 ? (isSemi ? 100.00 : 200.00) : 0;
+      const viGovEcip = effectiveSalary > 0 ? (isSemi ? 50.00 : 100.00) : 0;
+      effectiveCustomValues.govSecGsis = viGovGsis;
+      effectiveCustomValues.govSecPh = viGovPh;
+      effectiveCustomValues.govSecHdmf = viGovHdmf;
+      effectiveCustomValues.govSecEcip = viGovEcip;
+    }
 
     let updatedCustomJson = custom_values_json;
-    if (customValues && typeof customValues === 'object') {
+    if (Object.keys(effectiveCustomValues).length > 0) {
       let existingCustom = {};
       if (entry.custom_values_json) {
         try {
@@ -693,14 +879,12 @@ payrollRouter.put("/payroll-entries/:id", async (req: any, res: any) => {
           existingCustom = {};
         }
       }
-      const mergedCustom = { ...existingCustom, ...customValues };
-      if (resolvedSal2nd !== undefined) {
-        mergedCustom.compSal2nd = resolvedSal2nd;
-      }
-      updatedCustomJson = JSON.stringify(mergedCustom);
+      updatedCustomJson = JSON.stringify({ ...existingCustom, ...effectiveCustomValues });
     }
 
-    const resolvedAbsences = absences !== undefined ? Number(absences) : (customValues?.absences !== undefined ? Number(customValues.absences) : entry.absences);
+    const resolvedAbsences = absences !== undefined ? Number(absences) : (effectiveCustomValues?.absences !== undefined ? Number(effectiveCustomValues.absences) : entry.absences);
+    const resolvedBasicPay = compSal2nd !== undefined ? Number(compSal2nd) : (basicPay !== undefined ? Number(basicPay) : entry.basicPay);
+    const resolvedCompSal2nd = compSal2nd !== undefined ? Number(compSal2nd) : (basicPay !== undefined ? Number(basicPay) : (entry.compSal2nd || entry.basicPay));
 
     await db.prepare(`
       UPDATE payroll_entries SET
@@ -708,8 +892,8 @@ payrollRouter.put("/payroll-entries/:id", async (req: any, res: any) => {
         teachingHours = ?, absences = ?, custom_values_json = ?
       WHERE id = ?
     `).run(
-      resolvedBasicPay,
-      resolvedBasicPay,
+      resolvedBasicPay !== undefined ? resolvedBasicPay : entry.basicPay,
+      resolvedCompSal2nd !== undefined ? resolvedCompSal2nd : entry.compSal2nd,
       overtime !== undefined ? overtime : entry.overtime,
       bonuses !== undefined ? bonuses : entry.bonuses,
       allowances !== undefined ? allowances : entry.allowances,
@@ -720,13 +904,7 @@ payrollRouter.put("/payroll-entries/:id", async (req: any, res: any) => {
       id
     );
 
-    const customOverrides: any = customValues && typeof customValues === 'object' ? { [id]: { ...customValues } } : { [id]: {} };
-    if (resolvedSal2nd !== undefined) {
-      customOverrides[id].compSal2nd = resolvedSal2nd;
-      customOverrides[id].basicPay = resolvedSal2nd;
-      customOverrides[id].recomputeGovShare = true;
-    }
-
+    const customOverrides = Object.keys(effectiveCustomValues).length > 0 ? { [id]: effectiveCustomValues } : undefined;
     await calculateNetSalary(entry.cycleId, entry.employeeId, customOverrides);
 
     // Bidirectional sync: sync to deductions table
@@ -737,15 +915,13 @@ payrollRouter.put("/payroll-entries/:id", async (req: any, res: any) => {
     broadcastRealtime("payroll_changed", { cycleId: entry.cycleId, entryId: id, source: "updateEntry" });
 
     const updatedCycle = await db.prepare('SELECT "totalGross", "totalDeductions", "totalNet" FROM payroll_cycles WHERE id = ?').get(entry.cycleId) as any;
-    const updatedEntry = await db.prepare('SELECT * FROM payroll_entries WHERE id = ?').get(id) as any;
 
     res.json({ 
       success: true,
-      entry: updatedEntry,
       cycleTotals: updatedCycle ? {
-        totalGross: Number(updatedCycle.totalGross ?? updatedCycle.total_gross ?? 0),
-        totalDeductions: Number(updatedCycle.totalDeductions ?? updatedCycle.total_deductions ?? 0),
-        totalNet: Number(updatedCycle.totalNet ?? updatedCycle.total_net ?? 0)
+        totalGross: Number(updatedCycle.totalGross || 0),
+        totalDeductions: Number(updatedCycle.totalDeductions || 0),
+        totalNet: Number(updatedCycle.totalNet || 0)
       } : undefined
     });
   } catch (err: any) {

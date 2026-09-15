@@ -19,6 +19,26 @@ export const DEDUCTION_KEY_MAP: { [key: string]: { typeName: string; aliases: st
   dedTaxWithheld: { typeName: "Withholding Tax", aliases: ['tax', 'dedtaxwithheld', 'withholding tax', 'tax withheld', 'wtax', 'income tax', 'withholding_tax', 'tax_withheld', 'wtax withheld', 'withholding tax(ee)', 'taxwithheld', 'w-tax'] }
 };
 
+export function isEmployeeMatchingCategoryFilter(empCategory: string, cycleCategoryFilter: string): boolean {
+  if (!cycleCategoryFilter || cycleCategoryFilter === 'all' || cycleCategoryFilter === 'ALL') return true;
+  const filter = cycleCategoryFilter.toLowerCase().trim();
+  const cat = (empCategory || '').toUpperCase().trim();
+
+  if (filter === 'visiting-instructor' || filter === 'visiting instructor' || filter === 'visiting' || filter.includes('visiting')) {
+    return cat.includes('VISITING') || cat.includes('PART-TIME') || cat.includes('LECTURER');
+  }
+
+  if (filter === 'faculty-staff' || filter === 'faculty & staff' || filter === 'faculty_staff' || filter.includes('faculty')) {
+    return cat.includes('FACULTY') || cat.includes('STAFF') || cat === 'REGULAR EMPLOYEE' || cat === 'PERMANENT';
+  }
+
+  if (filter === 'job-order' || filter === 'job order' || filter === 'jo' || filter.includes('job')) {
+    return cat.includes('JOB ORDER') || cat.includes('JOB_ORDER') || cat === 'JO';
+  }
+
+  return cat === filter.toUpperCase() || cat.includes(filter.toUpperCase());
+}
+
 export async function calculateNetSalary(
   cycleId: string,
   onlyEmployeeId?: string,
@@ -28,12 +48,30 @@ export async function calculateNetSalary(
     const cycle = await db.prepare("SELECT * FROM payroll_cycles WHERE id = ?").get(cycleId) as any;
     if (!cycle) throw new Error("Cycle not found");
 
+    const employees = await db.prepare("SELECT * FROM employees").all() as any[];
+
+    // If cycle is restricted (e.g. visiting-instructor), strictly purge all non-matching entries
+    if (cycle.categoryFilter && cycle.categoryFilter !== 'all') {
+      const allCycleEntries = await db.prepare("SELECT id, employeeId FROM payroll_entries WHERE cycleId = ?").all(cycleId) as any[];
+      for (const ent of allCycleEntries) {
+        const emp = employees.find(em => em.id === ent.employeeId);
+        if (emp && !isEmployeeMatchingCategoryFilter(emp.category, cycle.categoryFilter)) {
+          await db.prepare("DELETE FROM payroll_entries WHERE id = ?").run(ent.id);
+        }
+      }
+    }
+
     let entries = await db.prepare("SELECT * FROM payroll_entries WHERE cycleId = ?").all(cycleId) as any[];
+    if (cycle.categoryFilter && cycle.categoryFilter !== 'all') {
+      entries = entries.filter((e) => {
+        const emp = employees.find(em => em.id === e.employeeId);
+        return !emp || isEmployeeMatchingCategoryFilter(emp.category, cycle.categoryFilter);
+      });
+    }
+
     if (onlyEmployeeId) {
       entries = entries.filter((e) => e.employeeId === onlyEmployeeId);
     }
-
-    const employees = await db.prepare("SELECT * FROM employees").all() as any[];
     
     let allDeductions: any[] = [];
     try {
@@ -282,10 +320,29 @@ export async function calculateNetSalary(
 
       const employeeName = emp ? `${emp.lastName ? emp.lastName + ', ' : ''}${emp.firstName || ''} ${emp.mi ? emp.mi + '.' : ''}`.trim() : (entry.employeeName || 'Unknown');
 
-      const isVisiting = emp && (
-        String(emp.category || '').toLowerCase().includes('visiting') ||
-        String(emp.category || '').toLowerCase().includes('part-time') ||
-        String(emp.category || '').toLowerCase().includes('lecturer')
+      const isVisiting = Boolean(
+        (emp && (
+          String(emp.category || '').toUpperCase().includes('VISITING') ||
+          String(emp.category || '').toUpperCase().includes('PART-TIME') ||
+          String(emp.category || '').toUpperCase().includes('PART TIME') ||
+          String(emp.category || '').toUpperCase().includes('LECTURER') ||
+          String(emp.category || '').toUpperCase() === 'VI' ||
+          String(emp.position || '').toUpperCase().includes('VISITING') ||
+          String(emp.position || '').toUpperCase().includes('VI ') ||
+          String(emp.position || '').toUpperCase().endsWith(' VI')
+        )) || 
+        (entry && (
+          String(entry.category || '').toUpperCase().includes('VISITING') ||
+          String(entry.category || '').toUpperCase().includes('PART-TIME') ||
+          String(entry.category || '').toUpperCase().includes('LECTURER') ||
+          String(entry.category || '').toUpperCase() === 'VI' ||
+          String(entry.position || '').toUpperCase().includes('VISITING')
+        )) ||
+        (cycle && (
+          String(cycle.categoryFilter || cycle.category_filter || '').toLowerCase().includes('visiting') ||
+          String(cycle.name || '').toUpperCase().trim() === 'VI' ||
+          String(cycle.name || '').toLowerCase().includes('visiting')
+        ))
       );
 
       if (emp) {
@@ -429,6 +486,14 @@ export async function calculateNetSalary(
       // Explicit user override in table cell edit takes priority
       if (explicitOverride && explicitOverride.compSal2nd !== undefined) {
         computedBasicPay = Number(explicitOverride.compSal2nd);
+      } else if (explicitOverride && explicitOverride.basicPay !== undefined) {
+        computedBasicPay = Number(explicitOverride.basicPay);
+      } else if (isVisiting && custom.compSal2nd !== undefined && Number(custom.compSal2nd) > 0) {
+        computedBasicPay = Number(custom.compSal2nd);
+      } else if (isVisiting && entry.compSal2nd !== undefined && Number(entry.compSal2nd) > 0) {
+        computedBasicPay = Number(entry.compSal2nd);
+      } else if (isVisiting && entry.basicPay !== undefined && Number(entry.basicPay) > 0 && teachingHoursToUpdate === 0) {
+        computedBasicPay = Number(entry.basicPay);
       }
 
       const compPera = (explicitOverride && explicitOverride.compPera !== undefined) 
@@ -532,59 +597,43 @@ export async function calculateNetSalary(
         String(emp.category || '').toLowerCase().includes('permanent')
       );
       const isJobOrder = emp && String(emp.category || '').toLowerCase().includes('job order');
-      const hasPh = isPhRegular || (isJobOrder && (emp.hasPhilhealth || emp.has_philhealth));
-      const hasHdmf = isPhRegular || (isJobOrder && (emp.hasPagibig || emp.has_pagibig));
+      const hasPh = isPhRegular || (isJobOrder && emp.hasPhilhealth);
+      const hasHdmf = isPhRegular || (isJobOrder && emp.hasPagibig);
+
+      // Government Share Mandatory Contributions
+      let govSecGsis = 0.00;
+      let govSecHdmf = 0.00;
+      let govSecPh = 0.00;
+      let govSecEcip = 0.00;
+
+      if (isVisiting) {
+        // VI Category: GOVERNMENT SHARE automatically changes based on salary (computedBasicPay)
+        // 1. GSIS PREM (12% of salary)
+        govSecGsis = Number((computedBasicPay * 0.12).toFixed(2));
+        // 2. PHILHEALTH ES (5% / 2 = 2.5% of salary)
+        govSecPh = Number(((computedBasicPay * 0.05) / 2).toFixed(2));
+        // 3. HDMF PREM (semi-monthly 100, monthly 200)
+        govSecHdmf = computedBasicPay > 0 ? (isSemiMonthly ? 100.00 : 200.00) : 0.00;
+        // 4. ECIP (semi-monthly 50, monthly 100)
+        govSecEcip = computedBasicPay > 0 ? (isSemiMonthly ? 50.00 : 100.00) : 0.00;
+
+        // Honor explicit user override only if provided in this active calculation payload
+        if (customColumnValues && customColumnValues[entry.id]) {
+          if (customColumnValues[entry.id].govSecGsis !== undefined) govSecGsis = Number(customColumnValues[entry.id].govSecGsis);
+          if (customColumnValues[entry.id].govSecHdmf !== undefined) govSecHdmf = Number(customColumnValues[entry.id].govSecHdmf);
+          if (customColumnValues[entry.id].govSecPh !== undefined) govSecPh = Number(customColumnValues[entry.id].govSecPh);
+          if (customColumnValues[entry.id].govSecEcip !== undefined) govSecEcip = Number(customColumnValues[entry.id].govSecEcip);
+        }
+      } else {
+        govSecGsis = custom.govSecGsis !== undefined ? Number(custom.govSecGsis) : (isPhRegular ? Number((computedBasicPay * 0.12).toFixed(2)) : 0.00);
+        govSecHdmf = custom.govSecHdmf !== undefined ? Number(custom.govSecHdmf) : (hasHdmf ? (isSemiMonthly ? 100.00 : 200.00) : 0.00);
+        govSecPh = custom.govSecPh !== undefined ? Number(custom.govSecPh) : (hasPh ? Number(((computedBasicPay * 0.05) / 2).toFixed(2)) : 0.00);
+        govSecEcip = custom.govSecEcip !== undefined ? Number(custom.govSecEcip) : (isPhRegular ? (isSemiMonthly ? 50.00 : 100.00) : 0.00);
+      }
 
       const isExplicitOverride = (field: string) => {
-        return Boolean(customColumnValues && customColumnValues[entry.id] && customColumnValues[entry.id][field] !== undefined);
+        return customColumnValues && customColumnValues[entry.id] && customColumnValues[entry.id][field] !== undefined;
       };
-
-      const isCompSal2ndChanged = Boolean(
-        explicitOverride && (
-          explicitOverride.compSal2nd !== undefined || 
-          explicitOverride.basicPay !== undefined || 
-          explicitOverride.recomputeGovShare ||
-          explicitOverride.autoGovShare
-        )
-      );
-
-      // Government Share Mandatory Contributions:
-      // When Salaries and Wages-2nd Tranch is modified or recalculated, Government Shares automatically update based on computedBasicPay
-      let govSecGsis = isPhRegular ? Number((computedBasicPay * 0.12).toFixed(2)) : 0.00;
-      if (isExplicitOverride('govSecGsis') && !isCompSal2ndChanged) {
-        govSecGsis = Number(customColumnValues[entry.id].govSecGsis);
-      } else if (isExplicitOverride('govSecGsisOverride') && !isCompSal2ndChanged) {
-        govSecGsis = Number(customColumnValues[entry.id].govSecGsisOverride);
-      } else if (custom.govSecGsisOverride !== undefined && !isCompSal2ndChanged) {
-        govSecGsis = Number(custom.govSecGsisOverride);
-      }
-
-      let govSecHdmf = hasHdmf ? (isSemiMonthly ? 100.00 : 200.00) : 0.00;
-      if (isExplicitOverride('govSecHdmf') && !isCompSal2ndChanged) {
-        govSecHdmf = Number(customColumnValues[entry.id].govSecHdmf);
-      } else if (isExplicitOverride('govSecHdmfOverride') && !isCompSal2ndChanged) {
-        govSecHdmf = Number(customColumnValues[entry.id].govSecHdmfOverride);
-      } else if (custom.govSecHdmfOverride !== undefined && !isCompSal2ndChanged) {
-        govSecHdmf = Number(custom.govSecHdmfOverride);
-      }
-
-      let govSecPh = hasPh ? Number(((computedBasicPay * 0.05) / 2).toFixed(2)) : 0.00;
-      if (isExplicitOverride('govSecPh') && !isCompSal2ndChanged) {
-        govSecPh = Number(customColumnValues[entry.id].govSecPh);
-      } else if (isExplicitOverride('govSecPhOverride') && !isCompSal2ndChanged) {
-        govSecPh = Number(customColumnValues[entry.id].govSecPhOverride);
-      } else if (custom.govSecPhOverride !== undefined && !isCompSal2ndChanged) {
-        govSecPh = Number(custom.govSecPhOverride);
-      }
-
-      let govSecEcip = isPhRegular ? (isSemiMonthly ? 50.00 : 100.00) : 0.00;
-      if (isExplicitOverride('govSecEcip') && !isCompSal2ndChanged) {
-        govSecEcip = Number(customColumnValues[entry.id].govSecEcip);
-      } else if (isExplicitOverride('govSecEcipOverride') && !isCompSal2ndChanged) {
-        govSecEcip = Number(customColumnValues[entry.id].govSecEcipOverride);
-      } else if (custom.govSecEcipOverride !== undefined && !isCompSal2ndChanged) {
-        govSecEcip = Number(custom.govSecEcipOverride);
-      }
 
       const getDeductionValue = (field: string, statutoryDefault: number = 0.00) => {
         if (isExplicitOverride(field)) {
@@ -789,33 +838,20 @@ export async function calculateNetSalary(
     // Always summarize from payroll_entries to ensure 100% database consistency
     const summary = await db.prepare(`
       SELECT 
-        COALESCE(SUM("grossPay"), 0) as "sumGross", 
-        COALESCE(SUM("totalDeductions"), 0) as "sumDeds", 
-        COALESCE(SUM("netPay"), 0) as "sumNet" 
+        COALESCE(SUM(grossPay), 0) as sumGross, 
+        COALESCE(SUM(totalDeductions), 0) as sumDeds, 
+        COALESCE(SUM(netPay), 0) as sumNet 
       FROM payroll_entries 
-      WHERE "cycleId" = ?
+      WHERE cycleId = ?
     `).get(cycleId) as any;
 
     if (summary) {
-      const grossVal = summary.sumGross ?? summary.sumgross ?? summary.totalGross ?? summary.total_gross;
-      const dedsVal = summary.sumDeds ?? summary.sumdeds ?? summary.totalDeductions ?? summary.total_deductions;
-      const netVal = summary.sumNet ?? summary.sumnet ?? summary.totalNet ?? summary.total_net;
-
-      if (grossVal !== undefined && grossVal !== null) totalGross = Number(Number(grossVal).toFixed(2));
-      if (dedsVal !== undefined && dedsVal !== null) totalDeductions = Number(Number(dedsVal).toFixed(2));
-      if (netVal !== undefined && netVal !== null) totalNet = Number(Number(netVal).toFixed(2));
+      totalGross = Number(Number(summary.sumGross || 0).toFixed(2));
+      totalDeductions = Number(Number(summary.sumDeds || 0).toFixed(2));
+      totalNet = Number(Number(summary.sumNet || 0).toFixed(2));
     }
 
-    try {
-      await db.prepare(`
-        UPDATE payroll_cycles SET 
-          "totalGross" = ?, "totalDeductions" = ?, "totalNet" = ?,
-          total_gross = ?, total_deductions = ?, total_net = ?
-        WHERE id = ?
-      `).run(totalGross, totalDeductions, totalNet, totalGross, totalDeductions, totalNet, cycleId);
-    } catch {
-      await db.prepare('UPDATE payroll_cycles SET "totalGross" = ?, "totalDeductions" = ?, "totalNet" = ? WHERE id = ?').run(totalGross, totalDeductions, totalNet, cycleId);
-    }
+    await db.prepare('UPDATE payroll_cycles SET "totalGross" = ?, "totalDeductions" = ?, "totalNet" = ? WHERE id = ?').run(totalGross, totalDeductions, totalNet, cycleId);
     return { totalGross, totalDeductions, totalNet };
   } catch (error) {
     throw error;
@@ -1101,10 +1137,10 @@ export async function syncDeductionsToActivePayrollCycles(employeeId?: string) {
     const activeCycles = await db.prepare("SELECT * FROM payroll_cycles WHERE status != 'disbursed'").all() as any[];
     for (const cycle of activeCycles) {
       if (employeeId) {
-        const inCycle = await db.prepare("SELECT id FROM payroll_entries WHERE cycleId = ? AND employeeId = ?").get(cycle.id, employeeId) as any;
-        if (!inCycle) {
-          const emp = await db.prepare("SELECT * FROM employees WHERE id = ?").get(employeeId) as any;
-          if (emp) {
+        const emp = await db.prepare("SELECT * FROM employees WHERE id = ?").get(employeeId) as any;
+        if (emp && isEmployeeMatchingCategoryFilter(emp.category, cycle.categoryFilter)) {
+          const inCycle = await db.prepare("SELECT id FROM payroll_entries WHERE cycleId = ? AND employeeId = ?").get(cycle.id, employeeId) as any;
+          if (!inCycle) {
             const entryId = `entry-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
             const empName = `${emp.lastName ? emp.lastName + ', ' : ''}${emp.firstName || ''} ${emp.mi ? emp.mi + '.' : ''}`.trim();
             const isSemi = cycle.type === 'semi-monthly';
@@ -1114,15 +1150,15 @@ export async function syncDeductionsToActivePayrollCycles(employeeId?: string) {
               VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
             `).run(entryId, cycle.id, emp.id, empName, basicPay, basicPay, basicPay);
           }
+          await calculateNetSalary(cycle.id, employeeId);
         }
-        await calculateNetSalary(cycle.id, employeeId);
       } else {
         const allEmps = await db.prepare("SELECT * FROM employees WHERE status = 'active' OR status IS NULL").all() as any[];
         const existingEntries = await db.prepare("SELECT employeeId FROM payroll_entries WHERE cycleId = ?").all(cycle.id) as any[];
         const existingEmpIds = new Set(existingEntries.map(e => e.employeeId));
 
         for (const emp of allEmps) {
-          if (!existingEmpIds.has(emp.id)) {
+          if (!existingEmpIds.has(emp.id) && isEmployeeMatchingCategoryFilter(emp.category, cycle.categoryFilter)) {
             const entryId = `entry-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
             const empName = `${emp.lastName ? emp.lastName + ', ' : ''}${emp.firstName || ''} ${emp.mi ? emp.mi + '.' : ''}`.trim();
             const isSemi = cycle.type === 'semi-monthly';

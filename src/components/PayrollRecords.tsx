@@ -217,6 +217,44 @@ function extractEntryDeductions(e: any, basic: number) {
   };
 }
 
+function extractEntryGovShares(e: any, basic: number, secLabel?: string) {
+  const cat = String(e?.category || '').toUpperCase();
+  const pos = String(e?.position || '').toUpperCase();
+  const sec = String(secLabel || '').toUpperCase();
+  const isVI = cat.includes('VISITING') || cat.includes('PART-TIME') || cat.includes('LECTURER') || cat === 'VI' || cat.startsWith('VI ') || cat.endsWith(' VI') ||
+               pos.includes('VISITING') || pos.includes('PART-TIME') || pos.includes('LECTURER') || pos === 'VI' || pos.includes('VI ') || pos.endsWith(' VI') ||
+               sec.includes('VISITING') || sec === 'VI' || sec.includes('PART-TIME') || sec.includes('LECTURER');
+
+  let custom: any = e.customValues || e.custom_values || {};
+  if (typeof custom === 'string') {
+    try { custom = JSON.parse(custom); } catch { custom = {}; }
+  }
+  if (e.custom_values_json && typeof e.custom_values_json === 'string') {
+    try { custom = { ...JSON.parse(e.custom_values_json), ...custom }; } catch {}
+  }
+
+  if (isVI) {
+    const gsisGov = Number((basic * 0.12).toFixed(2));
+    const phGov = Number(((basic * 0.05) / 2).toFixed(2));
+    const hdmfGov = basic > 0 ? 100.00 : 0.00;
+    const ecip = basic > 0 ? 50.00 : 0.00;
+
+    return {
+      gsisGov: Number(custom.govSecGsis !== undefined ? custom.govSecGsis : (e.govSecGsis !== undefined ? e.govSecGsis : (e.compGsisGov || gsisGov))),
+      hdmfGov: Number(custom.govSecHdmf !== undefined ? custom.govSecHdmf : (e.govSecHdmf !== undefined ? e.govSecHdmf : (e.compHdmfGov || (basic > 0 ? (e.hdmfPrem || 100.00) : 0)))),
+      phGov: Number(custom.govSecPh !== undefined ? custom.govSecPh : (e.govSecPh !== undefined ? e.govSecPh : (e.compPhilhealthGov || phGov))),
+      ecip: Number(custom.govSecEcip !== undefined ? custom.govSecEcip : (e.govSecEcip !== undefined ? e.govSecEcip : (e.compEcip || ecip)))
+    };
+  }
+
+  return {
+    gsisGov: Number(custom.govSecGsis !== undefined ? custom.govSecGsis : (e.govSecGsis !== undefined ? e.govSecGsis : (e.compGsisGov || e.gsisPrem || Math.round(basic * 0.12)))),
+    hdmfGov: Number(custom.govSecHdmf !== undefined ? custom.govSecHdmf : (e.govSecHdmf !== undefined ? e.govSecHdmf : (e.compHdmfGov || e.hdmfPrem || 200))),
+    phGov: Number(custom.govSecPh !== undefined ? custom.govSecPh : (e.govSecPh !== undefined ? e.govSecPh : (e.compPhilhealthGov || e.philhealthEs || Math.round((basic * 0.05) / 2)))),
+    ecip: Number(custom.govSecEcip !== undefined ? custom.govSecEcip : (e.govSecEcip !== undefined ? e.govSecEcip : (e.compEcip || e.ecip || 100)))
+  };
+}
+
 interface PayrollRecordsProps {
   onBackToCycles?: () => void;
   cycles?: any[];
@@ -438,10 +476,7 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
         const gross = Number(e.grossPay || e.compGross || (basic + pera));
         const abs = Number(e.abs || 0);
 
-        const gsisGov = Number(e.compGsisGov || e.gsisPrem || Math.round(basic * 0.12));
-        const hdmfGov = Number(e.compHdmfGov || e.hdmfPrem || 200);
-        const phGov = Number(e.compPhilhealthGov || e.philhealthEs || Math.round((basic * 0.05) / 2));
-        const ecip = Number(e.compEcip || e.ecip || 100);
+        const { gsisGov, hdmfGov, phGov, ecip } = extractEntryGovShares(e, basic, record.title);
 
         const {
           policy, consol, mplLite, mpl, cpl, gfal, emerg,
@@ -1381,10 +1416,7 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
                                 const gross = Number(e.grossPay || e.compGross || (basic + pera));
                                 const abs = Number(e.abs || 0);
 
-                                const gsisGov = Number(e.compGsisGov || e.gsisPrem || Math.round(basic * 0.12));
-                                const hdmfGov = Number(e.compHdmfGov || e.hdmfPrem || 200);
-                                const phGov = Number(e.compPhilhealthGov || e.philhealthEs || Math.round((basic * 0.05) / 2));
-                                const ecip = Number(e.compEcip || e.ecip || 100);
+                                const { gsisGov, hdmfGov, phGov, ecip } = extractEntryGovShares(e, basic, section.label);
 
                                 const {
                                   policy, consol, mplLite, mpl, cpl, gfal, emerg,

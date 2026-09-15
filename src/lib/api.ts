@@ -470,6 +470,15 @@ export const api = {
       });
       return handleResponse(res);
     },
+    // Update a payroll cycle's category filter
+    updateCycleCategoryFilter: async (cycleId: string, categoryFilter: string) => {
+      const res = await fetchWithAuth(`${API_BASE}/payroll-cycles/${cycleId}/category-filter`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categoryFilter }),
+      });
+      return handleResponse(res);
+    },
     // Retrieve all employee calculation line entries for a payroll cycle
     getEntries: async (cycleId: string) => {
       const res = await fetchWithAuth(`${API_BASE}/payroll-cycles/${cycleId}/entries`);
@@ -496,6 +505,11 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ employeeId }),
       });
+      return handleResponse(res);
+    },
+    // Fetch available active employees eligible for enrollment in a cycle
+    getAvailableEmployees: async (cycleId: string) => {
+      const res = await fetchWithAuth(`${API_BASE}/payroll-cycles/${cycleId}/available-employees`);
       return handleResponse(res);
     },
     // Compute net salary, taxes, allowances, and finalize cycle calculations
