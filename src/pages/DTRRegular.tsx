@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRealtime } from '../hooks/useRealtime';
 import { useAuth } from '../components/AuthProvider';
 import { Card, CardContent } from '../components/ui/card';
@@ -150,12 +150,15 @@ const DTRRegular = () => {
   const [employeeSchedules, setEmployeeSchedules] = useState<any[]>([]);
   const [holidays, setHolidays] = useState<any[]>([]);
 
-  const fetchHolidays = () => {
-    fetch('/api/holidays')
-      .then(res => res.json())
-      .then(data => setHolidays(Array.isArray(data) ? data : []))
-      .catch(err => console.error("Failed to fetch holidays:", err));
-  };
+  const fetchHolidays = useCallback(async () => {
+    try {
+      const res = await fetch('/api/holidays');
+      const data = await res.json();
+      setHolidays(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to fetch holidays:", err);
+    }
+  }, []);
 
   const fetchSchedulesForEmployee = (empId: string) => {
     if (empId) {
@@ -511,10 +514,21 @@ const DTRRegular = () => {
     return '8:00 AM - 12:00 PM, 1:00 PM - 5:00 PM';
   };
 
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async (month = selectedMonth, year = selectedYear, empId = selectedEmployeeId) => {
     try {
-      setLoading(true);
-      const endpoint = isAdmin ? '/api/dtr' : `/api/dtr/employee/${user?.id}`;
+      const startDay = `${year}-${String(month).padStart(2, '0')}-01`;
+      const lastDayNum = new Date(year, month, 0).getDate();
+      const endDay = `${year}-${String(month).padStart(2, '0')}-${String(lastDayNum).padStart(2, '0')}`;
+      
+      let endpoint = '';
+      if (!isAdmin && user?.id) {
+        endpoint = `/api/dtr/employee/${user.id}?startDate=${startDay}&endDate=${endDay}`;
+      } else if (empId && empId !== 'all') {
+        endpoint = `/api/dtr?employeeId=${empId}&startDate=${startDay}&endDate=${endDay}`;
+      } else {
+        endpoint = `/api/dtr?startDate=${startDay}&endDate=${endDay}`;
+      }
+
       const response = await fetch(endpoint);
       const data = await response.json();
       setLogs(Array.isArray(data) ? data : []);
@@ -523,9 +537,9 @@ const DTRRegular = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isAdmin, user?.id, selectedMonth, selectedYear, selectedEmployeeId]);
 
-  const fetchEmployees = async () => {
+  const fetchEmployees = useCallback(async () => {
     try {
       const response = await fetch('/api/employees');
       const data = await response.json();
@@ -539,16 +553,16 @@ const DTRRegular = () => {
       );
       setEmployees(filtered);
       
-      if (filtered.length > 0) {
+      if (filtered.length > 0 && !selectedEmployeeId) {
         const self = filtered.find((e: Employee) => e.email && user?.email && e.email.toLowerCase() === user.email.toLowerCase());
         setSelectedEmployeeId(self ? self.id : filtered[0].id);
       }
     } catch (error) {
       console.error('Failed to fetch employees:', error);
     }
-  };
+  }, [user?.email, selectedEmployeeId]);
 
-  const fetchStatus = async () => {
+  const fetchStatus = useCallback(async () => {
     if (!user) return;
     try {
       const response = await fetch(`/api/dtr/status/${user.id}`);
@@ -557,18 +571,36 @@ const DTRRegular = () => {
     } catch (error) {
       console.error('Failed to fetch status:', error);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
-    fetchLogs();
-    fetchStatus();
-    fetchHolidays();
-    if (isAdmin) {
-      fetchEmployees();
-    } else {
-      setSelectedEmployeeId(user?.id || '');
+    let isMounted = true;
+    const initData = async () => {
+      try {
+        const promises: Promise<any>[] = [fetchStatus(), fetchHolidays()];
+        if (isAdmin) {
+          promises.push(fetchEmployees());
+        } else if (user?.id) {
+          setSelectedEmployeeId(user.id);
+        }
+        await Promise.all(promises);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    initData();
+    return () => { isMounted = false; };
+  }, [user, isAdmin]);
+
+  // Fast query when month/year/employee changes
+  useEffect(() => {
+    if (selectedEmployeeId || !isAdmin) {
+      fetchLogs(selectedMonth, selectedYear, selectedEmployeeId);
+      if (selectedEmployeeId) {
+        fetchSchedulesForEmployee(selectedEmployeeId);
+      }
     }
-  }, [user]);
+  }, [selectedMonth, selectedYear, selectedEmployeeId, fetchLogs]);
 
   useRealtime('dtr_changed', () => {
     fetchLogs();
@@ -1190,45 +1222,10 @@ const DTRRegular = () => {
     return Math.round(total * 100) / 100;
   };
 
-  const getDtrSheetData = () => {
-    const days = getDaysInMonthArray();
-    const sheetData: any[] = [];
-
-    days.forEach(day => {
-      const dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      
-      const dayLogs = logs.filter(log => {
-        const d = safeDateOnly(log.date);
-        return log.employeeId === selectedEmployeeId && d === dateStr;
-      });
-
-      const parsed = getDayPunches(dayLogs, dateStr);
-      sheetData.push({
-        day,
-        dateStr,
-        ...parsed
-      });
-    });
-
-    return sheetData;
-  };
-
-  const sheetEntries = getDtrSheetData();
-  const firstHalf = sheetEntries.filter(e => e.day <= 15);
-  while (firstHalf.length < 15) {
-    firstHalf.push({ day: firstHalf.length + 1, amIn: '---', amOut: '---', pmIn: '---', pmOut: '---', undertimeHours: '', undertimeMin: '' });
-  }
-
-  const secondHalf = sheetEntries.filter(e => e.day > 15);
-  while (secondHalf.length < 16) {
-    const nextDayNum = 16 + secondHalf.length;
-    secondHalf.push({ day: nextDayNum, amIn: '---', amOut: '---', pmIn: '---', pmOut: '---', undertimeHours: '', undertimeMin: '' });
-  }
-
-  const calculateTotals = (halfEntries: any[]) => {
+  const calculateTotals = (entries: any[]) => {
     let totalHr = 0;
     let totalMin = 0;
-    halfEntries.forEach(e => {
+    entries.forEach(e => {
       if (e.undertimeHours) totalHr += Number(e.undertimeHours);
       if (e.undertimeMin) totalMin += Number(e.undertimeMin);
     });
@@ -1242,10 +1239,52 @@ const DTRRegular = () => {
     };
   };
 
-  const firstHalfTotals = calculateTotals(firstHalf);
-  const secondHalfTotals = calculateTotals(secondHalf);
+  const sheetEntries = useMemo(() => {
+    const days = getDaysInMonthArray();
+    const sheetData: any[] = [];
 
-  const fullMonthRows = (() => {
+    // Map logs by date for instant O(1) access
+    const logsByDate = new Map<string, DTRLog[]>();
+    logs.forEach(log => {
+      const logEmpId = log.employeeId;
+      if (!selectedEmployeeId || logEmpId === selectedEmployeeId) {
+        const d = safeDateOnly(log.date);
+        if (d) {
+          if (!logsByDate.has(d)) logsByDate.set(d, []);
+          logsByDate.get(d)!.push(log);
+        }
+      }
+    });
+
+    days.forEach(day => {
+      const dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const dayLogs = logsByDate.get(dateStr) || [];
+      const parsed = getDayPunches(dayLogs, dateStr);
+      sheetData.push({
+        day,
+        dateStr,
+        ...parsed
+      });
+    });
+
+    return sheetData;
+  }, [logs, employeeSchedules, selectedYear, selectedMonth, selectedEmployeeId, holidays]);
+
+  const { firstHalf, secondHalf, firstHalfTotals, secondHalfTotals, fullMonthRows, fullMonthTotals } = useMemo(() => {
+    const fHalf = sheetEntries.filter(e => e.day <= 15);
+    while (fHalf.length < 15) {
+      fHalf.push({ day: fHalf.length + 1, amIn: '---', amOut: '---', pmIn: '---', pmOut: '---', undertimeHours: '', undertimeMin: '' });
+    }
+
+    const sHalf = sheetEntries.filter(e => e.day > 15);
+    while (sHalf.length < 16) {
+      const nextDayNum = 16 + sHalf.length;
+      sHalf.push({ day: nextDayNum, amIn: '---', amOut: '---', pmIn: '---', pmOut: '---', undertimeHours: '', undertimeMin: '' });
+    }
+
+    const fTotals = calculateTotals(fHalf);
+    const sTotals = calculateTotals(sHalf);
+
     const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
     const rows: any[] = [];
     for (let day = 1; day <= 31; day++) {
@@ -1294,10 +1333,18 @@ const DTRRegular = () => {
         });
       }
     }
-    return rows;
-  })();
 
-  const fullMonthTotals = calculateTotals(fullMonthRows);
+    const mTotals = calculateTotals(rows);
+
+    return {
+      firstHalf: fHalf,
+      secondHalf: sHalf,
+      firstHalfTotals: fTotals,
+      secondHalfTotals: sTotals,
+      fullMonthRows: rows,
+      fullMonthTotals: mTotals
+    };
+  }, [sheetEntries, selectedYear, selectedMonth, holidays]);
 
   const parsedName = () => {
     const fullName = getEmployeeName() || '';

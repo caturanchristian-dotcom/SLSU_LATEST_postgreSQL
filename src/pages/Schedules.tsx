@@ -26,6 +26,7 @@ import {
   FileText
 } from 'lucide-react';
 import { SchoolApiSyncModal } from '../components/SchoolApiSyncModal';
+import { WeeklyGanttChart } from '../components/WeeklyGanttChart';
 import { 
   Dialog,
   DialogContent,
@@ -736,7 +737,7 @@ const Schedules = () => {
         
         <div className="flex items-center gap-3">
           {/* View Mode Toggle Switch */}
-          <div className="bg-neutral-100 p-1 rounded-xl flex items-center border border-neutral-200">
+          <div className="bg-neutral-100 p-1 rounded-xl flex items-center border border-neutral-200 shadow-xs">
             <button
               onClick={() => setViewMode('grid')}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
@@ -744,10 +745,10 @@ const Schedules = () => {
                   ? 'bg-white text-neutral-950 shadow-sm' 
                   : 'text-neutral-500 hover:text-neutral-800'
               }`}
-              title="Board View"
+              title="Weekly Monitoring Gantt Chart View"
             >
               <LayoutGrid className="w-3.5 h-3.5" />
-              <span>Weekly Board</span>
+              <span>Weekly Monitoring Gantt Chart</span>
             </button>
             <button
               onClick={() => setViewMode('list')}
@@ -756,7 +757,7 @@ const Schedules = () => {
                   ? 'bg-white text-neutral-950 shadow-sm' 
                   : 'text-neutral-500 hover:text-neutral-800'
               }`}
-              title="Table View"
+              title="Workload Matrix & Table View"
             >
               <List className="w-3.5 h-3.5" />
               <span>Table List</span>
@@ -1310,157 +1311,45 @@ const Schedules = () => {
           </div>
         </CardHeader>
 
-        {/* Dynamic Display area depending on viewMode (Weekly Grid vs Table List) */}
+        {/* Dynamic Display area depending on viewMode (Weekly Gantt Chart vs Table List) */}
         <CardContent className="p-6">
           {viewMode === 'grid' ? (
             /* =========================================================================
-               NEW WEEKLY BOARD VIEW
+               OFFICIAL WEEKLY MONITORING GANTT CHART VIEW
                ========================================================================= */
-            <div className="space-y-6">
-              <div className="flex items-center gap-2 text-xs font-bold text-neutral-500 uppercase tracking-widest px-1">
-                <Info className="w-3.5 h-3.5 text-blue-500" />
-                <span>Weekly Schedule Board (Monday - Sunday chronological cards)</span>
-              </div>
-              
+            <div>
               {loading ? (
                 <div className="py-20 text-center">
                   <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-neutral-900 mx-auto"></div>
-                  <p className="text-xs font-bold text-neutral-500 mt-4 uppercase tracking-widest animate-pulse">Loading Planner Grid...</p>
-                </div>
-              ) : sortedSchedules.length === 0 ? (
-                <div className="py-20 text-center border-2 border-dashed border-neutral-100 rounded-2xl bg-neutral-50/50">
-                  <span className="text-sm font-semibold text-neutral-500">No active schedules match current filters.</span>
+                  <p className="text-xs font-bold text-neutral-500 mt-4 uppercase tracking-widest animate-pulse">Loading Monitoring Gantt Chart...</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
-                  {days.map((dayOfWeek) => {
-                    const daySlots = sortedSchedules.filter(s => s.dayOfWeek === dayOfWeek);
-                    const isToday = new Date().toLocaleDateString('en-US', { weekday: 'long' }) === dayOfWeek;
-                    
-                    return (
-                      <div 
-                        key={dayOfWeek} 
-                        className={`flex flex-col bg-neutral-50/75 rounded-2xl border p-3.5 h-full min-h-[400px] transition-all relative ${
-                          isToday 
-                            ? 'border-blue-300 ring-2 ring-blue-50/50 bg-blue-50/10' 
-                            : 'border-neutral-200/65'
-                        }`}
-                      >
-                        {/* Day Column Header */}
-                        <div className="flex items-center justify-between pb-3.5 border-b border-neutral-200/60 mb-3">
-                          <span className="font-bold text-sm text-neutral-800">{dayOfWeek}</span>
-                          <span className={`text-[10px] uppercase font-extrabold px-1.5 py-0.5 rounded-md ${
-                            daySlots.length > 0 
-                              ? 'bg-neutral-900 text-white' 
-                              : 'bg-neutral-200 text-neutral-500'
-                          }`}>
-                            {daySlots.length}
-                          </span>
-                        </div>
-
-                        {/* Schedule list inside day Column */}
-                        <div className="space-y-3 flex-1 overflow-visible">
-                          {daySlots.length === 0 ? (
-                            <div className="h-full flex items-center justify-center py-10 opacity-40 select-none">
-                              <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider text-center">Rest Day</p>
-                            </div>
-                          ) : (
-                            daySlots.map((slot) => (
-                              <div 
-                                key={slot.id} 
-                                onClick={() => {
-                                  setViewingSchedule(slot);
-                                  setIsViewOpen(true);
-                                }}
-                                className="group bg-white border border-neutral-200 p-3 rounded-xl shadow-sm hover:shadow-md hover:border-neutral-300 transition-all duration-150 relative overflow-visible cursor-pointer hover:scale-[1.01] hover:ring-2 hover:ring-neutral-100"
-                              >
-                                {/* Header / Time Duration */}
-                                <div className="text-[10px] font-bold font-mono text-neutral-600 flex items-center gap-1 mb-1 bg-neutral-50 px-1.5 py-0.5 rounded-md w-fit">
-                                  <Clock className="w-2.5 h-2.5 text-neutral-500" />
-                                  <span>
-                                    {formatTimeTo12Hour(slot.startTime)} - {formatTimeTo12Hour(slot.endTime)}
-                                  </span>
-                                </div>
-
-                                {/* Subject Details */}
-                                <div className="font-bold text-xs text-neutral-900 flex items-center gap-1.5 mb-1.5">
-                                  {(slot.category === 'Regular Employee' || slot.category === 'FACULTY' || slot.category === 'STAFF') ? (
-                                    <Clock className="w-3 h-3 text-emerald-500 flex-shrink-0" />
-                                  ) : (
-                                    <BookOpen className="w-3 h-3 text-blue-500 flex-shrink-0" />
-                                  )}
-                                  <span className="truncate" title={slot.subject}>{slot.subject}</span>
-                                </div>
-
-                                {/* Location Details */}
-                                <div className="text-[10px] text-neutral-500 flex items-center justify-between gap-1 font-semibold mb-1">
-                                  <div className="flex items-center gap-1 min-w-0">
-                                    <MapPin className="w-2.5 h-2.5 flex-shrink-0 text-neutral-400" />
-                                    <span className="truncate">{slot.room || 'No Room'}</span>
-                                  </div>
-                                  {slot.teachingDepartmentId && (() => {
-                                    const dept = departments.find(d => d.id === slot.teachingDepartmentId);
-                                    return dept ? (
-                                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-neutral-100 text-neutral-700 whitespace-nowrap">
-                                        {dept.code}
-                                      </span>
-                                    ) : null;
-                                  })()}
-                                </div>
-
-                                {/* Instructor details */}
-                                <div className="text-[10px] text-neutral-700 font-bold flex items-center gap-1.5 pt-1.5 border-t border-neutral-100">
-                                  <User className="w-2.5 h-2.5 text-neutral-400 flex-shrink-0" />
-                                  <span className="truncate">{slot.lastName}, {slot.firstName}</span>
-                                </div>
-
-                                {/* Effective Dates if specified */}
-                                {(slot.effectiveFrom || slot.effectiveTo) && (
-                                  <div className="text-[8px] text-neutral-400 font-medium italic mt-1 leading-tight">
-                                    Eff: {slot.effectiveFrom ? formatEffDate(slot.effectiveFrom) : 'Start'} to {slot.effectiveTo ? formatEffDate(slot.effectiveTo) : 'End'}
-                                  </div>
-                                )}
-
-                                {/* Specific Single-Date Override flag */}
-                                {slot.specificDate && (
-                                  <Badge className="absolute -top-1.5 -right-1.5 bg-rose-100 text-rose-700 border-rose-200 text-[8px] px-1 py-0 font-extrabold hover:bg-rose-100">
-                                    Date Locked
-                                  </Badge>
-                                )}
-
-                                {/* Admin Editing Rails overlay (on hovering the card) */}
-                                {isAdmin && (
-                                  <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/95 pl-1.5 rounded-lg shadow-sm">
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        startEditSchedule(slot);
-                                      }}
-                                      className="p-1 text-neutral-400 hover:text-neutral-900 hover:bg-neutral-50 rounded"
-                                      title="Edit Schedule"
-                                    >
-                                      <Pencil className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDeleteSchedule(slot.id);
-                                      }}
-                                      className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded"
-                                      title="Delete Schedule"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <WeeklyGanttChart
+                  schedules={schedules}
+                  employees={
+                    employees
+                      .filter(emp => selectedCategory === 'all' || emp.category === selectedCategory)
+                      .filter(emp => role !== 'department_head' || emp.teachingDepartmentId === myDepartment?.id)
+                  }
+                  departments={departments}
+                  isAdmin={isAdmin}
+                  selectedEmployeeId={selectedEmployeeId}
+                  onSelectEmployeeId={(id) => setSelectedEmployeeId(id)}
+                  onSelectSchedule={(slot) => {
+                    setViewingSchedule(slot);
+                    setIsViewOpen(true);
+                  }}
+                  onAddScheduleForSlot={(day, startTime, endTime, empId) => {
+                    setSelectedDays([day]);
+                    setNewSchedule(prev => ({
+                      ...prev,
+                      startTime,
+                      endTime,
+                      ...(empId ? { employeeId: empId } : {})
+                    }));
+                    setIsAddOpen(true);
+                  }}
+                />
               )}
             </div>
           ) : (

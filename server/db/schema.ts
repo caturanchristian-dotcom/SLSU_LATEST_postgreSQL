@@ -985,7 +985,29 @@ export async function initDb() {
         } catch {}
       }
 
-    console.log(`[Database] All ${TABLE_NAMES.length} tables verified successfully (clean schema, no seeds injected).`);
+      // High-performance database indexes for fast DTR and attendance lookups
+      const speedIndexes = [
+        'CREATE INDEX IF NOT EXISTS idx_dtr_records_emp_date ON dtr_records ("employeeId", date)',
+        'CREATE INDEX IF NOT EXISTS idx_dtr_records_date ON dtr_records (date)',
+        'CREATE INDEX IF NOT EXISTS idx_dtr_records_status ON dtr_records (status)',
+        'CREATE INDEX IF NOT EXISTS idx_dtr_logs_emp_time ON dtr_logs ("employeeId", timestamp)',
+        'CREATE INDEX IF NOT EXISTS idx_schedules_emp ON schedules ("employeeId")',
+        'CREATE INDEX IF NOT EXISTS idx_schedules_day ON schedules ("dayOfWeek")',
+        'CREATE INDEX IF NOT EXISTS idx_schedules_spec_date ON schedules ("specificDate")',
+        'CREATE INDEX IF NOT EXISTS idx_dtr_visiting_emp_date ON dtr_visiting_records ("employeeId", date)',
+        'CREATE INDEX IF NOT EXISTS idx_employees_email ON employees (email)',
+        'CREATE INDEX IF NOT EXISTS idx_employees_category ON employees (category)',
+        'CREATE INDEX IF NOT EXISTS idx_employees_empid ON employees ("employeeId")',
+        'CREATE INDEX IF NOT EXISTS idx_holidays_date ON holidays (date)'
+      ];
+
+      for (const idx of speedIndexes) {
+        try {
+          await db.exec(idx);
+        } catch {}
+      }
+
+    console.log(`[Database] All ${TABLE_NAMES.length} tables and indexes verified successfully.`);
 
     // Trigger async background sync to Supabase Auth
     setTimeout(() => {
