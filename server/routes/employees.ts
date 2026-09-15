@@ -795,6 +795,7 @@ employeesRouter.get("/schedules", async (req: any, res: any) => {
 employeesRouter.get("/schedules/employee/:employeeId", async (req: any, res: any) => {
   try {
     const { employeeId } = req.params;
+    const cleanId = (employeeId || "").trim();
     const scheds = await db.prepare(`
       SELECT s.*, 
              e."firstName", e."lastName", e.category, e.position, 
@@ -803,8 +804,12 @@ employeesRouter.get("/schedules/employee/:employeeId", async (req: any, res: any
       FROM schedules s
       LEFT JOIN employees e ON s."employeeId" = e.id
       WHERE s."employeeId" = ? 
+         OR s."employeeId" IN (SELECT id FROM employees WHERE LOWER(email) = LOWER(?) OR "employeeId" = ? OR id = ?)
+         OR LOWER(e.email) = LOWER(?)
+         OR e."employeeId" = ?
+         OR e.id = ?
       ORDER BY s."dayOfWeek" ASC, s."startTime" ASC
-    `).all(employeeId);
+    `).all(cleanId, cleanId, cleanId, cleanId, cleanId, cleanId, cleanId);
     res.json(scheds);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

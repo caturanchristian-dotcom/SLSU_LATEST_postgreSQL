@@ -392,10 +392,19 @@ const Schedules = () => {
   };
 
   const fetchEmployees = async () => {
-    if (!isAdmin) return;
     try {
       const data = await api.employees.list();
       setEmployees(data || []);
+      if (role === 'employee' && user) {
+        const myEmp = (data || []).find((e: any) => 
+          e.id === user.id || 
+          e.email?.toLowerCase() === user.email?.toLowerCase() ||
+          e.employeeId === user.id
+        );
+        if (myEmp) {
+          setSelectedEmployeeId(myEmp.id);
+        }
+      }
     } catch (error) {
       console.error('Failed to fetch employees:', error);
     }
@@ -704,8 +713,12 @@ const Schedules = () => {
   const filteredSchedules = schedules.filter(s => {
     const matchesSearch = 
       s.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      `${s.firstName} ${s.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      `${s.firstName || ''} ${s.lastName || ''}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (s.room && s.room.toLowerCase().includes(searchQuery.toLowerCase()));
+    
+    if (role === 'employee') {
+      return matchesSearch;
+    }
     
     const matchesCategory = selectedCategory === 'all' || s.category === selectedCategory;
     const matchesEmployee = selectedEmployeeId === 'all' || s.employeeId === selectedEmployeeId;
@@ -731,8 +744,14 @@ const Schedules = () => {
       {/* Top Title and Control Panel */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-2 border-b border-neutral-100">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-neutral-900 font-sans">Schedules</h2>
-          <p className="text-sm text-neutral-500 mt-1 font-medium">Manage and view teaching slots, duty hours, and class locations.</p>
+          <h2 className="text-3xl font-bold tracking-tight text-neutral-900 font-sans">
+            {role === 'employee' ? 'My Schedules & Workload' : 'Schedules'}
+          </h2>
+          <p className="text-sm text-neutral-500 mt-1 font-medium">
+            {role === 'employee'
+              ? 'Weekly Monitoring Gantt Chart and Official Workload Matrix for teaching and duty hours.'
+              : 'Manage and view teaching slots, duty hours, and class locations.'}
+          </p>
         </div>
         
         <div className="flex items-center gap-3">

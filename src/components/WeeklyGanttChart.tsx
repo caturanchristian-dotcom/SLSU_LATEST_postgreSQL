@@ -207,13 +207,13 @@ export const WeeklyGanttChart: React.FC<WeeklyGanttChartProps> = ({
   selectedEmployeeId = '',
   onSelectEmployeeId,
 }) => {
-  // Determine the single active employee
+  // Determine the single active employee ID
   const resolvedInitialId = useMemo(() => {
     if (selectedEmployeeId && selectedEmployeeId !== 'all' && employees.some(e => e.id === selectedEmployeeId)) {
       return selectedEmployeeId;
     }
-    return employees.length > 0 ? employees[0].id : '';
-  }, [selectedEmployeeId, employees]);
+    return employees.length > 0 ? employees[0].id : (schedules.length > 0 ? schedules[0].employeeId : '');
+  }, [selectedEmployeeId, employees, schedules]);
 
   const [activeFacultyId, setActiveFacultyId] = useState<string>(resolvedInitialId);
   const [slotMode, setSlotMode] = useState<'class_schedules' | 'standard'>('class_schedules');
@@ -227,22 +227,49 @@ export const WeeklyGanttChart: React.FC<WeeklyGanttChartProps> = ({
       if (onSelectEmployeeId) {
         onSelectEmployeeId(employees[0].id);
       }
+    } else if (schedules.length > 0 && !activeFacultyId) {
+      setActiveFacultyId(schedules[0].employeeId);
     }
-  }, [selectedEmployeeId, employees]);
+  }, [selectedEmployeeId, employees, schedules]);
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
 
-  // Strictly filter schedules for ONLY this single employee
+  // Strictly filter schedules for this employee
   const singleEmployeeSchedules = useMemo(() => {
-    if (!activeFacultyId) return [];
-    return schedules.filter(s => s.employeeId === activeFacultyId);
-  }, [schedules, activeFacultyId]);
+    if (!isAdmin) {
+      // For employee role, the schedules prop already contains the employee's personal schedules
+      return schedules;
+    }
+    if (!activeFacultyId) return schedules;
+    const filtered = schedules.filter(s => s.employeeId === activeFacultyId);
+    return filtered.length > 0 ? filtered : schedules;
+  }, [schedules, activeFacultyId, isAdmin]);
 
-  // Selected employee object details
+  // Selected employee object details with resilient fallback from schedules
   const activeEmployee = useMemo(() => {
-    return employees.find(e => e.id === activeFacultyId) || null;
-  }, [employees, activeFacultyId]);
+    const found = employees.find(e => e.id === activeFacultyId);
+    if (found) return found;
+    if (employees.length > 0) return employees[0];
+    
+    // Fallback: Synthesize employee details from schedule records if available
+    if (schedules.length > 0) {
+      const first = schedules[0];
+      if (first.firstName || first.lastName) {
+        return {
+          id: first.employeeId || 'current',
+          employeeId: first.employeeNo || 'EMP',
+          firstName: first.firstName || '',
+          lastName: first.lastName || '',
+          category: first.category || 'FACULTY',
+          position: first.position || 'Instructor',
+          teachingDepartmentId: first.teachingDepartmentId || '',
+          teachingExperience: first.teachingExperience || '',
+        } as EmployeeItem;
+      }
+    }
+    return null;
+  }, [employees, activeFacultyId, schedules]);
 
   // Current employee index for Prev/Next navigation
   const currentEmpIndex = useMemo(() => {
@@ -372,13 +399,13 @@ export const WeeklyGanttChart: React.FC<WeeklyGanttChartProps> = ({
     return departments.find(d => d.id === activeEmployee.teachingDepartmentId);
   }, [departments, activeEmployee]);
 
-  if (employees.length === 0) {
+  if (employees.length === 0 && schedules.length === 0) {
     return (
       <div className="py-16 text-center border-2 border-dashed border-neutral-200 rounded-3xl bg-neutral-50/60 p-8">
-        <User className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
-        <h3 className="text-base font-bold text-neutral-900">No Employees Available</h3>
+        <Calendar className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
+        <h3 className="text-base font-bold text-neutral-900">No Schedules Configured Yet</h3>
         <p className="text-xs text-neutral-500 mt-1 max-w-md mx-auto">
-          Please add employees first to generate their individual Weekly Monitoring Gantt Chart.
+          When teaching assignments, consultation slots, or official duties are assigned by your department head or academic dean, your Weekly Monitoring Gantt Chart will be generated automatically here.
         </p>
       </div>
     );
@@ -433,49 +460,70 @@ export const WeeklyGanttChart: React.FC<WeeklyGanttChartProps> = ({
 
       {/* TOP CONTROLS: SINGLE EMPLOYEE SELECTOR & TIME SLOT FORMAT TOGGLE (Hidden in Print) */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-neutral-50 p-4 rounded-2xl border border-neutral-200/80 shadow-xs no-print">
-        {/* Employee Switcher */}
+        {/* Employee Switcher (for Admins) or Employee Profile Badge (for Employee User) */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-extrabold uppercase tracking-wider text-neutral-600 flex items-center gap-1.5">
-              <User className="w-4 h-4 text-blue-600" />
-              Employee:
-            </span>
-            
-            <div className="flex items-center gap-1 bg-white border border-neutral-300 rounded-xl p-0.5 shadow-xs">
-              <button
-                onClick={handlePrevFaculty}
-                disabled={employees.length <= 1}
-                className="p-1.5 text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                title="Previous Employee"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
+          {isAdmin ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-extrabold uppercase tracking-wider text-neutral-600 flex items-center gap-1.5">
+                <User className="w-4 h-4 text-blue-600" />
+                Faculty:
+              </span>
+              
+              <div className="flex items-center gap-1 bg-white border border-neutral-300 rounded-xl p-0.5 shadow-xs">
+                <button
+                  onClick={handlePrevFaculty}
+                  disabled={employees.length <= 1}
+                  className="p-1.5 text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Previous Employee"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
 
-              <select
-                value={activeFacultyId}
-                onChange={(e) => handleFacultyChange(e.target.value)}
-                className="h-8 bg-transparent border-none px-2 text-xs font-extrabold text-neutral-900 focus:ring-0 cursor-pointer min-w-[220px]"
-              >
-                {employees.map(emp => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.lastName}, {emp.firstName} ({emp.category})
-                  </option>
-                ))}
-              </select>
+                <select
+                  value={activeFacultyId}
+                  onChange={(e) => handleFacultyChange(e.target.value)}
+                  className="h-8 bg-transparent border-none px-2 text-xs font-extrabold text-neutral-900 focus:ring-0 cursor-pointer min-w-[220px]"
+                >
+                  {employees.map(emp => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.lastName}, {emp.firstName} ({emp.category})
+                    </option>
+                  ))}
+                </select>
 
-              <button
-                onClick={handleNextFaculty}
-                disabled={employees.length <= 1}
-                className="p-1.5 text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                title="Next Employee"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+                <button
+                  onClick={handleNextFaculty}
+                  disabled={employees.length <= 1}
+                  className="p-1.5 text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Next Employee"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow-xs">
+                {activeEmployee?.firstName ? activeEmployee.firstName[0] : 'E'}
+              </div>
+              <div>
+                <div className="text-xs font-bold text-neutral-900 flex items-center gap-2">
+                  <span>{activeEmployee ? `${activeEmployee.lastName}, ${activeEmployee.firstName}` : 'My Schedule'}</span>
+                  {activeEmployee?.category && (
+                    <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-md">
+                      {activeEmployee.category}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[11px] text-neutral-500 font-medium">
+                  {activeDept ? `${activeDept.code} Department` : 'Southern Leyte State University'}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Quick Info Badges */}
-          {activeEmployee && (
+          {isAdmin && activeEmployee && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="font-extrabold text-neutral-900 bg-white px-2.5 py-1 rounded-xl border border-neutral-200 shadow-2xs">
                 {activeEmployee.lastName}, {activeEmployee.firstName}
@@ -503,7 +551,7 @@ export const WeeklyGanttChart: React.FC<WeeklyGanttChartProps> = ({
                   ? 'bg-neutral-900 text-white shadow-xs'
                   : 'text-neutral-600 hover:text-neutral-900'
               }`}
-              title="Time slot rows match this employee's actual class schedule hours (e.g. 08:00 - 10:00 AM)"
+              title="Time slot rows match actual class schedule hours (e.g. 08:00 - 10:00 AM)"
             >
               Class Schedules ({displayTimeSlots.length} Slots)
             </button>
@@ -745,11 +793,10 @@ export const WeeklyGanttChart: React.FC<WeeklyGanttChartProps> = ({
             </div>
 
             <div className="text-[11px] text-neutral-500 font-medium italic no-print">
-              * Click any scheduled block to view full details or edit
+              * Click any scheduled block to view full details
             </div>
           </div>
         </div>
-
       </div>
     </div>
   );
