@@ -1418,7 +1418,7 @@ const DTR = () => {
     });
 
     return sheetData;
-  }, [logs, employeeSchedules, selectedYear, selectedMonth, selectedEmployeeId, holidays]);
+  }, [logs, employeeSchedules, selectedYear, selectedMonth, selectedEmployeeId]);
 
   const { firstHalf, secondHalf, firstHalfTotals, secondHalfTotals, fullMonthRows, fullMonthTotals } = useMemo(() => {
     const fHalf = sheetEntries.filter(e => e.day <= 15);

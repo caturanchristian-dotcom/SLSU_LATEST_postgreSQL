@@ -1,5 +1,11 @@
+// ============================================================================
+// AUTHENTICATION ROUTE HANDLER (Local Credentials, Supabase Auth, & Google OAuth)
+// ============================================================================
+// Import Express Router for modular authentication routes
 import { Router } from "express";
+// Import database instance and audit logger from schema
 import { db, logAudit } from "../db/schema.js";
+// Import Supabase Auth integration utilities
 import { 
   hasSupabaseConfig, 
   authenticateWithSupabase, 
@@ -7,40 +13,67 @@ import {
   findSupabaseUserByEmail 
 } from "../supabase.js";
 
+// Instantiate the Express Router instance for auth endpoints
 export const authRouter = Router();
 
+// ============================================================================
+// Helper Function: Normalize Campus Names for Strict Cross-Campus Validation
+// Handles variations like "Sogod (Main) Campus", "Tomas Oppus", etc.
+// ============================================================================
 function normalizeCampus(c: string): string {
+  // If string is empty, return empty string
   if (!c) return '';
+  // Convert input to lowercase and trim leading/trailing whitespace
   const lower = c.trim().toLowerCase();
+  // Match Hinunangan campus
   if (lower.includes('hinunangan')) return 'hinunangan campus';
+  // Match Sogod main campus
   if (lower.includes('sogod') || lower.includes('main')) return 'sogod (main) campus';
+  // Match Tomas Oppus campus
   if (lower.includes('tomas') || lower.includes('oppus')) return 'tomas oppus campus';
+  // Match Bontoc campus
   if (lower.includes('bontoc')) return 'bontoc campus';
+  // Match San Juan campus
   if (lower.includes('san juan') || lower.includes('sanjuan')) return 'san juan campus';
+  // Default to lowercase string if no specific pattern matched
   return lower;
 }
 
+// ============================================================================
+// 1. AUTH STATUS ENDPOINT: GET /api/auth/status
+// Returns whether Supabase Cloud Auth is configured or running on local DB auth
+// ============================================================================
 authRouter.get("/status", async (_req: any, res: any) => {
+  // Respond with active authentication provider metadata
   res.json({
-    supabaseAuthConfigured: hasSupabaseConfig,
-    provider: hasSupabaseConfig ? "supabase" : "local",
-    timestamp: new Date().toISOString()
+    supabaseAuthConfigured: hasSupabaseConfig,      // Boolean: Supabase credentials presence
+    provider: hasSupabaseConfig ? "supabase" : "local", // Active primary auth provider
+    timestamp: new Date().toISOString()            // Server ISO timestamp
   });
 });
 
+// ============================================================================
+// 2. EMAIL / PASSWORD LOGIN ENDPOINT: POST /api/auth/login
+// Supports hybrid authentication (Supabase Cloud Auth + Local Database Fallback)
+// ============================================================================
 authRouter.post("/login", async (req: any, res: any) => {
   try {
+    // Extract login credentials and optional campus selection from request body
     const { email, password, campus } = req.body;
+    // Validate required fields
     if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
 
+    // Clean and normalize input strings
     const cleanEmail = email.trim().toLowerCase();
     const cleanPassword = String(password);
 
-    // 1. Check local DB user & employee
+    // 1. Check local DB for existing user record
     let user: any = null;
     try {
+      // Query users table matching email
       user = await db.prepare("SELECT * FROM users WHERE LOWER(email) = ?").get(cleanEmail) as any;
     } catch (dbErr: any) {
+      // If table columns are missing in legacy DB schemas, automatically migrate
       if (dbErr.message?.includes("email") || dbErr.message?.includes("does not exist")) {
         try {
           await db.exec("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(191)");
@@ -53,6 +86,7 @@ authRouter.post("/login", async (req: any, res: any) => {
       }
     }
 
+    // Also look up employee table record for profile data
     let employee: any = null;
     try {
       employee = await db.prepare("SELECT * FROM employees WHERE LOWER(email) = ?").get(cleanEmail) as any;
@@ -65,6 +99,7 @@ authRouter.post("/login", async (req: any, res: any) => {
       }
     }
     
+    // If user record doesn't exist but employee record exists, auto-provision local user account
     if (!user && employee) {
       const id = employee.id;
       await db.prepare("INSERT OR REPLACE INTO users (id, email, password, displayName, role, profileImage, campus) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
@@ -73,25 +108,27 @@ authRouter.post("/login", async (req: any, res: any) => {
       user = await db.prepare("SELECT * FROM users WHERE id = ?").get(id) as any;
     }
 
+    // Initialize Supabase auth session holders
     let supabaseAuthSession: any = null;
     let supabaseAuthUser: any = null;
 
-    // 2. Perform Supabase Auth if Supabase is configured
+    // 2. Perform Supabase Auth if credentials are configured
     if (hasSupabaseConfig) {
       const supabaseAuth = await authenticateWithSupabase(cleanEmail, cleanPassword);
       if (supabaseAuth.success && supabaseAuth.session) {
         supabaseAuthSession = supabaseAuth.session;
         supabaseAuthUser = supabaseAuth.user;
       } else {
+        // Evaluate password match against local record
         const isMatch =
           user &&
           (user.password === cleanPassword ||
             (cleanPassword.length < 6 && user.password === cleanPassword.padEnd(6, "0")) ||
             (user.password && user.password.length < 6 && cleanPassword === user.password.padEnd(6, "0")));
 
-        // If Supabase Auth failed because user was not yet synced or password changed in local DB:
+        // If user matched in local DB but Supabase account was not yet synced, sync now
         if (user && isMatch) {
-          // Provision / update in Supabase Auth
+          // Provision / update user in Supabase Auth
           await syncUserToSupabase({
             id: user.id,
             email: cleanEmail,
@@ -114,6 +151,7 @@ authRouter.post("/login", async (req: any, res: any) => {
 
     // 3. Verify user authentication status
     if (user) {
+      // Validate password equality with support for 6-char padded passwords
       const isPasswordValid =
         user.password === cleanPassword ||
         (cleanPassword.length < 6 && user.password === cleanPassword.padEnd(6, "0")) ||
@@ -131,12 +169,15 @@ authRouter.post("/login", async (req: any, res: any) => {
         user.password = cleanPassword;
       }
 
+      // Resolve user's assigned campus
       const assignedCampus = employee?.campus || user.campus || 'Hinunangan Campus';
 
+      // Enforce campus verification if specified
       if (campus) {
         const normSelected = normalizeCampus(campus);
         const normAssigned = normalizeCampus(assignedCampus);
 
+        // Disallow logging into a campus the user is not assigned to
         if (normSelected !== normAssigned) {
           await logAudit(req, 'USER_LOGIN_FAILED', `Failed login attempt for ${cleanEmail}: Campus mismatch. Selected "${campus}", assigned "${assignedCampus}".`);
           return res.status(401).json({ 
@@ -147,17 +188,20 @@ authRouter.post("/login", async (req: any, res: any) => {
         }
       }
 
+      // Sync campus in database if updated
       if (user.campus !== assignedCampus) {
         await db.prepare("UPDATE users SET campus = ? WHERE id = ?").run(assignedCampus, user.id);
         user.campus = assignedCampus;
       }
 
+      // Record successful login audit log
       await logAudit(
         { ...req, headers: { ...req.headers, 'x-user-id': user.id, 'x-user-email': user.email } }, 
         'USER_LOGIN_SUCCESS', 
         `User logged in via ${hasSupabaseConfig && supabaseAuthSession ? 'Supabase Auth' : 'Local Auth'}: ${user.displayName} (${user.role}) - Campus: ${assignedCampus}`
       );
 
+      // Strip sensitive password field before sending response
       const { password: _, ...userWithoutPassword } = user;
       return res.json({ 
         ...userWithoutPassword, 
@@ -174,6 +218,7 @@ authRouter.post("/login", async (req: any, res: any) => {
       const newRole = meta.role || 'employee';
       const newCampus = meta.campus || 'Hinunangan Campus';
 
+      // Insert new user record
       await db.prepare(`
         INSERT INTO users (id, email, password, displayName, role, campus)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -181,12 +226,14 @@ authRouter.post("/login", async (req: any, res: any) => {
 
       const createdUser = await db.prepare("SELECT * FROM users WHERE id = ?").get(newId) as any;
 
+      // Log successful registration & login
       await logAudit(
         { ...req, headers: { ...req.headers, 'x-user-id': newId, 'x-user-email': cleanEmail } }, 
         'USER_LOGIN_SUCCESS', 
         `User registered & logged in via Supabase Auth: ${newDisplayName} (${newRole}) - Campus: ${newCampus}`
       );
 
+      // Return sanitized user object with Supabase access tokens
       const { password: _, ...userWithoutPassword } = createdUser;
       return res.json({
         ...userWithoutPassword,
@@ -195,17 +242,24 @@ authRouter.post("/login", async (req: any, res: any) => {
         supabaseUser: supabaseAuthUser,
       });
     } else {
+      // User account was not found in either system
       await logAudit(req, 'USER_LOGIN_FAILED', `Failed login attempt for ${cleanEmail}: User not found`);
       return res.status(401).json({ error: "User not found" });
     }
   } catch (err: any) {
+    // Handle unexpected login errors
     console.error("Login error:", err);
     res.status(500).json({ error: err.message || "Internal server error" });
   }
 });
 
+// ============================================================================
+// 3. GOOGLE OAUTH LOGIN ENDPOINT: POST /api/auth/google-login
+// Authenticates users signing in with Google Workspace accounts
+// ============================================================================
 authRouter.post("/google-login", async (req: any, res: any) => {
   try {
+    // Extract Google OAuth payload from request body
     const { email, displayName, profileImage, campus, supabaseToken, supabaseUser } = req.body;
     if (!email) {
       return res.status(400).json({ error: "Email is required for Google authentication" });
@@ -249,7 +303,7 @@ authRouter.post("/google-login", async (req: any, res: any) => {
     if (employee && employee.status && employee.status.toLowerCase() !== 'active') {
       await logAudit(
         req,
-        'USER_LOGIN_FAILED',
+        'USER_LOGIN_FAILED', 
         `Google OAuth login rejected: Employee account for "${cleanEmail}" is inactive (${employee.status}).`
       );
       return res.status(403).json({
@@ -300,12 +354,14 @@ authRouter.post("/google-login", async (req: any, res: any) => {
       }
     }
 
+    // Log OAuth sign-in event
     await logAudit(
       { ...req, headers: { ...req.headers, 'x-user-id': user.id, 'x-user-email': user.email } },
       'USER_LOGIN_SUCCESS',
       `User logged in via Supabase Google OAuth: ${user.displayName} (${user.role}) - Campus: ${assignedCampus}`
     );
 
+    // Return sanitized user object
     const { password: _, ...userWithoutPassword } = user;
     return res.json({
       ...userWithoutPassword,
@@ -320,19 +376,34 @@ authRouter.post("/google-login", async (req: any, res: any) => {
   }
 });
 
+// ============================================================================
+// 4. USER LOGOUT ENDPOINT: POST /api/auth/logout
+// Records logout audit log and invalidates active session
+// ============================================================================
 authRouter.post("/logout", async (req: any, res: any) => {
+  // Write audit trail entry
   await logAudit(req, 'USER_LOGOUT', 'User logged out');
+  // Confirm logout
   res.json({ message: "Logged out successfully" });
 });
 
+// ============================================================================
+// 5. CURRENT USER PROFILE: GET /api/auth/me
+// Retrieves current authenticated session details using x-user-id header
+// ============================================================================
 authRouter.get("/me", async (req: any, res: any) => {
+  // Extract user ID from request headers
   const userId = req.headers['x-user-id'] || req.headers['user-id'];
+  // Reject if header is missing
   if (!userId) {
     return res.status(401).json({ error: "Unauthorized" });
   }
+  // Query user record by ID
   const user = await db.prepare("SELECT id, email, displayName, role, profileImage, campus, createdAt FROM users WHERE id = ?").get(userId);
+  // If not found in database
   if (!user) {
     return res.status(404).json({ error: "User not found" });
   }
+  // Return user profile data
   res.json(user);
 });
