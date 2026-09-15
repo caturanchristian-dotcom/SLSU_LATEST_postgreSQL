@@ -24,16 +24,20 @@ export function isEmployeeMatchingCategoryFilter(empCategory: string, cycleCateg
   const filter = cycleCategoryFilter.toLowerCase().trim();
   const cat = (empCategory || '').toUpperCase().trim();
 
+  const isVisiting = cat.includes('VISITING') || cat.includes('PART-TIME') || cat.includes('PART TIME') || cat.includes('LECTURER') || cat === 'VI' || cat.startsWith('VI ') || cat.endsWith(' VI');
+  const isJobOrder = cat.includes('JOB ORDER') || cat.includes('JOB_ORDER') || cat.includes('JOB-ORDER') || cat === 'JO' || cat.startsWith('JO ') || cat.endsWith(' JO');
+  const isFacultyOrStaff = (cat.includes('FACULTY') || cat.includes('STAFF') || cat === 'REGULAR EMPLOYEE' || cat === 'PERMANENT' || cat === 'REGULAR') && !isVisiting && !isJobOrder;
+
   if (filter === 'visiting-instructor' || filter === 'visiting instructor' || filter === 'visiting' || filter.includes('visiting')) {
-    return cat.includes('VISITING') || cat.includes('PART-TIME') || cat.includes('LECTURER');
+    return isVisiting && !isJobOrder;
   }
 
   if (filter === 'faculty-staff' || filter === 'faculty & staff' || filter === 'faculty_staff' || filter.includes('faculty')) {
-    return cat.includes('FACULTY') || cat.includes('STAFF') || cat === 'REGULAR EMPLOYEE' || cat === 'PERMANENT';
+    return isFacultyOrStaff;
   }
 
   if (filter === 'job-order' || filter === 'job order' || filter === 'jo' || filter.includes('job')) {
-    return cat.includes('JOB ORDER') || cat.includes('JOB_ORDER') || cat === 'JO';
+    return isJobOrder && !isVisiting;
   }
 
   return cat === filter.toUpperCase() || cat.includes(filter.toUpperCase());
@@ -355,7 +359,8 @@ export async function calculateNetSalary(
             v.employeeid === emp.id ||
             v.employeeid === emp.employeeId
           );
-          const visitingHourlyRate = Number(matchVi?.hourlyRate || matchVi?.hourly_rate || matchVi?.hourlyrate || 350.00);
+          const empBasicSal = Number(emp.basicSalary || 0);
+          const visitingHourlyRate = Number(matchVi?.hourlyRate || matchVi?.hourly_rate || matchVi?.hourlyrate || (emp.salaryType === 'hourly' && empBasicSal > 0 ? empBasicSal : 350.00));
           let verifiedHours = 0;
           
           if (cycle.startDate && cycle.endDate) {
@@ -371,12 +376,29 @@ export async function calculateNetSalary(
 
           if (verifiedHours === 0) {
             const loads = allTeachingLoads.filter((l: any) => l.employeeId === emp.id || l.employeeId === emp.employeeId);
-            const weeklyHours = loads.reduce((sum: number, l: any) => sum + Number(l.hoursPerWeek || 3.0), 0);
-            verifiedHours = Number((isSemiMonthly ? weeklyHours * 2 : weeklyHours * 4).toFixed(2));
+            if (loads.length > 0) {
+              const weeklyHours = loads.reduce((sum: number, l: any) => sum + Number(l.hoursPerWeek || 3.0), 0);
+              verifiedHours = Number((isSemiMonthly ? weeklyHours * 2 : weeklyHours * 4).toFixed(2));
+            } else if (Number(entry.teachingHours || 0) > 0) {
+              verifiedHours = Number(entry.teachingHours);
+            }
           }
 
-          teachingHoursToUpdate = verifiedHours;
-          computedBasicPay = Number((verifiedHours * visitingHourlyRate).toFixed(2));
+          if (emp.salaryType === 'monthly' || empBasicSal > 1000) {
+            // Salaried staff or faculty assigned as visiting
+            const monthlyRate = empBasicSal > 0 ? empBasicSal : 19716.00;
+            computedBasicPay = isSemiMonthly ? Number((monthlyRate / 2).toFixed(2)) : monthlyRate;
+            teachingHoursToUpdate = verifiedHours;
+          } else {
+            // Hourly visiting instructor
+            if (verifiedHours === 0) {
+              // Standard baseline load (e.g. 15 hours per week) if DTR is not yet uploaded
+              const defaultWeeklyH = Number(matchVi?.maxHoursPerWeek || 0) > 0 ? Math.min(20, Number(matchVi.maxHoursPerWeek)) : 15;
+              verifiedHours = Number((isSemiMonthly ? defaultWeeklyH * 2 : defaultWeeklyH * 4).toFixed(2));
+            }
+            teachingHoursToUpdate = verifiedHours;
+            computedBasicPay = Number((verifiedHours * visitingHourlyRate).toFixed(2));
+          }
         } else {
           const monthlyRate = Number(emp.basicSalary || 0);
           const baseCyclePay = isSemiMonthly ? Number((monthlyRate / 2).toFixed(2)) : monthlyRate;
@@ -727,7 +749,7 @@ export async function calculateNetSalary(
         dedGsisPremPersonal + dedEducAsst + dedPagibigPersonal + dedPagibigMpl + dedSss + dedPagibigMp2 + 
         dedPhilhealthCont + dedCsbLoan + dedTaxWithheld + otherDeductionsTotal).toFixed(2));
 
-      const net = Number((gross - sumDeductions).toFixed(2));
+      const net = Math.max(0, Number((gross - sumDeductions).toFixed(2)));
 
       const deductionsMap = {
         govSecGsis,
@@ -836,22 +858,47 @@ export async function calculateNetSalary(
     } catch {}
 
     // Always summarize from payroll_entries to ensure 100% database consistency
-    const summary = await db.prepare(`
-      SELECT 
-        COALESCE(SUM(grossPay), 0) as sumGross, 
-        COALESCE(SUM(totalDeductions), 0) as sumDeds, 
-        COALESCE(SUM(netPay), 0) as sumNet 
-      FROM payroll_entries 
-      WHERE cycleId = ?
-    `).get(cycleId) as any;
-
-    if (summary) {
-      totalGross = Number(Number(summary.sumGross || 0).toFixed(2));
-      totalDeductions = Number(Number(summary.sumDeds || 0).toFixed(2));
-      totalNet = Number(Number(summary.sumNet || 0).toFixed(2));
+    let summary: any;
+    try {
+      summary = await db.prepare(`
+        SELECT 
+          COALESCE(SUM(CAST("grossPay" AS numeric)), 0) as "sumGross", 
+          COALESCE(SUM(CAST("totalDeductions" AS numeric)), 0) as "sumDeds", 
+          COALESCE(SUM(CASE WHEN CAST("netPay" AS numeric) > 0 THEN CAST("netPay" AS numeric) ELSE 0 END), 0) as "sumNet" 
+        FROM payroll_entries 
+        WHERE "cycleId" = ? OR cycleId = ?
+      `).get(cycleId, cycleId) as any;
+    } catch {
+      summary = await db.prepare(`
+        SELECT 
+          COALESCE(SUM(grossPay), 0) as sumGross, 
+          COALESCE(SUM(totalDeductions), 0) as sumDeds, 
+          COALESCE(SUM(CASE WHEN netPay > 0 THEN netPay ELSE 0 END), 0) as sumNet 
+        FROM payroll_entries 
+        WHERE cycleId = ?
+      `).get(cycleId) as any;
     }
 
-    await db.prepare('UPDATE payroll_cycles SET "totalGross" = ?, "totalDeductions" = ?, "totalNet" = ? WHERE id = ?').run(totalGross, totalDeductions, totalNet, cycleId);
+    if (summary) {
+      totalGross = Number(Number(summary.sumGross ?? summary.sumgross ?? summary.sum_gross ?? 0).toFixed(2));
+      totalDeductions = Number(Number(summary.sumDeds ?? summary.sumdeds ?? summary.sum_deductions ?? 0).toFixed(2));
+      totalNet = Number(Number(summary.sumNet ?? summary.sumnet ?? summary.sum_net ?? 0).toFixed(2));
+    }
+
+    try {
+      await db.prepare(`
+        UPDATE payroll_cycles 
+        SET "totalGross" = ?, "totalDeductions" = ?, "totalNet" = ?,
+            total_gross = ?, total_deductions = ?, total_net = ?
+        WHERE id = ?
+      `).run(totalGross, totalDeductions, totalNet, totalGross, totalDeductions, totalNet, cycleId);
+    } catch {
+      await db.prepare(`
+        UPDATE payroll_cycles 
+        SET "totalGross" = ?, "totalDeductions" = ?, "totalNet" = ?
+        WHERE id = ?
+      `).run(totalGross, totalDeductions, totalNet, cycleId);
+    }
     return { totalGross, totalDeductions, totalNet };
   } catch (error) {
     throw error;

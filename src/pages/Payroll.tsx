@@ -49,7 +49,9 @@ import {
   Receipt,
   Check,
   Layers,
-  Filter
+  Filter,
+  GraduationCap,
+  Briefcase
 } from 'lucide-react';
 import { SLSU_CAMPUSES } from '../lib/constants';
 import { PayrollRecords } from '../components/PayrollRecords';
@@ -133,31 +135,48 @@ export function isEmployeeMatchingCategoryFilter(empCategory?: string, cycleCate
   const filter = cycleCategoryFilter.toLowerCase().trim();
   const cat = (empCategory || '').toUpperCase().trim();
 
+  const isVisiting = cat.includes('VISITING') || cat.includes('PART-TIME') || cat.includes('PART TIME') || cat.includes('LECTURER') || cat === 'VI' || cat.startsWith('VI ') || cat.endsWith(' VI');
+  const isJobOrder = cat.includes('JOB ORDER') || cat.includes('JOB_ORDER') || cat.includes('JOB-ORDER') || cat === 'JO' || cat.startsWith('JO ') || cat.endsWith(' JO');
+  const isFacultyOrStaff = (cat.includes('FACULTY') || cat.includes('STAFF') || cat === 'REGULAR EMPLOYEE' || cat === 'PERMANENT' || cat === 'REGULAR') && !isVisiting && !isJobOrder;
+
   if (filter === 'visiting-instructor' || filter === 'visiting instructor' || filter === 'visiting' || filter.includes('visiting')) {
-    return cat.includes('VISITING') || cat.includes('PART-TIME') || cat.includes('LECTURER');
+    return isVisiting && !isJobOrder;
   }
 
   if (filter === 'faculty-staff' || filter === 'faculty & staff' || filter === 'faculty_staff' || filter.includes('faculty')) {
-    return cat.includes('FACULTY') || cat.includes('STAFF') || cat === 'REGULAR EMPLOYEE' || cat === 'PERMANENT';
+    return isFacultyOrStaff;
   }
 
   if (filter === 'job-order' || filter === 'job order' || filter === 'jo' || filter.includes('job')) {
-    return cat.includes('JOB ORDER') || cat.includes('JOB_ORDER') || cat === 'JO';
+    return isJobOrder && !isVisiting;
   }
 
   return cat === filter.toUpperCase() || cat.includes(filter.toUpperCase());
 }
 
-function getEmployeeGroupAndGender(entry: any): { group: 'VISITING' | 'FACULTY' | 'STAFF' | 'OTHERS'; isMale: boolean } {
+function getEmployeeGroupAndGender(entry: any): { group: 'VISITING' | 'FACULTY' | 'STAFF' | 'JOB_ORDER' | 'OTHERS'; isMale: boolean } {
   if (!entry) return { group: 'OTHERS', isMale: true };
   const category = (entry?.category || '').toUpperCase().trim();
   const firstName = (entry?.firstName || '').toUpperCase();
   const lastName = (entry?.lastName || '').toUpperCase();
   const pos = (entry?.position || '').toUpperCase();
 
-  // Determine group - Check Visiting first
-  let group: 'VISITING' | 'FACULTY' | 'STAFF' | 'OTHERS' = 'OTHERS';
+  // Determine group - Check Job Order & Visiting first
+  let group: 'VISITING' | 'FACULTY' | 'STAFF' | 'JOB_ORDER' | 'OTHERS' = 'OTHERS';
   if (
+    category.includes('JOB ORDER') ||
+    category.includes('JOB_ORDER') ||
+    category.includes('JOB-ORDER') ||
+    category === 'JO' ||
+    category.startsWith('JO ') ||
+    category.endsWith(' JO') ||
+    pos.includes('JOB ORDER') ||
+    pos.includes('JOB_ORDER') ||
+    pos.includes('JOB-ORDER') ||
+    pos === 'JO'
+  ) {
+    group = 'JOB_ORDER';
+  } else if (
     category.includes('VISITING') || 
     category.includes('PART-TIME') || 
     category.includes('PART TIME') || 
@@ -332,24 +351,14 @@ const Payroll = () => {
     }
   };
   const [searchTerm, setSearchTerm] = useState('');
-  // Category Filter state for GENERAL PAYROLL
-  const [tableCategoryFilter, setTableCategoryFilter] = useState<string>('all');
 
-  // Sync category filter with selected cycle
-  useEffect(() => {
-    if (selectedCycle) {
-      const rawCat = selectedCycle.categoryFilter || (selectedCycle as any).category_filter || ((selectedCycle.name && (selectedCycle.name.trim().toUpperCase() === 'VI' || selectedCycle.name.toLowerCase().includes('visiting'))) ? 'visiting-instructor' : 'all');
-      setTableCategoryFilter(rawCat);
-    }
-  }, [selectedCycle?.id, selectedCycle?.categoryFilter, (selectedCycle as any)?.category_filter, selectedCycle?.name]);
-
+  // Category is strictly based on what the admin set for this cycle
   const effectiveCategoryFilter = useMemo(() => {
-    if (tableCategoryFilter && tableCategoryFilter !== 'all') return tableCategoryFilter;
     if (selectedCycle?.categoryFilter && selectedCycle.categoryFilter !== 'all') return selectedCycle.categoryFilter;
     if ((selectedCycle as any)?.category_filter && (selectedCycle as any).category_filter !== 'all') return (selectedCycle as any).category_filter;
     if (selectedCycle?.name && (selectedCycle.name.trim().toUpperCase() === 'VI' || selectedCycle.name.toLowerCase().includes('visiting'))) return 'visiting-instructor';
     return 'all';
-  }, [tableCategoryFilter, selectedCycle?.categoryFilter, (selectedCycle as any)?.category_filter, selectedCycle?.name]);
+  }, [selectedCycle?.categoryFilter, (selectedCycle as any)?.category_filter, selectedCycle?.name]);
 
   const isVisitingOnly = useMemo(() => {
     const f = (effectiveCategoryFilter || '').toLowerCase().trim();
@@ -366,8 +375,8 @@ const Payroll = () => {
     return f === 'job-order' || f === 'job order' || f === 'jo' || f.includes('job');
   }, [effectiveCategoryFilter]);
 
-  const handleCategoryFilterChange = async (newFilter: string) => {
-    setTableCategoryFilter(newFilter);
+  // Admin function to update the cycle's category setting
+  const handleAdminUpdateCategory = async (newFilter: string) => {
     if (!selectedCycle?.id) return;
     
     // Update local cycle immediately
@@ -378,15 +387,15 @@ const Payroll = () => {
     try {
       await (api.payroll as any).updateCycleCategoryFilter(selectedCycle.id, newFilter);
       toast.success(
-        newFilter === 'visiting-instructor' ? 'Restricted to Visiting Instructors only. Faculty & staff removed.' :
-        newFilter === 'faculty-staff' ? 'Restricted to Faculty & Staff only. Visiting instructors removed.' :
-        newFilter === 'job-order' ? 'Restricted to Job Order only.' :
-        'All categories visible.'
+        newFilter === 'visiting-instructor' ? 'Cycle category set to Visiting Instructors only.' :
+        newFilter === 'faculty-staff' ? 'Cycle category set to Faculty & Staff only.' :
+        newFilter === 'job-order' ? 'Cycle category set to Job Order only.' :
+        'Cycle category set to All Categories.'
       );
       await fetchEntries(selectedCycle.id);
       fetchCycles();
     } catch (err: any) {
-      toast.error('Failed to update category filter: ' + err.message);
+      toast.error('Failed to update category: ' + err.message);
     }
   };
   const [showGsisFormula, setShowGsisFormula] = useState(false);
@@ -1071,20 +1080,7 @@ const Payroll = () => {
         const notYetEnrolled = !currentEmployeeIds.includes(emp.id);
         if (!isActive || !notYetEnrolled) return false;
 
-        const empCat = (emp.category || '').toUpperCase();
-        if (catFilter === 'visiting-instructor' || catFilter === 'visiting instructor' || catFilter === 'visiting' || catFilter.includes('visiting')) {
-          const isVisiting = empCat.includes('VISITING') || empCat.includes('PART-TIME') || empCat.includes('LECTURER');
-          const isFacultyOrStaff = empCat.includes('FACULTY') || empCat.includes('STAFF') || empCat === 'REGULAR EMPLOYEE' || empCat === 'PERMANENT';
-          return isVisiting && !isFacultyOrStaff;
-        }
-        if (catFilter === 'faculty-staff' || catFilter === 'faculty & staff' || catFilter === 'faculty_staff' || catFilter.includes('faculty')) {
-          const isVisiting = empCat.includes('VISITING') || empCat.includes('PART-TIME') || empCat.includes('LECTURER');
-          return !isVisiting && (empCat.includes('FACULTY') || empCat.includes('STAFF') || empCat === 'REGULAR EMPLOYEE');
-        }
-        if (catFilter === 'job-order' || catFilter === 'job order' || catFilter === 'jo' || catFilter.includes('job')) {
-          return empCat.includes('JOB ORDER') || empCat.includes('JOB_ORDER') || empCat === 'JO';
-        }
-        return true;
+        return isEmployeeMatchingCategoryFilter(emp.category, catFilter);
       });
       setAvailableEmployees(available);
     } catch (error: any) {
@@ -1093,10 +1089,25 @@ const Payroll = () => {
   };
 
   const handleAddEmployee = async (employeeId: string) => {
+    const emp = availableEmployees.find(e => e.id === employeeId);
     if (isVisitingOnly) {
-      const emp = availableEmployees.find(e => e.id === employeeId);
       if (emp && !isEmployeeMatchingCategoryFilter(emp.category, 'visiting-instructor')) {
         toast.error(`Cannot enroll "${emp.firstName || ''} ${emp.lastName || ''}". Only Visiting Instructors are permitted in this cycle.`);
+        return;
+      }
+    } else if (isFacultyStaffOnly) {
+      if (emp && !isEmployeeMatchingCategoryFilter(emp.category, 'faculty-staff')) {
+        toast.error(`Cannot enroll "${emp.firstName || ''} ${emp.lastName || ''}". Only Faculty & Staff are permitted in this cycle.`);
+        return;
+      }
+    } else if (isJobOrderOnly) {
+      if (emp && !isEmployeeMatchingCategoryFilter(emp.category, 'job-order')) {
+        toast.error(`Cannot enroll "${emp.firstName || ''} ${emp.lastName || ''}". Only Job Order employees are permitted in this cycle.`);
+        return;
+      }
+    } else if (effectiveCategoryFilter && effectiveCategoryFilter !== 'all') {
+      if (emp && !isEmployeeMatchingCategoryFilter(emp.category, effectiveCategoryFilter)) {
+        toast.error(`Cannot enroll "${emp.firstName || ''} ${emp.lastName || ''}". Does not match category filter "${effectiveCategoryFilter}".`);
         return;
       }
     }
@@ -2723,6 +2734,8 @@ const Payroll = () => {
       }
 
       if (isJobOrderOnly) {
+        const info = getEmployeeGroupAndGender(e);
+        if (info.group === 'VISITING' || info.group === 'FACULTY' || info.group === 'STAFF') return false;
         return isEmployeeMatchingCategoryFilter(e.category, 'job-order');
       }
 
@@ -2817,9 +2830,28 @@ const Payroll = () => {
           totalDeductions: realTimeTotals.totalDeductions,
           totalNet: realTimeTotals.totalNet
         } : prev);
+
+        setCycles((prev: any[]) => prev.map(c => c.id === selectedCycle.id ? {
+          ...c,
+          totalGross: realTimeTotals.totalGross,
+          totalDeductions: realTimeTotals.totalDeductions,
+          totalNet: realTimeTotals.totalNet,
+          total_gross: realTimeTotals.totalGross,
+          total_deductions: realTimeTotals.totalDeductions,
+          total_net: realTimeTotals.totalNet
+        } : c));
+
+        // Persist real-time calculated totals to backend
+        api.payroll.updateCycleTotals(selectedCycle.id, {
+          totalGross: realTimeTotals.totalGross,
+          totalDeductions: realTimeTotals.totalDeductions,
+          totalNet: realTimeTotals.totalNet
+        }).catch((err: any) => {
+          console.warn("Failed to auto-sync cycle totals to server:", err);
+        });
       }
     }
-  }, [realTimeTotals.totalGross, realTimeTotals.totalDeductions, realTimeTotals.totalNet, entries.length]);
+  }, [realTimeTotals.totalGross, realTimeTotals.totalDeductions, realTimeTotals.totalNet, entries.length, selectedCycle?.id]);
 
   const cn = (...inputs: any[]) => inputs.filter(Boolean).join(' ');
 
@@ -3198,6 +3230,23 @@ const Payroll = () => {
                         {SLSU_CAMPUSES.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
                     </div>
+                    {selectedCycle.status === 'draft' && (
+                      <div className="space-y-1.5 border-t border-neutral-100 pt-2">
+                        <Label className="text-[11px] text-neutral-600 font-semibold">Employee Category (Admin)</Label>
+                        <select
+                          value={selectedCycle.categoryFilter || (selectedCycle as any).category_filter || 'all'}
+                          onChange={async (e) => {
+                            await handleAdminUpdateCategory(e.target.value);
+                          }}
+                          className="w-full text-xs p-2 border border-neutral-200 rounded-lg bg-neutral-50 font-medium focus:outline-none focus:ring-1 focus:ring-neutral-900"
+                        >
+                          <option value="all">All Categories</option>
+                          <option value="visiting-instructor">Visiting Instructor Only</option>
+                          <option value="faculty-staff">Faculty & Staff Only</option>
+                          <option value="job-order">Job Order Only</option>
+                        </select>
+                      </div>
+                    )}
                   </PopoverContent>
                 </Popover>
               )}
@@ -3324,25 +3373,27 @@ const Payroll = () => {
                   )}
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded-lg shadow-2xs text-white">
-                    <Filter className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                    <Select
-                      value={effectiveCategoryFilter}
-                      onValueChange={handleCategoryFilterChange}
-                    >
-                      <SelectTrigger className="h-7 border-0 bg-transparent text-xs font-bold text-white p-0 focus:ring-0 gap-1 w-[165px]">
-                        <SelectValue placeholder="Category Filter" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-neutral-800 border-neutral-700 text-white">
-                        <SelectItem value="all" className="text-white hover:bg-neutral-700">All Categories</SelectItem>
-                        <SelectItem value="visiting-instructor" className="text-white hover:bg-neutral-700">Visiting Instructor Only</SelectItem>
-                        <SelectItem value="faculty-staff" className="text-white hover:bg-neutral-700">Faculty & Staff Only</SelectItem>
-                        <SelectItem value="job-order" className="text-white hover:bg-neutral-700">Job Order Only</SelectItem>
-                      </SelectContent>
-                    </Select>
+                {effectiveCategoryFilter && effectiveCategoryFilter !== 'all' && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded-lg text-xs font-semibold text-neutral-200 shrink-0">
+                    <span className="flex items-center justify-center w-4 h-4 rounded text-neutral-400">
+                      {isVisitingOnly ? (
+                        <GraduationCap className="w-3.5 h-3.5 text-indigo-400" />
+                      ) : isFacultyStaffOnly ? (
+                        <Users className="w-3.5 h-3.5 text-sky-400" />
+                      ) : isJobOrderOnly ? (
+                        <Briefcase className="w-3.5 h-3.5 text-amber-400" />
+                      ) : (
+                        <Layers className="w-3.5 h-3.5 text-neutral-400" />
+                      )}
+                    </span>
+                    <span className="text-[10px] text-neutral-400 font-medium uppercase tracking-wider">Category:</span>
+                    <span className="font-bold text-white tracking-wide">
+                      {isVisitingOnly ? 'Visiting Instructor' :
+                       isFacultyStaffOnly ? 'Faculty & Staff' :
+                       isJobOrderOnly ? 'Job Order' : effectiveCategoryFilter}
+                    </span>
                   </div>
-                </div>
+                )}
 
                 <div className="text-xs text-neutral-300 font-medium whitespace-nowrap hidden sm:flex items-center gap-3">
                   <span>
@@ -3373,141 +3424,169 @@ const Payroll = () => {
               </div>
             </div>
           ) : (
-            <div className="p-4 border-b border-neutral-100 bg-neutral-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-center gap-3 flex-1 max-w-3xl">
-                <div className="relative flex-1 min-w-[200px]">
+            <div className="p-3.5 sm:p-4 border-b border-neutral-200/80 bg-neutral-50/60 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+              {/* Left Group: Search, Category Badge & Staff Count */}
+              <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
+                <div className="relative flex-1 min-w-[200px] sm:max-w-xs">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
                   <Input 
                     placeholder="Search employee name or ID..." 
-                    className="pl-10 h-9 bg-white"
+                    className="pl-9 pr-8 h-9 bg-white border-neutral-200/90 text-xs shadow-2xs placeholder:text-neutral-400 rounded-lg focus-visible:ring-1 focus-visible:ring-neutral-400"
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
                   />
+                  {searchTerm && (
+                    <button 
+                      onClick={() => setSearchTerm('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 p-0.5"
+                      title="Clear search"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0" id="payroll-category-filter-dropdown">
-                  <div className="flex items-center gap-1.5 px-3 py-1 bg-white border border-neutral-200 rounded-lg shadow-2xs">
-                    <Filter className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
-                    <span className="text-[11px] font-semibold text-neutral-600 hidden sm:inline">Category:</span>
-                    <Select
-                      value={effectiveCategoryFilter}
-                      onValueChange={handleCategoryFilterChange}
-                    >
-                      <SelectTrigger className="h-7 border-0 bg-transparent text-xs font-bold p-0 focus:ring-0 gap-1 w-[165px]">
-                        <SelectValue placeholder="Category Filter" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Categories</SelectItem>
-                        <SelectItem value="visiting-instructor">Visiting Instructor Only</SelectItem>
-                        <SelectItem value="faculty-staff">Faculty & Staff Only</SelectItem>
-                        <SelectItem value="job-order">Job Order Only</SelectItem>
-                      </SelectContent>
-                    </Select>
+                {/* Admin-Set Category Badge */}
+                {effectiveCategoryFilter && effectiveCategoryFilter !== 'all' ? (
+                  <div className={cn(
+                    "inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border shadow-2xs text-xs font-semibold shrink-0 transition-colors",
+                    isVisitingOnly 
+                      ? "bg-indigo-50/70 border-indigo-200/80 text-indigo-950"
+                      : isFacultyStaffOnly
+                      ? "bg-sky-50/70 border-sky-200/80 text-sky-950"
+                      : isJobOrderOnly
+                      ? "bg-amber-50/70 border-amber-200/80 text-amber-950"
+                      : "bg-neutral-100/80 border-neutral-200 text-neutral-900"
+                  )}>
+                    <span className="flex items-center justify-center w-5 h-5 rounded-md bg-white/80 border border-current/10 shadow-2xs">
+                      {isVisitingOnly ? (
+                        <GraduationCap className="w-3.5 h-3.5 text-indigo-600" />
+                      ) : isFacultyStaffOnly ? (
+                        <Users className="w-3.5 h-3.5 text-sky-600" />
+                      ) : isJobOrderOnly ? (
+                        <Briefcase className="w-3.5 h-3.5 text-amber-600" />
+                      ) : (
+                        <Layers className="w-3.5 h-3.5 text-neutral-600" />
+                      )}
+                    </span>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-[10px] font-medium text-neutral-500 uppercase tracking-wider">Category:</span>
+                      <span className="font-bold tracking-tight">
+                        {isVisitingOnly ? 'Visiting Instructor' :
+                         isFacultyStaffOnly ? 'Faculty & Staff' :
+                         isJobOrderOnly ? 'Job Order' : effectiveCategoryFilter}
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2 border-l border-neutral-200 pl-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 mr-2">Export Report</p>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={downloadTablePDF} 
-                    className="gap-2 h-9 bg-white"
-                    disabled={isExportingPDF || isExportingExcel || isExportingSlips}
-                  >
-                    {isExportingPDF ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-neutral-600" />
-                    ) : (
-                      <FileText className="w-4 h-4" />
-                    )}
-                    {isExportingPDF ? 'Exporting PDF...' : 'PDF Report'}
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={downloadAllExcel} 
-                    className="gap-2 h-9 bg-white"
-                    disabled={isExportingPDF || isExportingExcel || isExportingSlips}
-                  >
-                    {isExportingExcel ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-neutral-600" />
-                    ) : (
-                      <Download className="w-4 h-4" />
-                    )}
-                    {isExportingExcel ? 'Exporting Excel...' : 'Excel Report'}
-                  </Button>
+                ) : (
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-neutral-200/80 bg-white shadow-2xs text-xs font-semibold text-neutral-800 shrink-0">
+                    <Layers className="w-3.5 h-3.5 text-neutral-500" />
+                    <span className="text-[10px] font-medium text-neutral-500 uppercase tracking-wider">Category:</span>
+                    <span className="font-bold text-neutral-900">All Categories</span>
+                  </div>
+                )}
+
+                {/* Staff Count Pill */}
+                <div className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-lg bg-neutral-200/60 text-neutral-700 text-xs font-medium shrink-0">
+                  <span className="font-bold text-neutral-900 mr-1">{filteredEntries.length}</span>
+                  {filteredEntries.length === 1 ? 'Employee' : 'Employees'}
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 border-r border-neutral-200 pr-3">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 font-sans">Payslips</p>
+
+              {/* Right Group: Unified Export Segment & Action Buttons */}
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {/* Export Segmented Control (PDF, Excel, Payslips) */}
+                <div className="inline-flex items-center rounded-lg border border-neutral-200/90 bg-white p-0.5 shadow-2xs">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={downloadTablePDF} 
+                    disabled={isExportingPDF || isExportingExcel || isExportingSlips}
+                    className="h-8 px-2.5 text-xs font-medium text-neutral-700 hover:text-neutral-900 hover:bg-neutral-100/70 rounded-md gap-1.5"
+                    title="Export General Payroll as PDF"
+                  >
+                    {isExportingPDF ? <Loader2 className="w-3.5 h-3.5 animate-spin text-neutral-500" /> : <FileText className="w-3.5 h-3.5 text-rose-500" />}
+                    <span>PDF Report</span>
+                  </Button>
+                  <div className="h-4 w-px bg-neutral-200" />
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={downloadAllExcel} 
+                    disabled={isExportingPDF || isExportingExcel || isExportingSlips}
+                    className="h-8 px-2.5 text-xs font-medium text-neutral-700 hover:text-neutral-900 hover:bg-neutral-100/70 rounded-md gap-1.5"
+                    title="Export General Payroll as Excel Spreadsheet (.xlsx)"
+                  >
+                    {isExportingExcel ? <Loader2 className="w-3.5 h-3.5 animate-spin text-neutral-500" /> : <Download className="w-3.5 h-3.5 text-emerald-600" />}
+                    <span>Excel Report</span>
+                  </Button>
+                  <div className="h-4 w-px bg-neutral-200" />
                   <Button 
                     variant="ghost" 
                     size="sm" 
                     onClick={downloadAllPDF} 
-                    className="gap-2 h-9 text-neutral-600 hover:text-neutral-900 font-sans"
                     disabled={isExportingPDF || isExportingExcel || isExportingSlips}
+                    className="h-8 px-2.5 text-xs font-medium text-neutral-700 hover:text-neutral-900 hover:bg-neutral-100/70 rounded-md gap-1.5"
+                    title="Download All Employee Payslips"
                   >
-                    {isExportingSlips ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-neutral-600" />
-                    ) : (
-                      <Download className="w-4 h-4" />
-                    )}
-                    {isExportingSlips ? 'Generating...' : 'All Slips'}
+                    {isExportingSlips ? <Loader2 className="w-3.5 h-3.5 animate-spin text-neutral-500" /> : <Receipt className="w-3.5 h-3.5 text-blue-600" />}
+                    <span>All Slips</span>
                   </Button>
                 </div>
+
+                {/* Operations for Draft Cycles */}
                 {selectedCycle.status === 'draft' && (
                   <>
-                    <div className="flex items-center gap-2 border-r pr-3 border-neutral-200">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handlePopulateCycle}
-                        className="gap-1.5 h-9 bg-white border-neutral-300 text-neutral-800 hover:bg-neutral-50 text-xs font-semibold"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5 text-neutral-600" />
-                        Sync / Populate Employees
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleSyncDtr}
-                        disabled={isSyncingDtr}
-                        className="gap-1.5 h-9 bg-orange-50/80 border-orange-200 text-orange-950 hover:bg-orange-100 text-xs font-semibold"
-                        title="Force recalculate Absences & Undertime from DTR records in real-time"
-                      >
-                        <RefreshCw className={cn("w-3.5 h-3.5 text-orange-600", isSyncingDtr && "animate-spin")} />
-                        <span>{isSyncingDtr ? "Syncing DTR..." : "Sync DTR Abs."}</span>
-                        <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5" title="Realtime DTR Sync Active" />
-                      </Button>
-                    </div>
-                    <div className="flex items-center gap-2 border-r pr-3 border-neutral-200">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 font-sans">Import</p>
-                      <label className="flex items-center gap-1.5 px-3 h-9 bg-zinc-950 hover:bg-zinc-805 text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors shadow-sm select-none font-sans">
-                        <Plus className="w-4 h-4" />
-                        Deductions XLSX/XLS
-                        <input
-                          type="file"
-                          accept=".xlsx, .xls"
-                          onChange={handleImportDeductionsExcel}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handlePopulateCycle}
+                      className="gap-1.5 h-8 px-2.5 bg-white border-neutral-200/90 text-neutral-700 hover:bg-neutral-50 text-xs font-medium rounded-lg shadow-2xs"
+                      title="Sync and populate employees strictly matching this cycle's category"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-neutral-500" />
+                      <span className="hidden sm:inline">Sync Employees</span>
+                      <span className="sm:hidden">Sync</span>
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSyncDtr}
+                      disabled={isSyncingDtr}
+                      className="gap-1.5 h-8 px-2.5 bg-amber-50/60 border-amber-200/80 text-amber-950 hover:bg-amber-100/70 text-xs font-medium rounded-lg shadow-2xs"
+                      title="Recalculate Absences & Undertime from DTR records in real-time"
+                    >
+                      <RefreshCw className={cn("w-3.5 h-3.5 text-amber-600", isSyncingDtr && "animate-spin")} />
+                      <span>{isSyncingDtr ? "Syncing..." : "Sync DTR"}</span>
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    </Button>
+
+                    <label className="inline-flex items-center gap-1.5 h-8 px-2.5 bg-white border border-neutral-200/90 hover:bg-neutral-50 text-neutral-700 rounded-lg text-xs font-medium cursor-pointer shadow-2xs transition-colors select-none">
+                      <Upload className="w-3.5 h-3.5 text-neutral-500" />
+                      <span className="hidden sm:inline">Import Deductions</span>
+                      <span className="sm:hidden">Import</span>
+                      <input
+                        type="file"
+                        accept=".xlsx, .xls"
+                        onChange={handleImportDeductionsExcel}
+                        className="hidden"
+                      />
+                    </label>
                   </>
                 )}
+
+                {/* Fullscreen Trigger */}
                 <Button 
                   variant="outline" 
                   size="sm" 
                   onClick={toggleFullscreen} 
-                  className="gap-2 h-9 border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-50 font-sans shadow-xs font-semibold transition-colors"
+                  className="gap-1.5 h-8 px-2.5 bg-white border-neutral-200/90 text-neutral-700 hover:bg-neutral-50 text-xs font-medium rounded-lg shadow-2xs"
                   title="Expand spreadsheet to fullscreen view"
                 >
-                  <Maximize2 className="w-4 h-4 text-neutral-700" />
-                  <span>Fullscreen</span>
+                  <Maximize2 className="w-3.5 h-3.5 text-neutral-500" />
+                  <span className="hidden sm:inline">Fullscreen</span>
                 </Button>
-                <div className="text-xs font-medium text-neutral-500">
-                  {filteredEntries.length} Employees
-                </div>
               </div>
             </div>
           )}
@@ -4633,7 +4712,7 @@ const Payroll = () => {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="categoryFilter">Category Filter</Label>
+                  <Label htmlFor="categoryFilter">Employee Category</Label>
                   <Select 
                     value={newCycle.categoryFilter} 
                     onValueChange={(v: string | null) => {
@@ -4641,7 +4720,7 @@ const Payroll = () => {
                     }}
                   >
                     <SelectTrigger id="categoryFilter">
-                      <SelectValue placeholder="Select category filter" />
+                      <SelectValue placeholder="Select employee category" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Categories</SelectItem>
@@ -4831,7 +4910,7 @@ const Payroll = () => {
               <div className="flex items-center justify-between pt-4 border-t border-neutral-100">
                 <div>
                   <p className="text-xs text-neutral-400 uppercase font-bold tracking-wider">Total Net</p>
-                  <p className="text-lg font-bold text-neutral-900">₱{formatCurrency(cycle.totalNet)}</p>
+                  <p className="text-lg font-bold text-neutral-900">₱{formatCurrency(cycle.totalNet ?? cycle.total_net ?? 0)}</p>
                 </div>
                 <div className="bg-neutral-50 p-2 rounded-full group-hover:bg-neutral-900 group-hover:text-white transition-colors">
                   <ChevronRight className="w-5 h-5" />

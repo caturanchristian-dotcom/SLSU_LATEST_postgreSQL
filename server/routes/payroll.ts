@@ -10,16 +10,20 @@ export function isEmployeeMatchingCategoryFilter(empCategory: string, cycleCateg
   const filter = cycleCategoryFilter.toLowerCase().trim();
   const cat = (empCategory || '').toUpperCase().trim();
 
+  const isVisiting = cat.includes('VISITING') || cat.includes('PART-TIME') || cat.includes('PART TIME') || cat.includes('LECTURER') || cat === 'VI' || cat.startsWith('VI ') || cat.endsWith(' VI');
+  const isJobOrder = cat.includes('JOB ORDER') || cat.includes('JOB_ORDER') || cat.includes('JOB-ORDER') || cat === 'JO' || cat.startsWith('JO ') || cat.endsWith(' JO');
+  const isFacultyOrStaff = (cat.includes('FACULTY') || cat.includes('STAFF') || cat === 'REGULAR EMPLOYEE' || cat === 'PERMANENT' || cat === 'REGULAR') && !isVisiting && !isJobOrder;
+
   if (filter === 'visiting-instructor' || filter === 'visiting instructor' || filter === 'visiting' || filter.includes('visiting')) {
-    return cat.includes('VISITING') || cat.includes('PART-TIME') || cat.includes('LECTURER');
+    return isVisiting && !isJobOrder;
   }
 
   if (filter === 'faculty-staff' || filter === 'faculty & staff' || filter === 'faculty_staff' || filter.includes('faculty')) {
-    return cat.includes('FACULTY') || cat.includes('STAFF') || cat === 'REGULAR EMPLOYEE' || cat === 'PERMANENT';
+    return isFacultyOrStaff;
   }
 
   if (filter === 'job-order' || filter === 'job order' || filter === 'jo' || filter.includes('job')) {
-    return cat.includes('JOB ORDER') || cat.includes('JOB_ORDER') || cat === 'JO';
+    return isJobOrder && !isVisiting;
   }
 
   return cat === filter.toUpperCase() || cat.includes(filter.toUpperCase());
@@ -61,14 +65,14 @@ export async function populateCycleEmployees(cycleId: string) {
 
     // Filter category
     if (isStrictVisiting) {
-      empQuery += " AND (UPPER(category) LIKE '%VISITING%' OR UPPER(category) LIKE '%PART-TIME%' OR UPPER(category) LIKE '%LECTURER%')";
+      empQuery += " AND (UPPER(category) LIKE '%VISITING%' OR UPPER(category) LIKE '%PART-TIME%' OR UPPER(category) LIKE '%PART TIME%' OR UPPER(category) LIKE '%LECTURER%' OR UPPER(category) = 'VI' OR UPPER(category) LIKE 'VI %' OR UPPER(category) LIKE '% VI') AND UPPER(category) NOT LIKE '%JOB ORDER%' AND UPPER(category) NOT LIKE '%JOB_ORDER%' AND UPPER(category) NOT LIKE '%JOB-ORDER%' AND UPPER(category) != 'JO'";
     } else if (isStrictFacultyStaff) {
-      empQuery += " AND (UPPER(category) LIKE '%FACULTY%' OR UPPER(category) LIKE '%STAFF%' OR UPPER(category) LIKE '%REGULAR%')";
+      empQuery += " AND (UPPER(category) LIKE '%FACULTY%' OR UPPER(category) LIKE '%STAFF%' OR UPPER(category) LIKE '%REGULAR%' OR UPPER(category) = 'PERMANENT') AND UPPER(category) NOT LIKE '%VISITING%' AND UPPER(category) NOT LIKE '%PART-TIME%' AND UPPER(category) NOT LIKE '%PART TIME%' AND UPPER(category) NOT LIKE '%LECTURER%' AND UPPER(category) NOT LIKE '%JOB ORDER%' AND UPPER(category) NOT LIKE '%JOB_ORDER%' AND UPPER(category) NOT LIKE '%JOB-ORDER%' AND UPPER(category) != 'JO' AND UPPER(category) != 'VI'";
     } else if (isStrictJobOrder) {
-      empQuery += " AND (UPPER(category) LIKE '%JOB ORDER%' OR UPPER(category) LIKE '%JOB_ORDER%' OR UPPER(category) = 'JO')";
+      empQuery += " AND (UPPER(category) LIKE '%JOB ORDER%' OR UPPER(category) LIKE '%JOB_ORDER%' OR UPPER(category) LIKE '%JOB-ORDER%' OR UPPER(category) = 'JO' OR UPPER(category) LIKE 'JO %' OR UPPER(category) LIKE '% JO') AND UPPER(category) NOT LIKE '%VISITING%'";
     } else if (catFilter !== 'all') {
       empQuery += " AND (category = ? OR UPPER(category) = UPPER(?) OR category LIKE ?)";
-      empParams.push(cycle.categoryFilter, cycle.categoryFilter, `%${cycle.categoryFilter}%`);
+      empParams.push(rawCat, rawCat, `%${rawCat}%`);
     }
 
     // Filter campus if specified
@@ -85,14 +89,14 @@ export async function populateCycleEmployees(cycleId: string) {
       let fallbackQuery = "SELECT * FROM employees WHERE status = 'active' OR status IS NULL";
       const fallbackParams: any[] = [];
       if (isStrictVisiting) {
-        fallbackQuery += " AND (UPPER(category) LIKE '%VISITING%' OR UPPER(category) LIKE '%PART-TIME%' OR UPPER(category) LIKE '%LECTURER%')";
+        fallbackQuery += " AND (UPPER(category) LIKE '%VISITING%' OR UPPER(category) LIKE '%PART-TIME%' OR UPPER(category) LIKE '%PART TIME%' OR UPPER(category) LIKE '%LECTURER%' OR UPPER(category) = 'VI' OR UPPER(category) LIKE 'VI %' OR UPPER(category) LIKE '% VI') AND UPPER(category) NOT LIKE '%JOB ORDER%' AND UPPER(category) NOT LIKE '%JOB_ORDER%' AND UPPER(category) NOT LIKE '%JOB-ORDER%' AND UPPER(category) != 'JO'";
       } else if (isStrictFacultyStaff) {
-        fallbackQuery += " AND (UPPER(category) LIKE '%FACULTY%' OR UPPER(category) LIKE '%STAFF%' OR UPPER(category) LIKE '%REGULAR%')";
+        fallbackQuery += " AND (UPPER(category) LIKE '%FACULTY%' OR UPPER(category) LIKE '%STAFF%' OR UPPER(category) LIKE '%REGULAR%' OR UPPER(category) = 'PERMANENT') AND UPPER(category) NOT LIKE '%VISITING%' AND UPPER(category) NOT LIKE '%PART-TIME%' AND UPPER(category) NOT LIKE '%PART TIME%' AND UPPER(category) NOT LIKE '%LECTURER%' AND UPPER(category) NOT LIKE '%JOB ORDER%' AND UPPER(category) NOT LIKE '%JOB_ORDER%' AND UPPER(category) NOT LIKE '%JOB-ORDER%' AND UPPER(category) != 'JO' AND UPPER(category) != 'VI'";
       } else if (isStrictJobOrder) {
-        fallbackQuery += " AND (UPPER(category) LIKE '%JOB ORDER%' OR UPPER(category) LIKE '%JOB_ORDER%' OR UPPER(category) = 'JO')";
+        fallbackQuery += " AND (UPPER(category) LIKE '%JOB ORDER%' OR UPPER(category) LIKE '%JOB_ORDER%' OR UPPER(category) LIKE '%JOB-ORDER%' OR UPPER(category) = 'JO' OR UPPER(category) LIKE 'JO %' OR UPPER(category) LIKE '% JO') AND UPPER(category) NOT LIKE '%VISITING%'";
       } else if (catFilter !== 'all') {
         fallbackQuery += " AND (category = ? OR UPPER(category) = UPPER(?) OR category LIKE ?)";
-        fallbackParams.push(cycle.categoryFilter, cycle.categoryFilter, `%${cycle.categoryFilter}%`);
+        fallbackParams.push(rawCat, rawCat, `%${rawCat}%`);
       }
       matchingEmployees = await db.prepare(fallbackQuery).all(...fallbackParams) as any[];
     }
@@ -105,7 +109,7 @@ export async function populateCycleEmployees(cycleId: string) {
     for (const emp of matchingEmployees) {
       if (currentEmpIds.has(emp.id)) continue;
       // Double check category validity
-      if (!isEmployeeMatchingCategoryFilter(emp.category, cycle.categoryFilter)) continue;
+      if (!isEmployeeMatchingCategoryFilter(emp.category, rawCat)) continue;
 
       const entryId = `entry-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
       const empName = `${emp.lastName ? emp.lastName + ', ' : ''}${emp.firstName || ''} ${emp.mi ? emp.mi + '.' : ''}`.trim();
@@ -163,15 +167,105 @@ payrollRouter.get("/payroll-cycles", async (req: any, res: any) => {
       cycles = [];
     }
 
-    cycles = cycles.map(c => ({
-      ...c,
-      categoryFilter: c.categoryFilter || c.category_filter || ((c.name && (c.name.trim().toUpperCase() === 'VI' || c.name.toLowerCase().includes('visiting'))) ? 'visiting-instructor' : 'all')
-    }));
+    // Retrieve live aggregate sums from payroll_entries to ensure totalNet is always accurate
+    let entrySummaries: any[] = [];
+    try {
+      entrySummaries = await db.prepare(`
+        SELECT 
+          "cycleId",
+          COUNT(*) as emp_count,
+          COALESCE(SUM(CAST("grossPay" AS numeric)), 0) as live_gross,
+          COALESCE(SUM(CAST("totalDeductions" AS numeric)), 0) as live_deductions,
+          COALESCE(SUM(CASE WHEN CAST("netPay" AS numeric) > 0 THEN CAST("netPay" AS numeric) ELSE 0 END), 0) as live_net
+        FROM payroll_entries
+        GROUP BY "cycleId"
+      `).all() as any[];
+    } catch {
+      try {
+        entrySummaries = await db.prepare(`
+          SELECT 
+            cycleId,
+            COUNT(*) as emp_count,
+            COALESCE(SUM(grossPay), 0) as live_gross,
+            COALESCE(SUM(totalDeductions), 0) as live_deductions,
+            COALESCE(SUM(CASE WHEN netPay > 0 THEN netPay ELSE 0 END), 0) as live_net
+          FROM payroll_entries
+          GROUP BY cycleId
+        `).all() as any[];
+      } catch {}
+    }
+
+    const summaryMap: Record<string, any> = {};
+    for (const s of entrySummaries) {
+      const cId = s.cycleId || s.cycle_id || s.cycleid;
+      if (cId) {
+        summaryMap[cId] = {
+          count: Number(s.emp_count || 0),
+          gross: Number(s.live_gross || 0),
+          deductions: Number(s.live_deductions || 0),
+          net: Number(s.live_net || 0),
+        };
+      }
+    }
+
+    cycles = cycles.map(c => {
+      const live = summaryMap[c.id];
+      const hasLive = live && live.count > 0;
+      const storedNet = Number(c.totalNet ?? c.total_net ?? c.totalnet ?? 0);
+      const storedGross = Number(c.totalGross ?? c.total_gross ?? c.totalgross ?? 0);
+      const storedDeds = Number(c.totalDeductions ?? c.total_deductions ?? c.totaldeductions ?? 0);
+
+      const effectiveNet = (hasLive && (storedNet === 0 || live.net > 0)) ? live.net : storedNet;
+      const effectiveGross = (hasLive && (storedGross === 0 || live.gross > 0)) ? live.gross : storedGross;
+      const effectiveDeds = (hasLive && (storedDeds === 0 || live.deductions > 0)) ? live.deductions : storedDeds;
+
+      return {
+        ...c,
+        totalGross: effectiveGross.toFixed(2),
+        totalDeductions: effectiveDeds.toFixed(2),
+        totalNet: effectiveNet.toFixed(2),
+        total_gross: effectiveGross.toFixed(2),
+        total_deductions: effectiveDeds.toFixed(2),
+        total_net: effectiveNet.toFixed(2),
+        categoryFilter: c.categoryFilter || c.category_filter || ((c.name && (c.name.trim().toUpperCase() === 'VI' || c.name.toLowerCase().includes('visiting'))) ? 'visiting-instructor' : 'all')
+      };
+    });
 
     res.json(cycles);
   } catch (err: any) {
     console.error("[Payroll] Error in GET /payroll-cycles:", err);
     res.status(500).json({ error: err.message || "Failed to fetch payroll cycles" });
+  }
+});
+
+// Update cycle totals directly (e.g. from client-side spreadsheet realTimeTotals sync)
+payrollRouter.put("/payroll-cycles/:id/totals", async (req: any, res: any) => {
+  try {
+    const { id } = req.params;
+    const { totalGross, totalDeductions, totalNet } = req.body;
+    const numGross = Number(totalGross || 0).toFixed(2);
+    const numDeds = Number(totalDeductions || 0).toFixed(2);
+    const numNet = Number(totalNet || 0).toFixed(2);
+
+    try {
+      await db.prepare(`
+        UPDATE payroll_cycles 
+        SET "totalGross" = ?, "totalDeductions" = ?, "totalNet" = ?,
+            total_gross = ?, total_deductions = ?, total_net = ?
+        WHERE id = ?
+      `).run(numGross, numDeds, numNet, numGross, numDeds, numNet, id);
+    } catch {
+      await db.prepare(`
+        UPDATE payroll_cycles 
+        SET "totalGross" = ?, "totalDeductions" = ?, "totalNet" = ?
+        WHERE id = ?
+      `).run(numGross, numDeds, numNet, id);
+    }
+
+    broadcastRealtime("payroll_changed", { cycleId: id, source: "updateTotals" });
+    res.json({ success: true, totalGross: numGross, totalDeductions: numDeds, totalNet: numNet });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -210,7 +304,19 @@ payrollRouter.put("/payroll-cycles/:id/category-filter", async (req: any, res: a
           await db.prepare("DELETE FROM payroll_entries WHERE id = ?").run(ent.id);
         }
       }
+    } else if (categoryFilter === 'job-order' || categoryFilter === 'job order' || categoryFilter === 'jo' || categoryFilter.includes('job')) {
+      const entries = await db.prepare("SELECT pe.id, e.category, e.position FROM payroll_entries pe LEFT JOIN employees e ON pe.employeeId = e.id WHERE pe.cycleId = ?").all(id) as any[];
+      for (const ent of entries) {
+        if (!isEmployeeMatchingCategoryFilter(ent.category, 'job-order')) {
+          await db.prepare("DELETE FROM payroll_entries WHERE id = ?").run(ent.id);
+        }
+      }
     }
+
+    if (categoryFilter !== 'all') {
+      await populateCycleEmployees(id);
+    }
+    await calculateNetSalary(id);
 
     res.json({ success: true, categoryFilter });
   } catch (err: any) {
@@ -292,6 +398,25 @@ payrollRouter.get("/payroll-cycles/:id", async (req: any, res: any) => {
 
     if (cycle) {
       cycle.categoryFilter = cycle.categoryFilter || cycle.category_filter || ((cycle.name && (cycle.name.trim().toUpperCase() === 'VI' || cycle.name.toLowerCase().includes('visiting'))) ? 'visiting-instructor' : 'all');
+      
+      const storedNet = Number(cycle.totalNet ?? cycle.total_net ?? cycle.totalnet ?? 0);
+      if (storedNet === 0) {
+        try {
+          const liveSum = await db.prepare(`
+            SELECT 
+              COALESCE(SUM(CAST("grossPay" AS numeric)), 0) as live_gross,
+              COALESCE(SUM(CAST("totalDeductions" AS numeric)), 0) as live_deductions,
+              COALESCE(SUM(CASE WHEN CAST("netPay" AS numeric) > 0 THEN CAST("netPay" AS numeric) ELSE 0 END), 0) as live_net
+            FROM payroll_entries 
+            WHERE "cycleId" = ? OR cycleId = ?
+          `).get(id, id) as any;
+          if (liveSum && (Number(liveSum.live_net || 0) > 0 || Number(liveSum.live_gross || 0) > 0)) {
+            cycle.totalGross = Number(liveSum.live_gross || 0).toFixed(2);
+            cycle.totalDeductions = Number(liveSum.live_deductions || 0).toFixed(2);
+            cycle.totalNet = Number(liveSum.live_net || 0).toFixed(2);
+          }
+        } catch {}
+      }
     }
 
     res.json(cycle);
@@ -444,11 +569,11 @@ payrollRouter.get("/payroll-cycles/:id/available-employees", async (req: any, re
     const rawCat = cycle.categoryFilter || cycle.category_filter || ((cycle.name && (cycle.name.trim().toUpperCase() === 'VI' || cycle.name.toLowerCase().includes('visiting'))) ? 'visiting-instructor' : 'all');
     const catFilter = (rawCat || 'all').toLowerCase();
     if (catFilter === 'visiting-instructor' || catFilter === 'visiting instructor' || catFilter === 'visiting' || catFilter.includes('visiting')) {
-      query += " AND (UPPER(category) LIKE '%VISITING%' OR UPPER(category) LIKE '%PART-TIME%' OR UPPER(category) LIKE '%LECTURER%')";
+      query += " AND (UPPER(category) LIKE '%VISITING%' OR UPPER(category) LIKE '%PART-TIME%' OR UPPER(category) LIKE '%PART TIME%' OR UPPER(category) LIKE '%LECTURER%' OR UPPER(category) = 'VI' OR UPPER(category) LIKE 'VI %' OR UPPER(category) LIKE '% VI') AND UPPER(category) NOT LIKE '%JOB ORDER%' AND UPPER(category) NOT LIKE '%JOB_ORDER%' AND UPPER(category) NOT LIKE '%JOB-ORDER%' AND UPPER(category) != 'JO'";
     } else if (catFilter === 'faculty-staff' || catFilter === 'faculty & staff' || catFilter === 'faculty_staff' || catFilter.includes('faculty')) {
-      query += " AND (UPPER(category) LIKE '%FACULTY%' OR UPPER(category) LIKE '%STAFF%' OR UPPER(category) LIKE '%REGULAR%')";
+      query += " AND (UPPER(category) LIKE '%FACULTY%' OR UPPER(category) LIKE '%STAFF%' OR UPPER(category) LIKE '%REGULAR%' OR UPPER(category) = 'PERMANENT') AND UPPER(category) NOT LIKE '%VISITING%' AND UPPER(category) NOT LIKE '%PART-TIME%' AND UPPER(category) NOT LIKE '%PART TIME%' AND UPPER(category) NOT LIKE '%LECTURER%' AND UPPER(category) NOT LIKE '%JOB ORDER%' AND UPPER(category) NOT LIKE '%JOB_ORDER%' AND UPPER(category) NOT LIKE '%JOB-ORDER%' AND UPPER(category) != 'JO' AND UPPER(category) != 'VI'";
     } else if (catFilter === 'job-order' || catFilter === 'job order' || catFilter === 'jo' || catFilter.includes('job')) {
-      query += " AND (UPPER(category) LIKE '%JOB ORDER%' OR UPPER(category) LIKE '%JOB_ORDER%' OR UPPER(category) = 'JO')";
+      query += " AND (UPPER(category) LIKE '%JOB ORDER%' OR UPPER(category) LIKE '%JOB_ORDER%' OR UPPER(category) LIKE '%JOB-ORDER%' OR UPPER(category) = 'JO' OR UPPER(category) LIKE 'JO %' OR UPPER(category) LIKE '% JO') AND UPPER(category) NOT LIKE '%VISITING%'";
     } else if (catFilter !== 'all') {
       query += " AND (category = ? OR UPPER(category) = UPPER(?))";
       params.push(rawCat, rawCat);
@@ -460,8 +585,9 @@ payrollRouter.get("/payroll-cycles/:id/available-employees", async (req: any, re
       params.push(cycle.campus, `%${campusBase}%`);
     }
 
-    const available = await db.prepare(query).all(...params);
-    res.json(available);
+    const available = await db.prepare(query).all(...params) as any[];
+    const strictlyFiltered = available.filter((emp: any) => isEmployeeMatchingCategoryFilter(emp.category, rawCat));
+    res.json(strictlyFiltered);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

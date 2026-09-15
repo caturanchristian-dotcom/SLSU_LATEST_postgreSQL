@@ -479,6 +479,15 @@ export const api = {
       });
       return handleResponse(res);
     },
+    // Update a payroll cycle's totals directly
+    updateCycleTotals: async (cycleId: string, totals: { totalGross: number; totalDeductions: number; totalNet: number }) => {
+      const res = await fetchWithAuth(`${API_BASE}/payroll-cycles/${cycleId}/totals`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(totals),
+      });
+      return handleResponse(res);
+    },
     // Retrieve all employee calculation line entries for a payroll cycle
     getEntries: async (cycleId: string) => {
       const res = await fetchWithAuth(`${API_BASE}/payroll-cycles/${cycleId}/entries`);
