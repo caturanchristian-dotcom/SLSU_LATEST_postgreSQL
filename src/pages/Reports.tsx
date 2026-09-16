@@ -485,7 +485,7 @@ export default function Reports() {
 
   const categoryData = useMemo(() => {
     return data?.categoryDistribution?.map((cat: any) => ({
-      name: cat.name || cat.category || 'Unknown',
+      name: cat.displayName || cat.name || cat.category || 'Unknown',
       Gross: Number(cat.gross || 0),
       Net: Number(cat.net || 0),
       Deductions: Number(cat.deductions || 0),

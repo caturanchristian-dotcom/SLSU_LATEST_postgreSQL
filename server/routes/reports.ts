@@ -10,25 +10,25 @@ reportsRouter.get("/reports/financial", async (req: any, res: any) => {
     const { year, month, campus, category, status } = req.query;
 
     // 1. Fetch Payroll Cycles
-    let cyclesQuery = "SELECT * FROM payroll_cycles WHERE 1=1";
+    let cyclesQuery = 'SELECT * FROM payroll_cycles WHERE 1=1';
     const cyclesParams: any[] = [];
 
     if (campus && campus !== 'all' && campus !== 'All Campuses') {
-      cyclesQuery += " AND (campus = ? OR campus IS NULL OR campus = '')";
+      cyclesQuery += ' AND (campus = ? OR campus IS NULL OR campus = \'\')';
       cyclesParams.push(campus);
     }
     if (status && status !== 'all' && status !== 'All Statuses') {
-      cyclesQuery += " AND status = ?";
+      cyclesQuery += ' AND status = ?';
       cyclesParams.push(status);
     }
 
-    cyclesQuery += " ORDER BY createdAt DESC, id DESC";
+    cyclesQuery += ' ORDER BY "createdAt" DESC, id DESC';
     let cycles: any[] = [];
     try {
       cycles = await db.prepare(cyclesQuery).all(...cyclesParams) as any[];
     } catch {
       try {
-        cycles = await db.prepare("SELECT * FROM payroll_cycles ORDER BY id DESC").all() as any[];
+        cycles = await db.prepare('SELECT * FROM payroll_cycles ORDER BY id DESC').all() as any[];
       } catch (e) {
         cycles = [];
       }
@@ -58,42 +58,38 @@ reportsRouter.get("/reports/financial", async (req: any, res: any) => {
       const placeholders = cycleIds.map(() => '?').join(',');
       try {
         entries = await db.prepare(`
-          SELECT pe.*, e.employeeId as employeeNo, e.category, e.position, e.campus, e.departmentId
+          SELECT pe.*, 
+                 COALESCE(pe."employeeName", CONCAT(e."firstName", ' ', e."lastName")) as "resolvedName",
+                 COALESCE(e."employeeId", pe."employeeId") as "employeeNo",
+                 COALESCE(e.category, 'STAFF') as "empCategory",
+                 COALESCE(e.position, 'Personnel') as "empPosition",
+                 COALESCE(e.campus, pc.campus, 'Main Campus - Sogod') as "empCampus"
           FROM payroll_entries pe
-          LEFT JOIN employees e ON pe.employeeId = e.id
-          WHERE pe.cycleId IN (${placeholders})
+          LEFT JOIN employees e ON pe."employeeId" = e.id
+          LEFT JOIN payroll_cycles pc ON pe."cycleId" = pc.id
+          WHERE pe."cycleId" IN (${placeholders})
         `).all(...cycleIds) as any[];
-      } catch {
-        entries = [];
+      } catch (err: any) {
+        console.error("[Reports] Error fetching entries with join:", err?.message || err);
+        try {
+          entries = await db.prepare(`
+            SELECT pe.*, pe."employeeName" as "resolvedName"
+            FROM payroll_entries pe
+            WHERE pe."cycleId" IN (${placeholders})
+          `).all(...cycleIds) as any[];
+        } catch (err2: any) {
+          console.error("[Reports] Error fallback fetching entries:", err2?.message || err2);
+          entries = [];
+        }
       }
     }
 
     // Filter entries by category if provided
     if (category && category !== 'all' && category !== 'All Categories') {
-      entries = entries.filter(e => (e.category || '').toLowerCase() === category.toLowerCase());
-    }
-
-    // Also fetch historical payroll records for completeness
-    let records: any[] = [];
-    try {
-      let recQuery = "SELECT * FROM payroll_records WHERE 1=1";
-      const recParams: any[] = [];
-      if (year && year !== 'all') {
-        recQuery += " AND year = ?";
-        recParams.push(Number(year));
-      }
-      if (month && month !== 'all') {
-        recQuery += " AND month = ?";
-        recParams.push(Number(month));
-      }
-      if (campus && campus !== 'all' && campus !== 'All Campuses') {
-        recQuery += " AND (campus = ? OR campus IS NULL OR campus = '')";
-        recParams.push(campus);
-      }
-      recQuery += " ORDER BY year DESC, month DESC";
-      records = await db.prepare(recQuery).all(...recParams) as any[];
-    } catch {
-      records = [];
+      entries = entries.filter(e => {
+        const cat = (e.empCategory || e.category || '').toLowerCase();
+        return cat === category.toLowerCase();
+      });
     }
 
     // 3. Initialize metrics accumulators
@@ -136,29 +132,48 @@ reportsRouter.get("/reports/financial", async (req: any, res: any) => {
       total: 0
     };
 
-    const categoryMap: { [cat: string]: { name: string; gross: number; net: number; deductions: number; employerShare: number; count: number; employeeIds: Set<string> } } = {
-      'FACULTY': { name: 'Regular Faculty', gross: 0, net: 0, deductions: 0, employerShare: 0, count: 0, employeeIds: new Set() },
-      'STAFF': { name: 'Regular Staff', gross: 0, net: 0, deductions: 0, employerShare: 0, count: 0, employeeIds: new Set() },
-      'Job Order': { name: 'Job Order', gross: 0, net: 0, deductions: 0, employerShare: 0, count: 0, employeeIds: new Set() },
-      'Visiting Instructor': { name: 'Visiting Instructor', gross: 0, net: 0, deductions: 0, employerShare: 0, count: 0, employeeIds: new Set() },
+    // Agency personnel collectors for drilldowns
+    const gsisEmployees: any[] = [];
+    const hdmfEmployees: any[] = [];
+    const philhealthEmployees: any[] = [];
+    const birEmployees: any[] = [];
+    const csbEmployees: any[] = [];
+    const ecipEmployees: any[] = [];
+
+    // Category and Campus trackers
+    const categoryMap: { [cat: string]: { name: string; displayName: string; basicPay: number; pera: number; grossPay: number; gross: number; net: number; netPay: number; deductions: number; employerShare: number; count: number; employeeIds: Set<string> } } = {
+      'FACULTY': { name: 'FACULTY', displayName: 'Regular Faculty', basicPay: 0, pera: 0, grossPay: 0, gross: 0, net: 0, netPay: 0, deductions: 0, employerShare: 0, count: 0, employeeIds: new Set() },
+      'STAFF': { name: 'STAFF', displayName: 'Regular Staff', basicPay: 0, pera: 0, grossPay: 0, gross: 0, net: 0, netPay: 0, deductions: 0, employerShare: 0, count: 0, employeeIds: new Set() },
+      'Job Order': { name: 'Job Order', displayName: 'Job Order', basicPay: 0, pera: 0, grossPay: 0, gross: 0, net: 0, netPay: 0, deductions: 0, employerShare: 0, count: 0, employeeIds: new Set() },
+      'Visiting Instructor': { name: 'Visiting Instructor', displayName: 'Visiting Instructor', basicPay: 0, pera: 0, grossPay: 0, gross: 0, net: 0, netPay: 0, deductions: 0, employerShare: 0, count: 0, employeeIds: new Set() },
     };
 
     const campusMap: { [cName: string]: { campus: string; gross: number; net: number; deductions: number; employerShare: number; count: number } } = {};
     const monthlySeriesMap: { [monthKey: string]: { monthName: string; monthNum: number; year: number; Gross: number; Net: number; Deductions: number; EmployerShare: number; Batches: number } } = {};
-
     const uniqueEmployees = new Set<string>();
+    const rosterEmployees: any[] = [];
 
     // Process entries
     entries.forEach(entry => {
-      uniqueEmployees.add(entry.employeeId);
+      const empId = entry.employeeId || entry.employee_id || entry.id;
+      uniqueEmployees.add(empId);
 
-      const basic = Number(entry.compSal2nd || entry.basicPay || 0);
-      const pera = Number(entry.compPera || 0);
+      const empName = entry.resolvedName || entry.employeeName || entry.employee_name || 'Personnel';
+      const empCategory = entry.empCategory || entry.category || 'STAFF';
+      const empPosition = entry.empPosition || entry.position || 'Staff';
+      const empCampus = entry.empCampus || entry.campus || 'Main Campus - Sogod';
+      const empNo = entry.employeeNo || entry.employeeId || empId;
+
+      const basic = Number(entry.compSal2nd || entry.comp_sal_2nd || entry.basicPay || entry.basic_pay || entry.basicSalary || 0);
+      const pera = Number(entry.compPera || entry.comp_pera || (empCategory === 'FACULTY' || empCategory === 'STAFF' ? 2000 : 0));
       const ot = Number(entry.overtime || 0);
-      const teaching = Number(entry.teachingHoursWorked || 0) * Number(entry.hourlyRate || 0);
-      const bonuses = Number(entry.bonuses || entry.allowances || 0);
+      const teaching = Number(entry.teachingHoursWorked || entry.teaching_hours || 0) * Number(entry.hourlyRate || 0);
+      const bonuses = Number(entry.bonuses || entry.allowances || entry.incentives || 0);
       const absences = Number(entry.absences || 0);
-      const gross = Number(entry.compGross || entry.grossPay || (basic + pera + ot + bonuses - absences));
+      let gross = Number(entry.compGross || entry.comp_gross || entry.grossPay || entry.gross_pay || 0);
+      if (gross <= 0) {
+        gross = basic + pera + ot + teaching + bonuses - absences;
+      }
 
       totalBasicPay += basic;
       totalPera += pera;
@@ -168,22 +183,22 @@ reportsRouter.get("/reports/financial", async (req: any, res: any) => {
       totalAbsences += absences;
 
       // Extract detailed deductions
-      const dedGsisPrem = Number(entry.dedGsisPremPersonal || 0);
-      const dedPolicyLoan = Number(entry.dedPolicyLoan || 0);
-      const dedConsolLoan = Number(entry.dedConsolLoan || 0);
-      const dedMpl = Number(entry.dedMpl || 0);
-      const dedMplLite = Number(entry.dedMplLite || 0);
-      const dedCpl = Number(entry.dedCpl || 0);
-      const dedGfal = Number(entry.dedGfal || 0);
-      const dedEmerg = Number(entry.dedEmergencyLoan || 0);
-      const dedEduc = Number(entry.dedEducAsst || 0);
-      const dedPagibig = Number(entry.dedPagibigPersonal || 0);
-      const dedPagibigMpl = Number(entry.dedPagibigMpl || 0);
-      const dedMp2 = Number(entry.dedPagibigMp2 || 0);
-      const dedPh = Number(entry.dedPhilhealthCont || 0);
-      const dedSss = Number(entry.dedSss || 0);
-      const dedCsb = Number(entry.dedCsbLoan || 0);
-      const dedTax = Number(entry.dedTaxWithheld || 0);
+      const dedGsisPrem = Number(entry.dedGsisPremPersonal || entry.ded_gsis_prem_personal || 0);
+      const dedPolicyLoan = Number(entry.dedPolicyLoan || entry.ded_policy_loan || 0);
+      const dedConsolLoan = Number(entry.dedConsolLoan || entry.ded_consol_loan || 0);
+      const dedMpl = Number(entry.dedMpl || entry.ded_mpl || 0);
+      const dedMplLite = Number(entry.dedMplLite || entry.ded_mpl_lite || 0);
+      const dedCpl = Number(entry.dedCpl || entry.ded_cpl || 0);
+      const dedGfal = Number(entry.dedGfal || entry.ded_gfal || 0);
+      const dedEmerg = Number(entry.dedEmergencyLoan || entry.ded_emergency_loan || 0);
+      const dedEduc = Number(entry.dedEducAsst || entry.ded_educ_asst || 0);
+      const dedPagibig = Number(entry.dedPagibigPersonal || entry.ded_pagibig_personal || 0);
+      const dedPagibigMpl = Number(entry.dedPagibigMpl || entry.ded_pagibig_mpl || 0);
+      const dedMp2 = Number(entry.dedPagibigMp2 || entry.ded_pagibig_mp2 || 0);
+      const dedPh = Number(entry.dedPhilhealthCont || entry.ded_philhealth_cont || 0);
+      const dedSss = Number(entry.dedSss || entry.ded_sss || 0);
+      const dedCsb = Number(entry.dedCsbLoan || entry.ded_csb_loan || 0);
+      const dedTax = Number(entry.dedTaxWithheld || entry.ded_tax_withheld || 0);
 
       deductionsBreakdown['GSIS Personal Premium (9%)'] += dedGsisPrem;
       deductionsBreakdown['GSIS Policy Loan'] += dedPolicyLoan;
@@ -204,12 +219,21 @@ reportsRouter.get("/reports/financial", async (req: any, res: any) => {
 
       // Handle custom/other deductions in json
       let customDedsSum = 0;
-      if (entry.deductions) {
+      const rawDedJson = entry.deductions_json || entry.deductions || entry.custom_values_json;
+      const nonCustomKeys = new Set([
+        'govSecGsis', 'govSecHdmf', 'govSecPh', 'govSecEcip', 'compSal2nd', 'compPera', 'compGross', 'absences',
+        'basicSalary', 'grossPay', 'netPay', 'totalDeductions', 'basicPay', 'pera', 'overtime', 'teachingHoursWorked',
+        'bonuses', 'allowances', 'incentives', 'dedPolicyLoan', 'dedConsolLoan', 'dedMplLite', 'dedMpl', 'dedCpl',
+        'dedGfal', 'dedEmergencyLoan', 'dedGsisPremPersonal', 'dedEducAsst', 'dedPagibigPersonal', 'dedPagibigMpl',
+        'dedSss', 'dedPagibigMp2', 'dedPhilhealthCont', 'dedCsbLoan', 'dedTaxWithheld'
+      ]);
+
+      if (rawDedJson) {
         try {
-          const parsed = typeof entry.deductions === 'string' ? JSON.parse(entry.deductions) : entry.deductions;
+          const parsed = typeof rawDedJson === 'string' ? JSON.parse(rawDedJson) : rawDedJson;
           if (parsed && typeof parsed === 'object') {
             Object.entries(parsed).forEach(([k, v]) => {
-              if (!k.startsWith('ded') && typeof v === 'number' && v > 0) {
+              if (!nonCustomKeys.has(k) && typeof v === 'number' && v > 0) {
                 customDedsSum += v;
               }
             });
@@ -219,18 +243,21 @@ reportsRouter.get("/reports/financial", async (req: any, res: any) => {
       deductionsBreakdown['Other Custom Deductions'] += customDedsSum;
 
       const sumDeds = dedGsisPrem + dedPolicyLoan + dedConsolLoan + dedMpl + dedMplLite + dedCpl + dedGfal + dedEmerg + dedEduc + dedPagibig + dedPagibigMpl + dedMp2 + dedPh + dedSss + dedCsb + dedTax + customDedsSum;
-      const entryTotalDed = Number(entry.totalDeductions || sumDeds);
-      const net = Number(entry.netPay || Math.max(0, gross - entryTotalDed));
+      const entryStoredDed = Number(entry.totalDeductions || entry.total_deductions || entry.totaldeductions || 0);
+      const entryTotalDed = sumDeds > 0 ? sumDeds : entryStoredDed;
+      
+      const storedNet = Number(entry.netPay || entry.net_pay || entry.netpay || 0);
+      const net = storedNet > 0 ? storedNet : Math.max(0, gross - entryTotalDed);
 
       totalGross += gross;
       totalDeductions += entryTotalDed;
       totalNet += net;
 
       // Employer / Gov contributions
-      const gsisGov = Number(entry.govSecGsis || (entry.category === 'FACULTY' || entry.category === 'STAFF' ? basic * 0.12 : 0));
-      const phGov = Number(entry.govSecPh || (entry.category === 'FACULTY' || entry.category === 'STAFF' ? basic * 0.025 : 0));
-      const hdmfGov = Number(entry.govSecHdmf || (entry.category === 'FACULTY' || entry.category === 'STAFF' ? 100 : 0));
-      const ecip = Number(entry.govSecEcip || (entry.category === 'FACULTY' || entry.category === 'STAFF' ? 100 : 0));
+      const gsisGov = Number(entry.govSecGsis || entry.gov_sec_gsis || (empCategory === 'FACULTY' || empCategory === 'STAFF' ? basic * 0.12 : 0));
+      const phGov = Number(entry.govSecPh || entry.gov_sec_ph || (empCategory === 'FACULTY' || empCategory === 'STAFF' ? (basic > 0 ? basic * 0.025 : 0) : 0));
+      const hdmfGov = Number(entry.govSecHdmf || entry.gov_sec_hdmf || (empCategory === 'FACULTY' || empCategory === 'STAFF' ? 100 : 0));
+      const ecip = Number(entry.govSecEcip || entry.gov_sec_ecip || (empCategory === 'FACULTY' || empCategory === 'STAFF' ? 100 : 0));
       const entryGovTotal = gsisGov + phGov + hdmfGov + ecip;
 
       govSharesBreakdown.gsisEmployer += gsisGov;
@@ -241,18 +268,22 @@ reportsRouter.get("/reports/financial", async (req: any, res: any) => {
       totalEmployerShare += entryGovTotal;
 
       // Category grouping
-      const catKey = entry.category || 'STAFF';
+      const catKey = empCategory || 'STAFF';
       if (!categoryMap[catKey]) {
-        categoryMap[catKey] = { name: catKey, gross: 0, net: 0, deductions: 0, employerShare: 0, count: 0, employeeIds: new Set() };
+        categoryMap[catKey] = { name: catKey, displayName: catKey, basicPay: 0, pera: 0, grossPay: 0, gross: 0, net: 0, netPay: 0, deductions: 0, employerShare: 0, count: 0, employeeIds: new Set() };
       }
+      categoryMap[catKey].basicPay += basic;
+      categoryMap[catKey].pera += pera;
+      categoryMap[catKey].grossPay += gross;
       categoryMap[catKey].gross += gross;
       categoryMap[catKey].net += net;
+      categoryMap[catKey].netPay += net;
       categoryMap[catKey].deductions += entryTotalDed;
       categoryMap[catKey].employerShare += entryGovTotal;
-      categoryMap[catKey].employeeIds.add(entry.employeeId);
+      categoryMap[catKey].employeeIds.add(empId);
 
       // Campus grouping
-      const cmp = entry.campus || 'Main Campus - Sogod';
+      const cmp = empCampus || 'Main Campus - Sogod';
       if (!campusMap[cmp]) {
         campusMap[cmp] = { campus: cmp, gross: 0, net: 0, deductions: 0, employerShare: 0, count: 0 };
       }
@@ -261,23 +292,166 @@ reportsRouter.get("/reports/financial", async (req: any, res: any) => {
       campusMap[cmp].deductions += entryTotalDed;
       campusMap[cmp].employerShare += entryGovTotal;
       campusMap[cmp].count += 1;
+
+      // Add to Personnel Roster (deduplicated by ID or latest batch)
+      rosterEmployees.push({
+        id: empId,
+        name: empName,
+        employeeNo: empNo,
+        position: empPosition,
+        category: empCategory,
+        campus: empCampus,
+        basicPay: Number(basic.toFixed(2)),
+        pera: Number(pera.toFixed(2)),
+        grossPay: Number(gross.toFixed(2)),
+        deductions: Number(entryTotalDed.toFixed(2)),
+        netPay: Number(net.toFixed(2))
+      });
+
+      // Agency drilldown contributors
+      const gsisLoans = dedPolicyLoan + dedConsolLoan + dedMpl + dedMplLite + dedCpl + dedGfal + dedEmerg + dedEduc;
+      if (dedGsisPrem > 0 || gsisGov > 0 || gsisLoans > 0) {
+        gsisEmployees.push({
+          id: empId,
+          name: empName,
+          employeeNo: empNo,
+          category: empCategory,
+          personalShare: Number(dedGsisPrem.toFixed(2)),
+          employerShare: Number(gsisGov.toFixed(2)),
+          loans: Number(gsisLoans.toFixed(2)),
+          total: Number((dedGsisPrem + gsisGov + gsisLoans).toFixed(2))
+        });
+      }
+
+      const hdmfLoans = dedPagibigMpl + dedMp2;
+      if (dedPagibig > 0 || hdmfGov > 0 || hdmfLoans > 0) {
+        hdmfEmployees.push({
+          id: empId,
+          name: empName,
+          employeeNo: empNo,
+          category: empCategory,
+          personalShare: Number(dedPagibig.toFixed(2)),
+          employerShare: Number(hdmfGov.toFixed(2)),
+          loans: Number(hdmfLoans.toFixed(2)),
+          total: Number((dedPagibig + hdmfGov + hdmfLoans).toFixed(2))
+        });
+      }
+
+      if (dedPh > 0 || phGov > 0) {
+        philhealthEmployees.push({
+          id: empId,
+          name: empName,
+          employeeNo: empNo,
+          category: empCategory,
+          personalShare: Number(dedPh.toFixed(2)),
+          employerShare: Number(phGov.toFixed(2)),
+          loans: 0,
+          total: Number((dedPh + phGov).toFixed(2))
+        });
+      }
+
+      if (dedTax > 0) {
+        birEmployees.push({
+          id: empId,
+          name: empName,
+          employeeNo: empNo,
+          category: empCategory,
+          personalShare: Number(dedTax.toFixed(2)),
+          employerShare: 0,
+          loans: 0,
+          total: Number(dedTax.toFixed(2))
+        });
+      }
+
+      if (dedCsb > 0) {
+        csbEmployees.push({
+          id: empId,
+          name: empName,
+          employeeNo: empNo,
+          category: empCategory,
+          personalShare: Number(dedCsb.toFixed(2)),
+          employerShare: 0,
+          loans: Number(dedCsb.toFixed(2)),
+          total: Number(dedCsb.toFixed(2))
+        });
+      }
+
+      if (ecip > 0) {
+        ecipEmployees.push({
+          id: empId,
+          name: empName,
+          employeeNo: empNo,
+          category: empCategory,
+          personalShare: 0,
+          employerShare: Number(ecip.toFixed(2)),
+          loans: 0,
+          total: Number(ecip.toFixed(2))
+        });
+      }
     });
 
-    // Populate category counts from unique employees
-    Object.values(categoryMap).forEach(cat => {
+    // Populate category counts and format byCategory
+    const byCategoryList = Object.values(categoryMap).map(cat => {
       cat.count = cat.employeeIds.size;
+      return {
+        category: cat.name,
+        displayName: cat.displayName,
+        count: cat.count,
+        basicPay: Number(cat.basicPay.toFixed(2)),
+        pera: Number(cat.pera.toFixed(2)),
+        grossPay: Number(cat.grossPay.toFixed(2)),
+        gross: Number(cat.gross.toFixed(2)),
+        deductions: Number(cat.deductions.toFixed(2)),
+        netPay: Number(cat.netPay.toFixed(2)),
+        net: Number(cat.net.toFixed(2)),
+        employerShare: Number(cat.employerShare.toFixed(2))
+      };
     });
 
     // Build cycle trends list
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const fullMonthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
     const cyclesTrend = cycles.map(c => {
       const cycleEntries = entries.filter(e => e.cycleId === c.id);
-      let cGross = cycleEntries.reduce((sum, e) => sum + Number(e.compGross || e.grossPay || 0), 0);
-      let cDeds = cycleEntries.reduce((sum, e) => sum + Number(e.totalDeductions || 0), 0);
-      let cNet = cycleEntries.reduce((sum, e) => sum + Number(e.netPay || 0), 0);
-      let cGov = cycleEntries.reduce((sum, e) => sum + Number(e.govSecGsis || 0) + Number(e.govSecPh || 0) + Number(e.govSecHdmf || 0) + Number(e.govSecEcip || 0), 0);
+      let cGross = 0;
+      let cDeds = 0;
+      let cNet = 0;
+      let cGov = 0;
+
+      cycleEntries.forEach(e => {
+        const basic = Number(e.compSal2nd || e.comp_sal_2nd || e.basicPay || e.basic_pay || 0);
+        const pera = Number(e.compPera || e.comp_pera || 0);
+        const ot = Number(e.overtime || 0);
+        const bonuses = Number(e.bonuses || e.allowances || 0);
+        const absences = Number(e.absences || 0);
+        let g = Number(e.compGross || e.comp_gross || e.grossPay || e.gross_pay || 0);
+        if (g <= 0) g = basic + pera + ot + bonuses - absences;
+
+        const sumD = Number(e.dedGsisPremPersonal || e.ded_gsis_prem_personal || 0) +
+                     Number(e.dedPolicyLoan || e.ded_policy_loan || 0) +
+                     Number(e.dedConsolLoan || e.ded_consol_loan || 0) +
+                     Number(e.dedMpl || e.ded_mpl || 0) +
+                     Number(e.dedMplLite || e.ded_mpl_lite || 0) +
+                     Number(e.dedCpl || e.ded_cpl || 0) +
+                     Number(e.dedGfal || e.ded_gfal || 0) +
+                     Number(e.dedEmergencyLoan || e.ded_emergency_loan || 0) +
+                     Number(e.dedEducAsst || e.ded_educ_asst || 0) +
+                     Number(e.dedPagibigPersonal || e.ded_pagibig_personal || 0) +
+                     Number(e.dedPagibigMpl || e.ded_pagibig_mpl || 0) +
+                     Number(e.dedPagibigMp2 || e.ded_pagibig_mp2 || 0) +
+                     Number(e.dedPhilhealthCont || e.ded_philhealth_cont || 0) +
+                     Number(e.dedSss || e.ded_sss || 0) +
+                     Number(e.dedCsbLoan || e.ded_csb_loan || 0) +
+                     Number(e.dedTaxWithheld || e.ded_tax_withheld || 0);
+        const d = sumD > 0 ? sumD : Number(e.totalDeductions || e.total_deductions || 0);
+        const n = Number(e.netPay || e.net_pay || 0) > 0 ? Number(e.netPay || e.net_pay) : Math.max(0, g - d);
+        const gov = Number(e.govSecGsis || 0) + Number(e.govSecPh || 0) + Number(e.govSecHdmf || 0) + Number(e.govSecEcip || 0);
+
+        cGross += g;
+        cDeds += d;
+        cNet += n;
+        cGov += gov;
+      });
 
       if (cGross === 0 && Number(c.totalGross || 0) > 0) {
         cGross = Number(c.totalGross);
@@ -308,13 +482,19 @@ reportsRouter.get("/reports/financial", async (req: any, res: any) => {
       monthlySeriesMap[monthKey].EmployerShare += cGov;
       monthlySeriesMap[monthKey].Batches += 1;
 
+      const formatIsoDate = (d: any) => {
+        if (!d) return '';
+        if (d instanceof Date) return d.toISOString().substring(0, 10);
+        return String(d).substring(0, 10);
+      };
+
       return {
         id: c.id,
         name: c.name,
-        startDate: c.startDate || '',
-        endDate: c.endDate || '',
+        startDate: formatIsoDate(c.startDate),
+        endDate: formatIsoDate(c.endDate),
         status: c.status,
-        campus: c.campus || 'All Campuses',
+        campus: c.campus || 'Main Campus - Sogod',
         categoryFilter: c.categoryFilter || 'all',
         type: c.type || 'all',
         employeeCount: cycleEntries.length,
@@ -322,44 +502,9 @@ reportsRouter.get("/reports/financial", async (req: any, res: any) => {
         totalDeductions: Number(cDeds.toFixed(2)),
         totalNet: Number(cNet.toFixed(2)),
         totalEmployerShare: Number(cGov.toFixed(2)),
-        createdAt: c.createdAt || c.created_at || ''
+        createdAt: c.createdAt ? (c.createdAt instanceof Date ? c.createdAt.toISOString() : String(c.createdAt)) : ''
       };
     });
-
-    // If no cycle entries were found, fallback onto records
-    if (entries.length === 0 && records.length > 0) {
-      records.forEach(rec => {
-        const rGross = Number(rec.totalGross || 0);
-        const rDeds = Number(rec.totalDeductions || 0);
-        const rNet = Number(rec.totalNet || 0);
-        const rGov = Number(rec.totalEmployerContrib || 0);
-
-        totalGross += rGross;
-        totalDeductions += rDeds;
-        totalNet += rNet;
-        totalEmployerShare += rGov;
-
-        const mName = rec.monthName || monthNames[(rec.month || 1) - 1] || 'Month';
-        const monthKey = `${rec.year}-${String(rec.month || 1).padStart(2, '0')}`;
-        if (!monthlySeriesMap[monthKey]) {
-          monthlySeriesMap[monthKey] = {
-            monthName: `${mName} ${rec.year}`,
-            monthNum: rec.month || 1,
-            year: rec.year,
-            Gross: 0,
-            Net: 0,
-            Deductions: 0,
-            EmployerShare: 0,
-            Batches: 0
-          };
-        }
-        monthlySeriesMap[monthKey].Gross += rGross;
-        monthlySeriesMap[monthKey].Net += rNet;
-        monthlySeriesMap[monthKey].Deductions += rDeds;
-        monthlySeriesMap[monthKey].EmployerShare += rGov;
-        monthlySeriesMap[monthKey].Batches += 1;
-      });
-    }
 
     // Sort monthly series chronologically
     const monthlySeries = Object.values(monthlySeriesMap).sort((a, b) => {
@@ -367,71 +512,113 @@ reportsRouter.get("/reports/financial", async (req: any, res: any) => {
       return a.monthNum - b.monthNum;
     });
 
-    // Prepare Statutory Remittances Table
+    // GSIS Sub-items
+    const gsisLoansTotal = deductionsBreakdown['GSIS Policy Loan'] + deductionsBreakdown['GSIS Consol Loan'] + deductionsBreakdown['GSIS Multipurpose Loan (MPL)'] + deductionsBreakdown['GSIS MPL Lite'] + deductionsBreakdown['GSIS Computer Loan (CPL)'] + deductionsBreakdown['GSIS GFAL Loan'] + deductionsBreakdown['GSIS Emergency Loan'] + deductionsBreakdown['GSIS Educational Assistance'];
+    
+    // HDMF Sub-items
+    const hdmfLoansTotal = deductionsBreakdown['Pag-IBIG Multi-Purpose Loan (MPL)'] + deductionsBreakdown['Pag-IBIG MP2 Savings'];
+
+    // Prepare Statutory Remittances Table with subItems and employee rosters
     const statutoryRemittances = [
       {
         agency: 'GSIS (Government Service Insurance System)',
         accountCode: '414-01',
-        description: 'Retirement & Life Insurance Premiums (9% Personal + 12% Gov)',
-        personalShare: deductionsBreakdown['GSIS Personal Premium (9%)'],
-        employerShare: govSharesBreakdown.gsisEmployer,
-        loans: deductionsBreakdown['GSIS Policy Loan'] + deductionsBreakdown['GSIS Consol Loan'] + deductionsBreakdown['GSIS Multipurpose Loan (MPL)'] + deductionsBreakdown['GSIS MPL Lite'] + deductionsBreakdown['GSIS Computer Loan (CPL)'] + deductionsBreakdown['GSIS GFAL Loan'] + deductionsBreakdown['GSIS Emergency Loan'] + deductionsBreakdown['GSIS Educational Assistance'],
-        totalPayable: deductionsBreakdown['GSIS Personal Premium (9%)'] + govSharesBreakdown.gsisEmployer + (deductionsBreakdown['GSIS Policy Loan'] + deductionsBreakdown['GSIS Consol Loan'] + deductionsBreakdown['GSIS Multipurpose Loan (MPL)'] + deductionsBreakdown['GSIS MPL Lite'] + deductionsBreakdown['GSIS Computer Loan (CPL)'] + deductionsBreakdown['GSIS GFAL Loan'] + deductionsBreakdown['GSIS Emergency Loan'] + deductionsBreakdown['GSIS Educational Assistance']),
-        status: 'Reconciled & Pending Remittance'
+        description: 'Retirement & Life Insurance Premiums (9% Personal + 12% Gov) and Loan Amortizations',
+        personalShare: Number(deductionsBreakdown['GSIS Personal Premium (9%)'].toFixed(2)),
+        employerShare: Number(govSharesBreakdown.gsisEmployer.toFixed(2)),
+        loans: Number(gsisLoansTotal.toFixed(2)),
+        totalPayable: Number((deductionsBreakdown['GSIS Personal Premium (9%)'] + govSharesBreakdown.gsisEmployer + gsisLoansTotal).toFixed(2)),
+        status: 'Reconciled & Pending Remittance',
+        subItems: [
+          { name: 'Retirement & Life Premium (9% Personal)', type: 'Personal Premium', amount: deductionsBreakdown['GSIS Personal Premium (9%)'] },
+          { name: 'Government Counterpart Share (12% Gov)', type: 'Employer Share', amount: govSharesBreakdown.gsisEmployer },
+          { name: 'Multipurpose Loan (MPL)', type: 'Loan Amortization', amount: deductionsBreakdown['GSIS Multipurpose Loan (MPL)'] },
+          { name: 'MPL Lite Loan', type: 'Loan Amortization', amount: deductionsBreakdown['GSIS MPL Lite'] },
+          { name: 'Consolidation Loan', type: 'Loan Amortization', amount: deductionsBreakdown['GSIS Consol Loan'] },
+          { name: 'Emergency Loan Facility', type: 'Loan Amortization', amount: deductionsBreakdown['GSIS Emergency Loan'] },
+          { name: 'Computer Loan (CPL)', type: 'Loan Amortization', amount: deductionsBreakdown['GSIS Computer Loan (CPL)'] },
+          { name: 'GFAL Loan', type: 'Loan Amortization', amount: deductionsBreakdown['GSIS GFAL Loan'] },
+          { name: 'Policy / Educational Loan', type: 'Loan Amortization', amount: deductionsBreakdown['GSIS Policy Loan'] + deductionsBreakdown['GSIS Educational Assistance'] }
+        ].filter(s => s.amount > 0),
+        employees: gsisEmployees
       },
       {
         agency: 'HDMF (Pag-IBIG Fund)',
         accountCode: '414-02',
         description: 'Mandatory Savings (2% Personal + Gov Share) & Loans / MP2',
-        personalShare: deductionsBreakdown['Pag-IBIG Personal Regular (2%)'],
-        employerShare: govSharesBreakdown.hdmfEmployer,
-        loans: deductionsBreakdown['Pag-IBIG Multi-Purpose Loan (MPL)'] + deductionsBreakdown['Pag-IBIG MP2 Savings'],
-        totalPayable: deductionsBreakdown['Pag-IBIG Personal Regular (2%)'] + govSharesBreakdown.hdmfEmployer + deductionsBreakdown['Pag-IBIG Multi-Purpose Loan (MPL)'] + deductionsBreakdown['Pag-IBIG MP2 Savings'],
-        status: 'Reconciled & Pending Remittance'
+        personalShare: Number(deductionsBreakdown['Pag-IBIG Personal Regular (2%)'].toFixed(2)),
+        employerShare: Number(govSharesBreakdown.hdmfEmployer.toFixed(2)),
+        loans: Number(hdmfLoansTotal.toFixed(2)),
+        totalPayable: Number((deductionsBreakdown['Pag-IBIG Personal Regular (2%)'] + govSharesBreakdown.hdmfEmployer + hdmfLoansTotal).toFixed(2)),
+        status: 'Reconciled & Pending Remittance',
+        subItems: [
+          { name: 'Mandatory Regular Savings (2% Employee)', type: 'Personal Savings', amount: deductionsBreakdown['Pag-IBIG Personal Regular (2%)'] },
+          { name: 'Employer Counterpart Contribution', type: 'Employer Share', amount: govSharesBreakdown.hdmfEmployer },
+          { name: 'Multi-Purpose Loan (MPL)', type: 'Loan Amortization', amount: deductionsBreakdown['Pag-IBIG Multi-Purpose Loan (MPL)'] },
+          { name: 'Modified Pag-IBIG II (MP2) Voluntary', type: 'Voluntary Savings', amount: deductionsBreakdown['Pag-IBIG MP2 Savings'] }
+        ].filter(s => s.amount > 0),
+        employees: hdmfEmployees
       },
       {
         agency: 'PhilHealth (Philippine Health Insurance Corp.)',
         accountCode: '414-03',
         description: 'National Health Insurance Program (2.5% Personal + 2.5% Gov)',
-        personalShare: deductionsBreakdown['PhilHealth Contribution (2.5%)'],
-        employerShare: govSharesBreakdown.philhealthEmployer,
+        personalShare: Number(deductionsBreakdown['PhilHealth Contribution (2.5%)'].toFixed(2)),
+        employerShare: Number(govSharesBreakdown.philhealthEmployer.toFixed(2)),
         loans: 0,
-        totalPayable: deductionsBreakdown['PhilHealth Contribution (2.5%)'] + govSharesBreakdown.philhealthEmployer,
-        status: 'Reconciled & Pending Remittance'
+        totalPayable: Number((deductionsBreakdown['PhilHealth Contribution (2.5%)'] + govSharesBreakdown.philhealthEmployer).toFixed(2)),
+        status: 'Reconciled & Pending Remittance',
+        subItems: [
+          { name: 'NHIP Personal Contribution (2.5%)', type: 'Personal Premium', amount: deductionsBreakdown['PhilHealth Contribution (2.5%)'] },
+          { name: 'NHIP Employer Counterpart (2.5%)', type: 'Employer Share', amount: govSharesBreakdown.philhealthEmployer }
+        ].filter(s => s.amount > 0),
+        employees: philhealthEmployees
       },
       {
         agency: 'BIR (Bureau of Internal Revenue)',
         accountCode: '412-01',
         description: 'Expanded Withholding Tax on Compensation Income',
-        personalShare: deductionsBreakdown['BIR Withholding Tax'],
+        personalShare: Number(deductionsBreakdown['BIR Withholding Tax'].toFixed(2)),
         employerShare: 0,
         loans: 0,
-        totalPayable: deductionsBreakdown['BIR Withholding Tax'],
-        status: 'Reconciled & Pending Remittance'
+        totalPayable: Number(deductionsBreakdown['BIR Withholding Tax'].toFixed(2)),
+        status: 'Reconciled & Pending Remittance',
+        subItems: [
+          { name: 'TRAIN Law Compensation Withholding Tax', type: 'Income Tax', amount: deductionsBreakdown['BIR Withholding Tax'] }
+        ].filter(s => s.amount > 0),
+        employees: birEmployees
       },
       {
         agency: 'China Bank Savings (CSB)',
         accountCode: '419-01',
         description: 'Payroll Salary Loan Amortizations & Financial Facilities',
-        personalShare: deductionsBreakdown['China Bank Savings Loan (CSB)'],
+        personalShare: Number(deductionsBreakdown['China Bank Savings Loan (CSB)'].toFixed(2)),
         employerShare: 0,
-        loans: deductionsBreakdown['China Bank Savings Loan (CSB)'],
-        totalPayable: deductionsBreakdown['China Bank Savings Loan (CSB)'],
-        status: 'Reconciled & Pending Remittance'
+        loans: Number(deductionsBreakdown['China Bank Savings Loan (CSB)'].toFixed(2)),
+        totalPayable: Number(deductionsBreakdown['China Bank Savings Loan (CSB)'].toFixed(2)),
+        status: 'Reconciled & Pending Remittance',
+        subItems: [
+          { name: 'Institutional Salary Loan Deduction', type: 'Bank Amortization', amount: deductionsBreakdown['China Bank Savings Loan (CSB)'] }
+        ].filter(s => s.amount > 0),
+        employees: csbEmployees
       },
       {
         agency: 'ECIP (Employees Compensation Insurance Premium)',
         accountCode: '414-04',
         description: 'State Insurance Fund Work Contingency & Disability Coverage',
         personalShare: 0,
-        employerShare: govSharesBreakdown.ecip,
+        employerShare: Number(govSharesBreakdown.ecip.toFixed(2)),
         loans: 0,
-        totalPayable: govSharesBreakdown.ecip,
-        status: 'Reconciled & Pending Remittance'
+        totalPayable: Number(govSharesBreakdown.ecip.toFixed(2)),
+        status: 'Reconciled & Pending Remittance',
+        subItems: [
+          { name: 'ECIP Government Coverage Premium', type: 'Employer Insurance', amount: govSharesBreakdown.ecip }
+        ].filter(s => s.amount > 0),
+        employees: ecipEmployees
       }
     ];
 
-    const categoryDistribution = Object.values(categoryMap).filter(cat => cat.gross > 0 || cat.count > 0);
+    const categoryDistribution = byCategoryList.filter(cat => cat.gross > 0 || cat.count > 0);
     const campusDistribution = Object.values(campusMap).sort((a, b) => b.gross - a.gross);
 
     res.json({
@@ -452,7 +639,9 @@ reportsRouter.get("/reports/financial", async (req: any, res: any) => {
         honoraria: Number(totalHonoraria.toFixed(2)),
         bonuses: Number(totalBonuses.toFixed(2)),
         absences: Number(totalAbsences.toFixed(2)),
-        totalGross: Number(totalGross.toFixed(2))
+        totalGross: Number(totalGross.toFixed(2)),
+        byCategory: categoryDistribution,
+        employees: rosterEmployees
       },
       deductionsBreakdown,
       employerContributions: govSharesBreakdown,
