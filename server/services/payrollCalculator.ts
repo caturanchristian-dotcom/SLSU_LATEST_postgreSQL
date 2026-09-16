@@ -921,25 +921,94 @@ export async function syncPayrollCycleToRecord(cycleId: string) {
     const month = (dateObj.getMonth() + 1) || 1;
     const monthName = MONTH_NAMES_LIST[month - 1] || 'January';
 
-    let totGross = entries.reduce((s, e) => s + Number(e.grossPay || e.compGross || e.basicPay || 0), 0);
-    let totDed = entries.reduce((s, e) => s + Number(e.totalDeductions || 0), 0);
-    let totNet = entries.reduce((s, e) => s + Number(e.netPay || (totGross - totDed)), 0);
+    const processedEntries = entries.map(e => {
+      // 1. Gross Pay
+      let gross = Number(e.grossPay || 0);
+      if (gross === 0) {
+        gross = Number(e.compGross || 0);
+      }
+      if (gross === 0) {
+        const bp = Number(e.basicPay || e.salariesAndWages || 0);
+        const pera = Number(e.compPera || e.pera || 0);
+        const compSal2nd = Number(e.compSal2nd || 0);
+        if (compSal2nd > 0) gross = compSal2nd + pera;
+        else if (bp > 0) gross = bp + pera;
+      }
 
-    if (totGross === 0 && totNet === 0 && cycle.totalGross) {
+      // 2. Deductions
+      let totalDed = Number(e.totalDeductions || 0);
+      let deds: any = {};
+      if (e.deductions_json) {
+        try { deds = typeof e.deductions_json === 'string' ? JSON.parse(e.deductions_json) : e.deductions_json; } catch {}
+      }
+      let custom: any = {};
+      if (e.custom_values_json) {
+        try { custom = typeof e.custom_values_json === 'string' ? JSON.parse(e.custom_values_json) : e.custom_values_json; } catch {}
+      }
+
+      const getD = (key: string, colName: string) => {
+        if (custom[key] !== undefined && Number(custom[key]) >= 0) return Number(custom[key]);
+        if (deds[key] !== undefined && Number(deds[key]) >= 0) return Number(deds[key]);
+        if (e[colName] !== undefined && Number(e[colName]) >= 0) return Number(e[colName]);
+        return 0;
+      };
+
+      const sumDeds = 
+        getD('dedPolicyLoan', 'dedPolicyLoan') +
+        getD('dedConsolLoan', 'dedConsolLoan') +
+        getD('dedMplLite', 'dedMplLite') +
+        getD('dedMpl', 'dedMpl') +
+        getD('dedCpl', 'dedCpl') +
+        getD('dedGfal', 'dedGfal') +
+        getD('dedEmergencyLoan', 'dedEmergencyLoan') +
+        getD('dedGsisPremPersonal', 'dedGsisPremPersonal') +
+        getD('dedEducAsst', 'dedEducAsst') +
+        getD('dedPagibigPersonal', 'dedPagibigPersonal') +
+        getD('dedPagibigMpl', 'dedPagibigMpl') +
+        getD('dedSss', 'dedSss') +
+        getD('dedPagibigMp2', 'dedPagibigMp2') +
+        getD('dedPhilhealthCont', 'dedPhilhealthCont') +
+        getD('dedCsbLoan', 'dedCsbLoan') +
+        getD('dedTaxWithheld', 'dedTaxWithheld');
+
+      if (totalDed === 0 && sumDeds > 0) {
+        totalDed = sumDeds;
+      }
+
+      // 3. Net Pay
+      let net = Number(e.netPay || 0);
+      if (net === 0 && gross > 0) {
+        net = Math.max(0, gross - totalDed);
+      }
+
+      return {
+        ...e,
+        grossPay: gross,
+        totalDeductions: totalDed,
+        netPay: net,
+        basicPay: Number(e.basicPay || 0) > 0 ? Number(e.basicPay) : (Number(e.compSal2nd || 0) > 0 ? Number(e.compSal2nd) : gross)
+      };
+    });
+
+    let totGross = processedEntries.reduce((s, e) => s + Number(e.grossPay || 0), 0);
+    let totDed = processedEntries.reduce((s, e) => s + Number(e.totalDeductions || 0), 0);
+    let totNet = processedEntries.reduce((s, e) => s + Number(e.netPay || 0), 0);
+
+    if (totGross === 0 && totNet === 0 && Number(cycle.totalGross || 0) > 0) {
       totGross = Number(cycle.totalGross || 0);
       totDed = Number(cycle.totalDeductions || 0);
       totNet = Number(cycle.totalNet || 0);
     }
 
-    const existing = await db.prepare("SELECT id FROM payroll_records WHERE cycleId = ?").get(cycleId) as any;
-    const jsonPayload = JSON.stringify(entries);
+    const existing = await db.prepare('SELECT id FROM payroll_records WHERE "cycleId" = ?').get(cycleId) as any;
+    const jsonPayload = JSON.stringify(processedEntries);
 
     const executeSave = async () => {
       if (existing) {
         await db.prepare(`
           UPDATE payroll_records
-          SET year = ?, month = ?, monthName = ?, title = ?, periodType = ?, totalEmployees = ?, totalGross = ?, totalDeductions = ?, totalNet = ?, status = 'disbursed', notes = ?, recordDataJson = ?, updatedAt = CURRENT_TIMESTAMP
-          WHERE cycleId = ?
+          SET year = ?, month = ?, "monthName" = ?, title = ?, "periodType" = ?, "totalEmployees" = ?, "totalGross" = ?, "totalDeductions" = ?, "totalNet" = ?, status = 'disbursed', notes = ?, "recordDataJson" = ?, "updatedAt" = CURRENT_TIMESTAMP
+          WHERE "cycleId" = ?
         `).run(
           year,
           month,
@@ -958,7 +1027,7 @@ export async function syncPayrollCycleToRecord(cycleId: string) {
         const recId = `rec-sync-${cycleId}`;
         await db.prepare(`
           INSERT INTO payroll_records 
-          (id, cycleId, year, month, monthName, title, periodType, totalEmployees, totalGross, totalDeductions, totalNet, status, notes, recordDataJson)
+          (id, "cycleId", year, month, "monthName", title, "periodType", "totalEmployees", "totalGross", "totalDeductions", "totalNet", status, notes, "recordDataJson")
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           recId,
@@ -1000,7 +1069,7 @@ export async function syncPayrollCycleToRecord(cycleId: string) {
 
 export async function syncAllCyclesToRecords() {
   try {
-    await db.prepare("DELETE FROM payroll_records WHERE cycleId IS NOT NULL AND cycleId IN (SELECT id FROM payroll_cycles WHERE status != 'disbursed')").run();
+    await db.prepare('DELETE FROM payroll_records WHERE "cycleId" IS NOT NULL AND "cycleId" IN (SELECT id FROM payroll_cycles WHERE status != \'disbursed\')').run();
 
     const cycles = await db.prepare("SELECT id FROM payroll_cycles WHERE status = 'disbursed'").all() as any[];
     for (const cycle of cycles) {

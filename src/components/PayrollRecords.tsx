@@ -360,7 +360,7 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
 
   useEffect(() => {
     fetchRecords();
-  }, []);
+  }, [cycles]);
 
   const fetchRecords = async () => {
     setLoading(true);

@@ -2684,11 +2684,13 @@ const Payroll = () => {
     setIsDisbursing(true);
     try {
       await api.payroll.disburse(cycle.id);
-      toast.success('Payroll disbursed successfully! Moved to Payroll Records database.');
-      fetchCycles();
+      toast.success(`Payroll "${cycle.name}" disbursed successfully! Moved to Payroll Records.`);
+      await fetchCycles();
       if (selectedCycle?.id === cycle.id) {
         setSelectedCycle(null);
       }
+      // Seamlessly move user to Payroll Records view to review the disbursed record
+      setMainTab('records');
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -2746,13 +2748,25 @@ const Payroll = () => {
     });
   }, [entries, searchTerm, isVisitingOnly, isFacultyStaffOnly, isJobOrderOnly, effectiveCategoryFilter]);
 
-  const filteredCycles = cycles.filter(c => {
-    const matchesSearch = c.name.toLowerCase().includes(cycleSearchTerm.toLowerCase());
-    const matchesStatus = filterStatus === 'all' || c.status === filterStatus;
-    const matchesType = filterType === 'all' || (c.type || 'all') === filterType;
-    const matchesManaged = filterManaged === 'all' || isBatchManagedByMe(c);
-    return matchesSearch && matchesStatus && matchesType && matchesManaged;
-  });
+  // Active cycles are batches that are draft or processing/completed prior to disbursement.
+  // Once disbursed, they are moved to the Payroll Records archive and removed from the active cycles view.
+  const activeCycles = useMemo(() => {
+    return cycles.filter(c => c.status !== 'disbursed');
+  }, [cycles]);
+
+  const disbursedCycles = useMemo(() => {
+    return cycles.filter(c => c.status === 'disbursed');
+  }, [cycles]);
+
+  const filteredCycles = useMemo(() => {
+    return activeCycles.filter(c => {
+      const matchesSearch = c.name.toLowerCase().includes(cycleSearchTerm.toLowerCase());
+      const matchesStatus = filterStatus === 'all' || c.status === filterStatus;
+      const matchesType = filterType === 'all' || (c.type || 'all') === filterType;
+      const matchesManaged = filterManaged === 'all' || isBatchManagedByMe(c);
+      return matchesSearch && matchesStatus && matchesType && matchesManaged;
+    });
+  }, [activeCycles, cycleSearchTerm, filterStatus, filterType, filterManaged, user]);
 
   const deductionCols = useMemo(() => {
     return columnsList.filter(col => col.category === 'DEDUCTIONS');
@@ -4567,7 +4581,7 @@ const Payroll = () => {
                 <FileSpreadsheet className="w-3.5 h-3.5" />
                 Payroll Cycles
                 <Badge className={`ml-1 text-[10px] px-1.5 py-0 ${mainTab === 'cycles' ? 'bg-neutral-800 text-neutral-200' : 'bg-neutral-200 text-neutral-700'}`}>
-                  {cycles.length}
+                  {activeCycles.length}
                 </Badge>
               </Button>
 
@@ -4584,7 +4598,7 @@ const Payroll = () => {
                 <Database className="w-3.5 h-3.5 text-blue-400" />
                 Payroll Records
                 <Badge className={`ml-1 text-[10px] px-1.5 py-0 ${mainTab === 'records' ? 'bg-blue-800 text-blue-100' : 'bg-blue-100 text-blue-800'}`}>
-                  By Year & Month
+                  {disbursedCycles.length > 0 ? `${disbursedCycles.length} Disbursed` : 'By Year & Month'}
                 </Badge>
               </Button>
             </div>
@@ -4807,6 +4821,34 @@ const Payroll = () => {
       </div>
     </div>
 
+    {disbursedCycles.length > 0 && (
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 bg-blue-50/70 border border-blue-200/70 rounded-xl text-xs text-blue-900 shadow-sm">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0">
+            <CheckCircle2 className="w-4 h-4" />
+          </div>
+          <div>
+            <span className="font-bold text-blue-950">
+              {disbursedCycles.length} disbursed payroll {disbursedCycles.length === 1 ? 'batch has' : 'batches have'} been moved to Payroll Records
+            </span>
+            <p className="text-[11px] text-blue-700 mt-0.5">
+              Completed and disbursed cycles are archived by Year & Month in the Records database for official payslips and reporting.
+            </p>
+          </div>
+        </div>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => setMainTab('records')} 
+          className="h-8 text-xs font-semibold bg-white border-blue-200 text-blue-700 hover:text-blue-900 hover:bg-blue-50 gap-1.5 px-3 shrink-0 self-start sm:self-auto"
+        >
+          <Database className="w-3.5 h-3.5 text-blue-600" />
+          View Records ({disbursedCycles.length})
+          <ChevronRight className="w-3.5 h-3.5 text-blue-500" />
+        </Button>
+      </div>
+    )}
+
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {loading && cycles.length === 0 ? (
           Array.from({ length: 3 }).map((_, i) => (
@@ -4919,11 +4961,37 @@ const Payroll = () => {
             </CardContent>
           </Card>
         )))}
-        {cycles.length === 0 && !loading && (
-          <div className="col-span-full py-20 text-center bg-white rounded-2xl border border-dashed border-neutral-300">
-            <FileText className="w-12 h-12 text-neutral-200 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-neutral-900">No Payroll Cycles</h3>
-            <p className="text-neutral-500">Start by creating a new payroll cycle for this period.</p>
+        {activeCycles.length === 0 && !loading && (
+          <div className="col-span-full py-16 px-6 text-center bg-white rounded-2xl border border-dashed border-neutral-300">
+            <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center mx-auto mb-3 text-blue-600">
+              <FileSpreadsheet className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-bold text-neutral-900">No Active Payroll Cycles</h3>
+            <p className="text-sm text-neutral-500 max-w-md mx-auto mt-1">
+              All previous cycles have been disbursed and moved to the <span className="font-semibold text-neutral-700">Payroll Records</span> database.
+            </p>
+            <div className="mt-5 flex items-center justify-center gap-3">
+              <Button onClick={() => setIsAddOpen(true)} className="gap-2 bg-neutral-900 text-white hover:bg-neutral-800">
+                <Plus className="w-4 h-4" />
+                Create New Cycle
+              </Button>
+              {disbursedCycles.length > 0 && (
+                <Button variant="outline" onClick={() => setMainTab('records')} className="gap-2 border-neutral-300">
+                  <Database className="w-4 h-4 text-blue-600" />
+                  View Payroll Records ({disbursedCycles.length})
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+        {activeCycles.length > 0 && filteredCycles.length === 0 && !loading && (
+          <div className="col-span-full py-16 text-center bg-white rounded-2xl border border-dashed border-neutral-300">
+            <Search className="w-10 h-10 text-neutral-300 mx-auto mb-3" />
+            <h3 className="text-base font-bold text-neutral-900">No matching cycles found</h3>
+            <p className="text-xs text-neutral-500 mt-1">Try adjusting your search query or filter options.</p>
+            <Button variant="outline" size="sm" onClick={() => { setCycleSearchTerm(''); setFilterStatus('all'); setFilterType('all'); }} className="mt-4 text-xs">
+              Reset Filters
+            </Button>
           </div>
         )}
       </div>

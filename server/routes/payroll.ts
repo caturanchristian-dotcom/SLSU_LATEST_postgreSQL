@@ -1159,11 +1159,22 @@ payrollRouter.get("/my-payroll", async (req: any, res: any) => {
 // Payroll Records (Archived & Historical)
 payrollRouter.get("/payroll-records", async (req: any, res: any) => {
   try {
-    // Only perform auto-sync if records table is completely empty
+    // Ensure all disbursed cycles are synced into records
     try {
       const recCount = await db.prepare("SELECT COUNT(*) as count FROM payroll_records").get() as any;
       if (!recCount || Number(recCount.count) === 0) {
         await syncAllCyclesToRecords();
+      } else {
+        const missing = await db.prepare(`
+          SELECT id FROM payroll_cycles 
+          WHERE status = 'disbursed' 
+          AND id NOT IN (SELECT "cycleId" FROM payroll_records WHERE "cycleId" IS NOT NULL)
+        `).all() as any[];
+        if (missing && missing.length > 0) {
+          for (const m of missing) {
+            await syncPayrollCycleToRecord(m.id);
+          }
+        }
       }
     } catch {}
 
@@ -1198,7 +1209,7 @@ payrollRouter.get("/payroll-records", async (req: any, res: any) => {
 
     // Parse JSON if needed
     const records = rawRecords.map(r => {
-      let recordData = [];
+      let recordData: any[] = [];
       if (r.recordDataJson) {
         try {
           recordData = typeof r.recordDataJson === 'string' ? JSON.parse(r.recordDataJson) : r.recordDataJson;
@@ -1206,10 +1217,43 @@ payrollRouter.get("/payroll-records", async (req: any, res: any) => {
           recordData = [];
         }
       }
-      return { ...r, recordData };
+
+      let totalGross = Number(r.totalGross || 0);
+      let totalDeductions = Number(r.totalDeductions || 0);
+      let totalNet = Number(r.totalNet || 0);
+
+      if (totalGross === 0 && recordData.length > 0) {
+        totalGross = recordData.reduce((sum, item) => {
+          const g = Number(item.grossPay || item.compGross || item.basicPay || item.salariesAndWages || 0);
+          return sum + g;
+        }, 0);
+        totalDeductions = recordData.reduce((sum, item) => sum + Number(item.totalDeductions || 0), 0);
+        totalNet = recordData.reduce((sum, item) => sum + Number(item.netPay || 0), 0);
+        if (totalNet === 0 && totalGross > 0) {
+          totalNet = Math.max(0, totalGross - totalDeductions);
+        }
+      }
+
+      return {
+        ...r,
+        totalGross,
+        totalDeductions,
+        totalNet,
+        totalEmployees: r.totalEmployees || recordData.length,
+        recordData
+      };
     });
 
     res.json(records);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+payrollRouter.post("/payroll-records/sync-all", async (req: any, res: any) => {
+  try {
+    await syncAllCyclesToRecords();
+    res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1221,7 +1265,7 @@ payrollRouter.get("/payroll-records/:id", async (req: any, res: any) => {
     const rec = await db.prepare("SELECT * FROM payroll_records WHERE id = ?").get(id) as any;
     if (!rec) return res.status(404).json({ error: "Record not found" });
 
-    let recordData = [];
+    let recordData: any[] = [];
     if (rec.recordDataJson) {
       try {
         recordData = typeof rec.recordDataJson === 'string' ? JSON.parse(rec.recordDataJson) : rec.recordDataJson;
@@ -1230,7 +1274,30 @@ payrollRouter.get("/payroll-records/:id", async (req: any, res: any) => {
       }
     }
 
-    res.json({ ...rec, recordData });
+    let totalGross = Number(rec.totalGross || 0);
+    let totalDeductions = Number(rec.totalDeductions || 0);
+    let totalNet = Number(rec.totalNet || 0);
+
+    if (totalGross === 0 && recordData.length > 0) {
+      totalGross = recordData.reduce((sum, item) => {
+        const g = Number(item.grossPay || item.compGross || item.basicPay || item.salariesAndWages || 0);
+        return sum + g;
+      }, 0);
+      totalDeductions = recordData.reduce((sum, item) => sum + Number(item.totalDeductions || 0), 0);
+      totalNet = recordData.reduce((sum, item) => sum + Number(item.netPay || 0), 0);
+      if (totalNet === 0 && totalGross > 0) {
+        totalNet = Math.max(0, totalGross - totalDeductions);
+      }
+    }
+
+    res.json({
+      ...rec,
+      totalGross,
+      totalDeductions,
+      totalNet,
+      totalEmployees: rec.totalEmployees || recordData.length,
+      recordData
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1244,7 +1311,7 @@ payrollRouter.post("/payroll-records", async (req: any, res: any) => {
     const jsonStr = recordData ? JSON.stringify(recordData) : "[]";
 
     await db.prepare(`
-      INSERT INTO payroll_records (id, cycleId, year, month, monthName, title, periodType, totalEmployees, totalGross, totalDeductions, totalNet, status, notes, recordDataJson)
+      INSERT INTO payroll_records (id, "cycleId", year, month, "monthName", title, "periodType", "totalEmployees", "totalGross", "totalDeductions", "totalNet", status, notes, "recordDataJson")
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, cycleId || null, year || new Date().getFullYear(), month || (new Date().getMonth() + 1),
@@ -1285,16 +1352,16 @@ payrollRouter.put("/payroll-records/:id", async (req: any, res: any) => {
         title = COALESCE(?, title),
         year = COALESCE(?, year),
         month = COALESCE(?, month),
-        monthName = COALESCE(?, monthName),
-        periodType = COALESCE(?, periodType),
-        totalEmployees = COALESCE(?, totalEmployees),
-        totalGross = COALESCE(?, totalGross),
-        totalDeductions = COALESCE(?, totalDeductions),
-        totalNet = COALESCE(?, totalNet),
+        "monthName" = COALESCE(?, "monthName"),
+        "periodType" = COALESCE(?, "periodType"),
+        "totalEmployees" = COALESCE(?, "totalEmployees"),
+        "totalGross" = COALESCE(?, "totalGross"),
+        "totalDeductions" = COALESCE(?, "totalDeductions"),
+        "totalNet" = COALESCE(?, "totalNet"),
         status = COALESCE(?, status),
         notes = COALESCE(?, notes),
-        recordDataJson = ?,
-        updatedAt = CURRENT_TIMESTAMP
+        "recordDataJson" = COALESCE(?, "recordDataJson"),
+        "updatedAt" = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(
       title, year, month, mName, periodType, totalEmployees, totalGross,
