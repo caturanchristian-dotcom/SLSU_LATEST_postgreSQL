@@ -3,6 +3,8 @@ import { useAuth } from '../components/AuthProvider';
 import { LogIn, Eye, EyeOff, AlertCircle, Building2, ShieldCheck, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { SLSU_CAMPUSES } from '../lib/constants';
+import { PWAInstallButton } from '../components/PWAInstallButton';
+import { OfflineIndicator } from '../components/OfflineIndicator';
 
 const Login = () => {
   const [loading, setLoading] = useState(false);
@@ -100,7 +102,12 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#f3f6f9] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#f3f6f9] flex flex-col items-center justify-center p-4 relative">
+      {/* Top Bar PWA Install Action */}
+      <div className="absolute top-4 right-4 z-20">
+        <PWAInstallButton variant="header" />
+      </div>
+
       {/* Outer Card with box shadow matching the style of the design */}
       <div className="w-full max-w-[950px] bg-white rounded-3xl overflow-hidden shadow-[0_12px_40px_rgba(0,0,0,0.06)] border border-neutral-100/80 flex flex-col md:flex-row min-h-[500px]">
         
@@ -319,11 +326,11 @@ const Login = () => {
             {/* Highly polished University Crest / Seal Container */}
             <div className="w-44 h-44 rounded-full bg-white p-1.5 shadow-[0_12px_36px_rgba(0,0,0,0.25)] border-2 border-white/40 flex items-center justify-center mb-8 transform transition-transform duration-500 hover:scale-[1.05] overflow-hidden">
               <img 
-                src="https://2.bp.blogspot.com/-h1JqhRBS1l0/WQdMWsZUjWI/AAAAAAAAAGg/220ucc6KzCQeb3E8grfL9dZ2bt5ESvUJwCLcB/s1600/slsuLogo.jpg" 
+                src="/slsu-logo.png" 
                 alt="Southern Leyte State University Seal" 
-                className="w-full h-full rounded-full object-cover"
+                className="w-full h-full rounded-full object-contain"
                 onError={(e) => {
-                  (e.target as HTMLImageElement).src = 'https://2.bp.blogspot.com/-h1JqhRBS1l0/WQdMWsZUjWI/AAAAAAAAAGg/220ucc6KzCQeb3E8grfL9dZ2bt5ESvUJwCLcB/s1600/slsuLogo.jpg';
+                  (e.target as HTMLImageElement).src = '/pwa-512x512.png';
                 }}
                 referrerPolicy="no-referrer"
               />
@@ -431,6 +438,8 @@ const Login = () => {
           </div>
         </div>
       )}
+      {/* Offline Connectivity Toast Indicator */}
+      <OfflineIndicator />
     </div>
   );
 };

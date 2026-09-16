@@ -200,14 +200,9 @@ export async function startServer() {
   // 5. Frontend Vite Middleware / Static Files Serving
   // In development: mount Vite dev server as middleware for instant client rendering
   if (process.env.NODE_ENV !== "production") {
-    // Check if hot module replacement is disabled
-    const isHmrDisabled = process.env.DISABLE_HMR === "true" || process.env.DISABLE_HMR === "1";
     // Create Vite server instance in middleware mode
     const vite = await createViteServer({
-      server: {
-        middlewareMode: true,
-        hmr: isHmrDisabled ? false : undefined,
-      },
+      server: { middlewareMode: true },
       appType: "spa",
     });
     // Mount Vite middlewares into Express pipeline

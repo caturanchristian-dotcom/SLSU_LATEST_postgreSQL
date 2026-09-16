@@ -1,12 +1,49 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script>
+      // Filter benign Vite websocket reconnection notifications in sandboxed container preview
+      (function() {
+        if (typeof window !== 'undefined') {
+          const origConsoleError = console.error;
+          console.error = function(...args) {
+            if (args.length > 0 && typeof args[0] === 'string' && (args[0].includes('[vite]') || args[0].includes('websocket'))) {
+              console.debug(...args);
+              return;
+            }
+            origConsoleError.apply(console, args);
+          };
+        }
+      })();
+    </script>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SLSU Payroll System</title>
-    <link rel="icon" type="image/jpeg" href="https://2.bp.blogspot.com/-h1JqhRBS1l0/WQdMWsZUjWI/AAAAAAAAAGg/220ucc6KzCQeb3E8grfL9dZ2bt5ESvUJwCLcB/s1600/slsuLogo.jpg"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+    <title>SLSU Payroll Management System</title>
+    <meta name="description" content="A comprehensive payroll system for SLSU-Hinunangan Campus with real-time disbursement tracking and deduction monitoring." />
+    
+    <!-- PWA Settings & Web App Capabilities -->
+    <meta name="theme-color" content="#1d58d9" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="SLSU Payroll" />
+    <meta name="application-name" content="SLSU Payroll" />
+    <meta name="msapplication-TileColor" content="#1d58d9" />
+    
+    <!-- Icons & Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="shortcut icon" href="/favicon.png" />
+    
+    <!-- Open Graph Metadata -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="SLSU Payroll Management System" />
+    <meta property="og:description" content="A comprehensive payroll system for SLSU-Hinunangan Campus with real-time disbursement tracking and deduction monitoring." />
+    <meta property="og:image" content="/pwa-512x512.png" />
   </head>
-  <body>
+  <body class="bg-[#f4f6f9] text-neutral-900 antialiased selection:bg-[#1d58d9] selection:text-white">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

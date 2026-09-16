@@ -23,12 +23,16 @@ import {
   Power,
   Home,
   BookOpen,
-  User
+  User,
+  Download
 } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { PWAInstallButton } from './PWAInstallButton';
+import { PWAInstallModal } from './PWAInstallModal';
+import { OfflineIndicator } from './OfflineIndicator';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -40,6 +44,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
   const { user, role, logout } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('sidebar_collapsed') === 'true';
@@ -248,7 +253,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
           <div className="flex items-center gap-2.5 overflow-hidden select-none">
             <div className="w-[30px] h-[30px] shrink-0 bg-white text-[#1d58d9] rounded-full p-0.5 border border-[#1d58d9]/20 flex items-center justify-center">
               <img 
-                src="https://2.bp.blogspot.com/-h1JqhRBS1l0/WQdMWsZUjWI/AAAAAAAAAGg/220ucc6KzCQeb3E8grfL9dZ2bt5ESvUJwCLcB/s1600/slsuLogo.jpg" 
+                src="/slsu-logo.png" 
                 alt="SLSU Logo" 
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-contain" 
@@ -422,7 +427,9 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
           </div>
           
           {/* Right section */}
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4">
+            <PWAInstallButton variant="header" />
+
             <button 
               title="Help Center"
               onClick={() => onNavigate('docs')}
@@ -457,7 +464,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                 {/* Profile Badge/Emblem */}
                 <div className="w-[38px] h-[38px] rounded-full border-2 border-[#1d58d9]/25 p-0.5 shrink-0 overflow-hidden bg-white flex items-center justify-center">
                   <img 
-                    src={user?.profileImage || "https://2.bp.blogspot.com/-h1JqhRBS1l0/WQdMWsZUjWI/AAAAAAAAAGg/220ucc6KzCQeb3E8grfL9dZ2bt5ESvUJwCLcB/s1600/slsuLogo.jpg"} 
+                    src={user?.profileImage || "/slsu-logo.png"} 
                     alt="Profile Emblem" 
                     referrerPolicy="no-referrer"
                     className={cn(
@@ -491,6 +498,17 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                       >
                         <KeyRound className="w-4 h-4 text-neutral-400 shrink-0" />
                         <span>My Accounts</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setIsInstallModalOpen(true);
+                          setIsProfileMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] font-bold text-neutral-600 hover:bg-[#e2ebf8] hover:text-[#1d58d9] rounded-lg text-left tracking-wide uppercase transition-colors"
+                      >
+                        <Download className="w-4 h-4 text-neutral-400 shrink-0" />
+                        <span>Install Desktop App</span>
                       </button>
                       
                       <div className="border-t border-neutral-100 my-1" />
@@ -544,7 +562,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
             <div className="flex items-center gap-2.5">
               <div className="w-[30px] h-[30px] shrink-0 bg-white text-[#1d58d9] rounded-full p-0.5 border border-[#1d58d9]/20 flex items-center justify-center">
                 <img 
-                  src="https://2.bp.blogspot.com/-h1JqhRBS1l0/WQdMWsZUjWI/AAAAAAAAAGg/220ucc6KzCQeb3E8grfL9dZ2bt5ESvUJwCLcB/s1600/slsuLogo.jpg" 
+                  src="/slsu-logo.png" 
                   alt="SLSU Logo" 
                   referrerPolicy="no-referrer"
                   className="w-full h-full object-contain" 
@@ -557,13 +575,15 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
           </div>
 
           <div className="flex items-center gap-2">
+            <PWAInstallButton variant="icon" />
+
             <button 
               onClick={() => onNavigate('profile')}
               className="w-9 h-9 rounded-full border border-[#1d58d9]/25 p-0.5 overflow-hidden bg-white flex items-center justify-center focus:outline-none active:scale-95 transition-transform"
               title="My Profile"
             >
               <img 
-                src={user?.profileImage || "https://2.bp.blogspot.com/-h1JqhRBS1l0/WQdMWsZUjWI/AAAAAAAAAGg/220ucc6KzCQeb3E8grfL9dZ2bt5ESvUJwCLcB/s1600/slsuLogo.jpg"} 
+                src={user?.profileImage || "/slsu-logo.png"} 
                 alt="Profile Emblem" 
                 referrerPolicy="no-referrer"
                 className={cn(
@@ -602,7 +622,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                   <div className="flex items-center gap-2.5">
                     <div className="w-[32px] h-[32px] shrink-0 bg-white text-[#1d58d9] rounded-full p-0.5 border border-[#1d58d9]/20 flex items-center justify-center">
                       <img 
-                        src="https://2.bp.blogspot.com/-h1JqhRBS1l0/WQdMWsZUjWI/AAAAAAAAAGg/220ucc6KzCQeb3E8grfL9dZ2bt5ESvUJwCLcB/s1600/slsuLogo.jpg" 
+                        src="/slsu-logo.png" 
                         alt="SLSU Logo" 
                         referrerPolicy="no-referrer"
                         className="w-full h-full object-contain" 
@@ -631,7 +651,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                 <div className="p-4 mx-3 my-3 bg-[#f8fafc] border border-neutral-200/80 rounded-2xl flex items-center gap-3">
                   <div className="w-11 h-11 rounded-full border-2 border-[#1d58d9]/30 p-0.5 shrink-0 overflow-hidden bg-white flex items-center justify-center">
                     <img 
-                      src={user?.profileImage || "https://2.bp.blogspot.com/-h1JqhRBS1l0/WQdMWsZUjWI/AAAAAAAAAGg/220ucc6KzCQeb3E8grfL9dZ2bt5ESvUJwCLcB/s1600/slsuLogo.jpg"} 
+                      src={user?.profileImage || "/slsu-logo.png"} 
                       alt="User Avatar" 
                       referrerPolicy="no-referrer"
                       className={cn(
@@ -771,6 +791,17 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                 <div className="p-3 border-t border-neutral-100 bg-neutral-50/70 space-y-1">
                   <button
                     onClick={() => {
+                      setIsInstallModalOpen(true);
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[#e2ebf8]/60 text-[#1d58d9] hover:bg-[#e2ebf8] text-xs font-bold text-left transition-colors"
+                  >
+                    <Download className="w-4 h-4 text-[#1d58d9]" />
+                    <span>Install Desktop App</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
                       onNavigate('docs');
                       setIsMobileMenuOpen(false);
                     }}
@@ -830,6 +861,12 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
           </motion.div>
         </main>
       </div>
+
+      {/* Offline Status Toast Indicator */}
+      <OfflineIndicator />
+
+      {/* Manual Desktop / Mobile Install Modal Guide */}
+      <PWAInstallModal isOpen={isInstallModalOpen} onClose={() => setIsInstallModalOpen(false)} />
     </div>
   );
 };

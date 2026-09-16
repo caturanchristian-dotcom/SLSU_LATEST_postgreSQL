@@ -1,0 +1,62 @@
+{
+  "id": "/",
+  "name": "SLSU Payroll Management System",
+  "short_name": "SLSU Payroll",
+  "description": "Comprehensive Payroll Management System for Southern Leyte State University with real-time disbursement tracking and deduction monitoring.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#1d58d9",
+  "background_color": "#0f2b6e",
+  "categories": ["finance", "productivity", "business"],
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "64x64",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "View payroll dashboard and analytics",
+      "url": "/",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Payroll Hub",
+      "short_name": "Payroll",
+      "description": "Manage payroll cycles and disbursements",
+      "url": "/#payroll",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Employees Registry",
+      "short_name": "Employees",
+      "description": "Access staff profiles and records",
+      "url": "/#employees",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    }
+  ]
+}
