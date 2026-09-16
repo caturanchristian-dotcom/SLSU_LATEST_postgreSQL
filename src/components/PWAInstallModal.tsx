@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
+import { SLSU_LOGO_URL, SLSU_LOGO_FALLBACK_URL } from '@/lib/constants';
 
 interface PWAInstallModalProps {
   isOpen: boolean;
@@ -50,8 +51,19 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({ isOpen, onClos
           {/* Header */}
           <div className="flex items-center justify-between border-b border-neutral-100 bg-gradient-to-r from-[#1e40af] to-[#1d58d9] px-6 py-5 text-white">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white/10 p-2 border border-white/20 flex items-center justify-center shrink-0">
-                <img src="/pwa-192x192.png" alt="SLSU Payroll" className="w-full h-full object-contain" />
+              <div className="w-10 h-10 rounded-xl bg-white p-1 border border-white/20 flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
+                <img 
+                  src={SLSU_LOGO_URL} 
+                  alt="SLSU Payroll" 
+                  className="w-full h-full object-contain" 
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    if (target.src !== window.location.origin + SLSU_LOGO_FALLBACK_URL) {
+                      target.src = SLSU_LOGO_FALLBACK_URL;
+                    }
+                  }}
+                />
               </div>
               <div>
                 <h3 className="text-base font-bold tracking-tight">Install SLSU Payroll Desktop App</h3>

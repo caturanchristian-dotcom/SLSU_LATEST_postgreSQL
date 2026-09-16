@@ -29,6 +29,7 @@ import {
 import { useAuth } from './AuthProvider';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
+import { SLSU_LOGO_URL, SLSU_LOGO_FALLBACK_URL } from '@/lib/constants';
 import { motion, AnimatePresence } from 'motion/react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { PWAInstallModal } from './PWAInstallModal';
@@ -253,10 +254,16 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
           <div className="flex items-center gap-2.5 overflow-hidden select-none">
             <div className="w-[30px] h-[30px] shrink-0 bg-white text-[#1d58d9] rounded-full p-0.5 border border-[#1d58d9]/20 flex items-center justify-center">
               <img 
-                src="/slsu-logo.png" 
+                src={SLSU_LOGO_URL} 
                 alt="SLSU Logo" 
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-contain" 
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  if (target.src !== window.location.origin + SLSU_LOGO_FALLBACK_URL) {
+                    target.src = SLSU_LOGO_FALLBACK_URL;
+                  }
+                }}
               />
             </div>
             {!isCollapsed && (
@@ -464,13 +471,19 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                 {/* Profile Badge/Emblem */}
                 <div className="w-[38px] h-[38px] rounded-full border-2 border-[#1d58d9]/25 p-0.5 shrink-0 overflow-hidden bg-white flex items-center justify-center">
                   <img 
-                    src={user?.profileImage || "/slsu-logo.png"} 
+                    src={user?.profileImage || SLSU_LOGO_URL} 
                     alt="Profile Emblem" 
                     referrerPolicy="no-referrer"
                     className={cn(
                       "w-full h-full rounded-full",
                       user?.profileImage ? "object-cover" : "object-contain"
                     )} 
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      if (target.src !== window.location.origin + SLSU_LOGO_FALLBACK_URL) {
+                        target.src = SLSU_LOGO_FALLBACK_URL;
+                      }
+                    }}
                   />
                 </div>
               </button>
@@ -562,10 +575,16 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
             <div className="flex items-center gap-2.5">
               <div className="w-[30px] h-[30px] shrink-0 bg-white text-[#1d58d9] rounded-full p-0.5 border border-[#1d58d9]/20 flex items-center justify-center">
                 <img 
-                  src="/slsu-logo.png" 
+                  src={SLSU_LOGO_URL} 
                   alt="SLSU Logo" 
                   referrerPolicy="no-referrer"
                   className="w-full h-full object-contain" 
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    if (target.src !== window.location.origin + SLSU_LOGO_FALLBACK_URL) {
+                      target.src = SLSU_LOGO_FALLBACK_URL;
+                    }
+                  }}
                 />
               </div>
               <span className="font-extrabold text-lg text-[#1d58d9] tracking-tight font-sans">
@@ -583,13 +602,19 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
               title="My Profile"
             >
               <img 
-                src={user?.profileImage || "/slsu-logo.png"} 
+                src={user?.profileImage || SLSU_LOGO_URL} 
                 alt="Profile Emblem" 
                 referrerPolicy="no-referrer"
                 className={cn(
                   "w-full h-full rounded-full",
                   user?.profileImage ? "object-cover" : "object-contain"
                 )} 
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  if (target.src !== window.location.origin + SLSU_LOGO_FALLBACK_URL) {
+                    target.src = SLSU_LOGO_FALLBACK_URL;
+                  }
+                }}
               />
             </button>
           </div>
@@ -622,10 +647,16 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                   <div className="flex items-center gap-2.5">
                     <div className="w-[32px] h-[32px] shrink-0 bg-white text-[#1d58d9] rounded-full p-0.5 border border-[#1d58d9]/20 flex items-center justify-center">
                       <img 
-                        src="/slsu-logo.png" 
+                        src={SLSU_LOGO_URL} 
                         alt="SLSU Logo" 
                         referrerPolicy="no-referrer"
                         className="w-full h-full object-contain" 
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          if (target.src !== window.location.origin + SLSU_LOGO_FALLBACK_URL) {
+                            target.src = SLSU_LOGO_FALLBACK_URL;
+                          }
+                        }}
                       />
                     </div>
                     <div className="flex flex-col">
@@ -651,13 +682,19 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                 <div className="p-4 mx-3 my-3 bg-[#f8fafc] border border-neutral-200/80 rounded-2xl flex items-center gap-3">
                   <div className="w-11 h-11 rounded-full border-2 border-[#1d58d9]/30 p-0.5 shrink-0 overflow-hidden bg-white flex items-center justify-center">
                     <img 
-                      src={user?.profileImage || "/slsu-logo.png"} 
+                      src={user?.profileImage || SLSU_LOGO_URL} 
                       alt="User Avatar" 
                       referrerPolicy="no-referrer"
                       className={cn(
                         "w-full h-full rounded-full",
                         user?.profileImage ? "object-cover" : "object-contain"
                       )} 
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        if (target.src !== window.location.origin + SLSU_LOGO_FALLBACK_URL) {
+                          target.src = SLSU_LOGO_FALLBACK_URL;
+                        }
+                      }}
                     />
                   </div>
                   <div className="flex-1 min-w-0 font-sans">

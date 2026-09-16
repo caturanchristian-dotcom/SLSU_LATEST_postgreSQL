@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../components/AuthProvider';
 import { LogIn, Eye, EyeOff, AlertCircle, Building2, ShieldCheck, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { SLSU_CAMPUSES } from '../lib/constants';
+import { SLSU_CAMPUSES, SLSU_LOGO_URL, SLSU_LOGO_FALLBACK_URL } from '../lib/constants';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { OfflineIndicator } from '../components/OfflineIndicator';
 
@@ -326,11 +326,14 @@ const Login = () => {
             {/* Highly polished University Crest / Seal Container */}
             <div className="w-44 h-44 rounded-full bg-white p-1.5 shadow-[0_12px_36px_rgba(0,0,0,0.25)] border-2 border-white/40 flex items-center justify-center mb-8 transform transition-transform duration-500 hover:scale-[1.05] overflow-hidden">
               <img 
-                src="/slsu-logo.png" 
+                src={SLSU_LOGO_URL} 
                 alt="Southern Leyte State University Seal" 
                 className="w-full h-full rounded-full object-contain"
                 onError={(e) => {
-                  (e.target as HTMLImageElement).src = '/pwa-512x512.png';
+                  const target = e.target as HTMLImageElement;
+                  if (target.src !== window.location.origin + SLSU_LOGO_FALLBACK_URL) {
+                    target.src = SLSU_LOGO_FALLBACK_URL;
+                  }
                 }}
                 referrerPolicy="no-referrer"
               />

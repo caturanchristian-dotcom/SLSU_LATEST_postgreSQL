@@ -12,8 +12,8 @@
   "categories": ["finance", "productivity", "business"],
   "icons": [
     {
-      "src": "/favicon.png",
-      "sizes": "64x64",
+      "src": "https://upload.wikimedia.org/wikipedia/commons/0/0d/Southern_Leyte_State_University.png?utm_source=en.wikipedia.org&utm_campaign=index&utm_content=original",
+      "sizes": "192x192 512x512",
       "type": "image/png",
       "purpose": "any"
     },
@@ -34,6 +34,12 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "64x64",
+      "type": "image/png",
+      "purpose": "any"
     }
   ],
   "shortcuts": [

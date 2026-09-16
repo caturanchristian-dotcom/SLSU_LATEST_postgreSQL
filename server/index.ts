@@ -197,6 +197,9 @@ export async function startServer() {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
+  // Serve static assets from public/ directory
+  app.use(express.static(path.join(process.cwd(), "public")));
+
   // 5. Frontend Vite Middleware / Static Files Serving
   // In development: mount Vite dev server as middleware for instant client rendering
   if (process.env.NODE_ENV !== "production") {
