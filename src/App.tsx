@@ -19,6 +19,7 @@ import Reports from './pages/Reports';
 import AuditLogs from './pages/AuditLogs';
 import HolidaysPage from './pages/Holidays';
 import Departments from './pages/Departments';
+import OvertimePage from './pages/Overtime';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
 
@@ -101,6 +102,8 @@ const AppContent = () => {
       case 'audit': return <AuditLogs />;
       case 'holidays': return <HolidaysPage />;
       case 'departments': return <Departments />;
+      case 'overtime':
+      case 'overtime-admin': return <OvertimePage onNavigate={handleNavigate} />;
       default: return <Dashboard onNavigate={handleNavigate} key={`dashboard-default-${dashboardKey}`} initialSubview={null} />;
     }
   };

@@ -894,5 +894,149 @@ export const api = {
       return handleResponse(res);
     },
   },
+
+  // --------------------------------------------------------------------------
+  // 15. OVERTIME REQUESTS & APPROVALS
+  // --------------------------------------------------------------------------
+  overtime: {
+    // List overtime requests with optional filters
+    list: async (params?: {
+      status?: string;
+      employeeId?: string;
+      startDate?: string;
+      endDate?: string;
+      department?: string;
+      campus?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    }) => {
+      const qs = new URLSearchParams();
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          if (v !== undefined && v !== null && v !== '') {
+            qs.append(k, String(v));
+          }
+        });
+      }
+      const res = await fetchWithAuth(`${API_BASE}/overtime-requests?${qs.toString()}`);
+      return handleResponse(res);
+    },
+    // Get single overtime request details including DTR record on that date
+    get: async (id: string) => {
+      const res = await fetchWithAuth(`${API_BASE}/overtime-requests/${id}`);
+      return handleResponse(res);
+    },
+    // Get overtime statistics summary
+    getSummary: async (employeeId?: string) => {
+      const qs = employeeId ? `?employeeId=${encodeURIComponent(employeeId)}` : '';
+      const res = await fetchWithAuth(`${API_BASE}/overtime-requests/summary${qs}`);
+      return handleResponse(res);
+    },
+    // Submit new overtime request
+    create: async (data: {
+      employeeId: string;
+      overtimeDate: string;
+      startTime: string;
+      endTime: string;
+      requestedHours?: number;
+      reason: string;
+      documentUrl?: string;
+    }) => {
+      const res = await fetchWithAuth(`${API_BASE}/overtime-requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      return handleResponse(res);
+    },
+    // Update pending overtime request
+    update: async (id: string, data: {
+      overtimeDate?: string;
+      startTime?: string;
+      endTime?: string;
+      reason?: string;
+      documentUrl?: string;
+    }) => {
+      const res = await fetchWithAuth(`${API_BASE}/overtime-requests/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      return handleResponse(res);
+    },
+    // Approve overtime request (Admin / Supervisor)
+    approve: async (id: string, data?: {
+      approverId?: string;
+      approverName?: string;
+      approvalRemarks?: string;
+      approvedHours?: number;
+    }) => {
+      const res = await fetchWithAuth(`${API_BASE}/overtime-requests/${id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data || {}),
+      });
+      return handleResponse(res);
+    },
+    // Batch approve multiple overtime requests
+    batchApprove: async (data: {
+      ids: string[];
+      approverId?: string;
+      approverName?: string;
+      approvalRemarks?: string;
+    }) => {
+      const res = await fetchWithAuth(`${API_BASE}/overtime-requests/batch-approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      return handleResponse(res);
+    },
+    // Reject overtime request (Admin / Supervisor)
+    reject: async (id: string, data?: {
+      approverId?: string;
+      approverName?: string;
+      approvalRemarks?: string;
+      rejectionReason?: string;
+    }) => {
+      const res = await fetchWithAuth(`${API_BASE}/overtime-requests/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data || {}),
+      });
+      return handleResponse(res);
+    },
+    // Batch reject multiple overtime requests
+    batchReject: async (data: {
+      ids: string[];
+      approverId?: string;
+      approverName?: string;
+      rejectionReason?: string;
+    }) => {
+      const res = await fetchWithAuth(`${API_BASE}/overtime-requests/batch-reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      return handleResponse(res);
+    },
+    // Cancel pending overtime request (Employee)
+    cancel: async (id: string, reason?: string) => {
+      const res = await fetchWithAuth(`${API_BASE}/overtime-requests/${id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      return handleResponse(res);
+    },
+    // Delete overtime request record (Admin)
+    delete: async (id: string) => {
+      const res = await fetchWithAuth(`${API_BASE}/overtime-requests/${id}`, {
+        method: 'DELETE',
+      });
+      return handleResponse(res);
+    },
+  },
 };
 

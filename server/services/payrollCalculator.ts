@@ -111,6 +111,12 @@ export async function calculateNetSalary(
     const allDtrRecords = await db.prepare("SELECT * FROM dtr_records").all() as any[];
     const allDtrLogs = await db.prepare("SELECT * FROM dtr_logs").all() as any[];
     const allVisitingDtr = await db.prepare("SELECT * FROM dtr_visiting_records WHERE status != 'rejected'").all() as any[];
+    let allOvertimeRequests: any[] = [];
+    try {
+      allOvertimeRequests = await db.prepare("SELECT * FROM overtime_requests WHERE status = 'approved'").all() as any[];
+    } catch {
+      allOvertimeRequests = [];
+    }
 
     const safeStr = (v: any): string => {
       if (!v) return '';
@@ -199,6 +205,15 @@ export async function calculateNetSalary(
       if (rawEid) {
         if (!leavesByEmployee[rawEid]) leavesByEmployee[rawEid] = [];
         leavesByEmployee[rawEid].push(l);
+      }
+    }
+
+    const overtimesByEmployee: { [key: string]: any[] } = {};
+    for (const ot of allOvertimeRequests) {
+      const rawEid = String(ot.employeeId || ot.employee_id || ot.employeeid || '').trim().toLowerCase();
+      if (rawEid) {
+        if (!overtimesByEmployee[rawEid]) overtimesByEmployee[rawEid] = [];
+        overtimesByEmployee[rawEid].push(ot);
       }
     }
 
@@ -419,10 +434,31 @@ export async function calculateNetSalary(
             const empDtrs: any[] = [];
             const empLogs: any[] = [];
             const empLeaves: any[] = [];
+            const empOvertimes: any[] = [];
             for (const k of empIdSet) {
               if (dtrsByEmployee[k]) empDtrs.push(...dtrsByEmployee[k]);
               if (logsByEmployee[k]) empLogs.push(...logsByEmployee[k]);
               if (leavesByEmployee[k]) empLeaves.push(...leavesByEmployee[k]);
+              if (overtimesByEmployee[k]) empOvertimes.push(...overtimesByEmployee[k]);
+            }
+
+            // Calculate approved overtime hours from official approved requests within cycle period
+            const seenOtIds = new Set<string>();
+            for (const ot of empOvertimes) {
+              const otId = String(ot.id || Math.random());
+              if (seenOtIds.has(otId)) continue;
+              seenOtIds.add(otId);
+              
+              const rawOtDate = ot.overtimeDate || ot.overtime_date || ot.date;
+              if (!rawOtDate) continue;
+              const otD = parseLocalDate(rawOtDate);
+              if (otD >= start && otD <= end) {
+                // Priority: payableHours > approvedHours > requestedHours
+                const h = Number(ot.payableHours ?? ot.payable_hours ?? ot.approvedHours ?? ot.approved_hours ?? ot.requestedHours ?? ot.requested_hours ?? 0);
+                if (h > 0) {
+                  dtrOvertimeHours += h;
+                }
+              }
             }
 
             let totalScheduledWorkdays = 0;

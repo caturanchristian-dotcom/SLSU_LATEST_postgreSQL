@@ -25,7 +25,8 @@ import {
   Home,
   BookOpen,
   User,
-  Download
+  Download,
+  CheckCircle2
 } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { Button } from './ui/button';
@@ -136,6 +137,8 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
       case 'profile': return 'My Profile';
       case 'docs': return 'Knowledge Base';
       case 'departments': return 'Departments & Subjects';
+      case 'overtime': return role === 'employee' ? 'Overtime Request' : 'Overtime Management';
+      case 'overtime-admin': return 'Overtime Approval Center';
       default: return 'Payroll Management System';
     }
   };
@@ -167,6 +170,8 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
       case 'profile': return 'Information';
       case 'docs': return 'Product Manuals';
       case 'departments': return 'Academic Management';
+      case 'overtime': return 'Submit and Monitor Overtime Applications';
+      case 'overtime-admin': return 'Review, Verify DTR & Approve Overtime';
       default: return 'Active Page';
     }
   };
@@ -177,6 +182,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
       items: [
         { name: 'Home', id: 'dashboard', icon: Home, roles: ['admin', 'payroll_officer', 'employee', 'accountant'] },
         { name: 'Dashboard', id: 'dashboard', icon: LayoutDashboard, roles: ['admin', 'payroll_officer', 'accountant', 'department_head'] },
+        { name: 'Overtime Request', id: 'overtime', icon: Clock, roles: ['employee'] },
         { name: 'Information', id: 'profile', icon: Users, roles: ['admin', 'payroll_officer', 'employee', 'accountant', 'department_head'] },
         { name: 'Schedules', id: 'schedules', icon: Calendar, roles: ['admin', 'payroll_officer', 'employee', 'department_head'] },
       ]
@@ -185,6 +191,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
       title: "EMPLOYEE ACCOUNT",
       items: [
         { name: 'My Account', id: 'account', icon: User, roles: ['employee'] },
+        { name: 'Overtime Request', id: 'overtime', icon: Clock, roles: ['employee'] },
         { name: 'Deductions', id: 'deductions', icon: PieChart, roles: ['employee'] },
       ]
     },
@@ -206,6 +213,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
             { name: 'DTR Logs', id: 'dtr', roles: ['employee'] },
           ]
         },
+        { name: 'Overtime Approvals', id: 'overtime', icon: CheckCircle2, roles: ['admin', 'payroll_officer', 'department_head'] },
         { name: 'Departments', id: 'departments', icon: BookOpen, roles: ['admin', 'department_head'] },
         { name: 'Holidays', id: 'holidays', icon: Calendar, roles: ['admin', 'payroll_officer', 'employee', 'accountant', 'department_head'] },
         { name: 'Documentation', id: 'docs', icon: FileText, roles: ['admin', 'payroll_officer', 'employee', 'accountant'] },
@@ -215,6 +223,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
       title: "PAYROLL",
       items: [
         { name: 'Payroll', id: 'payroll', icon: CreditCard, roles: ['admin', 'payroll_officer', 'accountant'] },
+        { name: 'Overtime Management', id: 'overtime', icon: Clock, roles: ['admin', 'payroll_officer', 'accountant'] },
         { name: 'Deductions', id: 'deductions', icon: PieChart, roles: ['admin', 'payroll_officer'] },
         { name: 'Financial Reports', id: 'reports', icon: PieChart, roles: ['admin', 'accountant'] },
         { name: 'Compliance Logs', id: 'audit', icon: Shield, roles: ['admin', 'accountant'] },

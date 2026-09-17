@@ -100,7 +100,10 @@ const CAMEL_CASE_COLUMNS = [
   "dedPagibigPersonal", "dedPagibigMpl", "dedSss", "dedPagibigMp2",
   "dedPhilhealthCont", "dedCsbLoan", "dedTaxWithheld", "isValidated", "basicPay",
   "employeeName", "createdBy", "specificDate", "effectiveFrom", "effectiveTo",
-  "studentsCount", "workloadUnits"
+  "studentsCount", "workloadUnits",
+  "overtimeDate", "requestedHours", "approvedHours", "actualHours", "payableHours",
+  "approverId", "approverName", "approvalRemarks", "approvedAt", "rejectedAt",
+  "cancelledAt", "documentUrl"
 ];
 
 /**
@@ -280,6 +283,18 @@ export function normalizeRow(row: any): any {
     if (lower === "totalpay" || lower === "total_pay") setIfValOrEmpty("totalPay", val);
     if (lower === "sentat" || lower === "sent_at") setIfValOrEmpty("sentAt", val);
     if (lower === "phonenumber" || lower === "phone_number") setIfValOrEmpty("phoneNumber", val);
+    if (lower === "overtimedate" || lower === "overtime_date") setIfValOrEmpty("overtimeDate", val);
+    if (lower === "requestedhours" || lower === "requested_hours") setIfValOrEmpty("requestedHours", val);
+    if (lower === "approvedhours" || lower === "approved_hours") setIfValOrEmpty("approvedHours", val);
+    if (lower === "actualhours" || lower === "actual_hours") setIfValOrEmpty("actualHours", val);
+    if (lower === "payablehours" || lower === "payable_hours") setIfValOrEmpty("payableHours", val);
+    if (lower === "approverid" || lower === "approver_id") setIfValOrEmpty("approverId", val);
+    if (lower === "approvername" || lower === "approver_name") setIfValOrEmpty("approverName", val);
+    if (lower === "approvalremarks" || lower === "approval_remarks") setIfValOrEmpty("approvalRemarks", val);
+    if (lower === "approvedat" || lower === "approved_at") setIfValOrEmpty("approvedAt", val);
+    if (lower === "rejectedat" || lower === "rejected_at") setIfValOrEmpty("rejectedAt", val);
+    if (lower === "cancelledat" || lower === "cancelled_at") setIfValOrEmpty("cancelledAt", val);
+    if (lower === "documenturl" || lower === "document_url") setIfValOrEmpty("documentUrl", val);
     if (lower === "recipient") {
       setIfValOrEmpty("recipient", val);
       setIfValOrEmpty("phoneNumber", val);
@@ -839,6 +854,30 @@ export const SCHEMA_TABLES = [
     "initiatedBy" VARCHAR(100) DEFAULT 'system',
     "durationMs" INTEGER DEFAULT 0,
     "createdAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS overtime_requests (
+    id VARCHAR(191) PRIMARY KEY,
+    "employeeId" VARCHAR(191) NOT NULL,
+    "overtimeDate" DATE NOT NULL,
+    "startTime" VARCHAR(20) NOT NULL,
+    "endTime" VARCHAR(20) NOT NULL,
+    "requestedHours" DECIMAL(5, 2) DEFAULT 0.00,
+    "approvedHours" DECIMAL(5, 2) DEFAULT 0.00,
+    "actualHours" DECIMAL(5, 2) DEFAULT 0.00,
+    "payableHours" DECIMAL(5, 2) DEFAULT 0.00,
+    reason TEXT NOT NULL,
+    status VARCHAR(50) DEFAULT 'pending',
+    "approverId" VARCHAR(191),
+    "approverName" VARCHAR(255),
+    "approvalRemarks" TEXT,
+    "approvedAt" TIMESTAMPTZ,
+    "rejectedAt" TIMESTAMPTZ,
+    "cancelledAt" TIMESTAMPTZ,
+    "documentUrl" TEXT,
+    "createdAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY("employeeId") REFERENCES employees(id) ON DELETE CASCADE ON UPDATE CASCADE
   )`
 ];
 
@@ -849,7 +888,8 @@ export const TABLE_NAMES = [
   "teaching_loads", "visiting_instructors", "dtr_records", "dtr_logs",
   "dtr_visiting_records", "holidays", "schedules", "leave_applications",
   "loans", "loan_payments", "compensation_plans", "employee_compensation",
-  "payroll_settings", "audit_logs", "sms_logs", "integration_sync_logs"
+  "payroll_settings", "audit_logs", "sms_logs", "integration_sync_logs",
+  "overtime_requests"
 ];
 
 /**
@@ -996,7 +1036,27 @@ export async function initDb() {
         "ALTER TABLE sms_logs ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'SENT'",
         'ALTER TABLE sms_logs ADD COLUMN IF NOT EXISTS response TEXT',
         'ALTER TABLE sms_logs ADD COLUMN IF NOT EXISTS "sentAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP',
-        'ALTER TABLE sms_logs ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP'
+        'ALTER TABLE sms_logs ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP',
+
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "employeeId" VARCHAR(191)',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "overtimeDate" DATE',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "startTime" VARCHAR(20)',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "endTime" VARCHAR(20)',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "requestedHours" DECIMAL(5, 2) DEFAULT 0.00',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "approvedHours" DECIMAL(5, 2) DEFAULT 0.00',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "actualHours" DECIMAL(5, 2) DEFAULT 0.00',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "payableHours" DECIMAL(5, 2) DEFAULT 0.00',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS reason TEXT',
+        "ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'pending'",
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "approverId" VARCHAR(191)',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "approverName" VARCHAR(255)',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "approvalRemarks" TEXT',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "approvedAt" TIMESTAMPTZ',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "rejectedAt" TIMESTAMPTZ',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "cancelledAt" TIMESTAMPTZ',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "documentUrl" TEXT',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP'
       ];
 
       for (const alt of canonicalAlters) {
@@ -1018,7 +1078,9 @@ export async function initDb() {
         'CREATE INDEX IF NOT EXISTS idx_employees_email ON employees (email)',
         'CREATE INDEX IF NOT EXISTS idx_employees_category ON employees (category)',
         'CREATE INDEX IF NOT EXISTS idx_employees_empid ON employees ("employeeId")',
-        'CREATE INDEX IF NOT EXISTS idx_holidays_date ON holidays (date)'
+        'CREATE INDEX IF NOT EXISTS idx_holidays_date ON holidays (date)',
+        'CREATE INDEX IF NOT EXISTS idx_overtime_emp_date ON overtime_requests ("employeeId", "overtimeDate")',
+        'CREATE INDEX IF NOT EXISTS idx_overtime_status ON overtime_requests (status)'
       ];
 
       for (const idx of speedIndexes) {

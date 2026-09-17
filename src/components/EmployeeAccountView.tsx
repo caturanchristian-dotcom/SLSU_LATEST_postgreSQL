@@ -952,6 +952,15 @@ export const EmployeeAccountView: React.FC<EmployeeAccountViewProps> = ({
             <Clock className="w-4 h-4 text-[#355275]" />
             DTR Clocks
           </button>
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('overtime')}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer text-[#1d58d9] hover:bg-white/80"
+            >
+              <Clock className="w-4 h-4 text-[#1d58d9]" />
+              Overtime Request
+            </button>
+          )}
         </div>
       </div>
 

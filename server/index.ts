@@ -34,6 +34,8 @@ import { databaseRouter } from "./routes/database.js";
 import { integrationsRouter } from "./routes/integrations.js";
 // Import Cloud Storage API router (Supabase Storage image uploads and deletions)
 import { storageRouter } from "./routes/storage.js";
+// Import Overtime Requests router (requests, approvals, cancellations, payroll sync)
+import { overtimeRouter } from "./routes/overtime.js";
 
 // Initialize environment variables from .env into process.env
 dotenv.config();
@@ -157,10 +159,11 @@ export async function startServer() {
             }
 
             // If DTR or schedule changes, trigger DTR and payroll recalculation
-            if (moduleName === "dtr" || moduleName === "schedules") {
+            if (moduleName === "dtr" || moduleName === "schedules" || moduleName.startsWith("overtime")) {
               broadcastRealtime("dtr_changed", { path: req.path });
               broadcastRealtime("schedules_changed", { path: req.path });
-              broadcastRealtime("payroll_changed", { path: req.path, source: "dtr" });
+              broadcastRealtime("overtime_changed", { path: req.path });
+              broadcastRealtime("payroll_changed", { path: req.path, source: "overtime_or_dtr" });
             }
           }
         }
@@ -179,6 +182,8 @@ export async function startServer() {
   app.use("/api", payrollRouter);
   // Mount DTR routes under /api (e.g. /api/dtr/records)
   app.use("/api", dtrRouter);
+  // Mount Overtime Request routes under /api (e.g. /api/overtime-requests)
+  app.use("/api", overtimeRouter);
   // Mount Deductions routes under /api (e.g. /api/deductions)
   app.use("/api", deductionsRouter);
   // Mount Users routes under /api (e.g. /api/users)

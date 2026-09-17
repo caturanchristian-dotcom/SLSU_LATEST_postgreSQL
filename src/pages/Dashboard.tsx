@@ -1029,6 +1029,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
                   action: () => onNavigate && onNavigate('schedules'),
                 },
                 {
+                  id: 'overtime',
+                  title: 'Overtime Request',
+                  description: 'Submit overtime hours, track supervisor approvals and payable units',
+                  icon: <Clock className="w-10 h-10 text-blue-500 stroke-[1.25]" />,
+                  action: () => onNavigate && onNavigate('overtime'),
+                },
+                {
                   id: 'deductions',
                   title: 'Deductions & SSS',
                   description: 'Automated statutory matching status (SSS, PhilHealth, Pag-IBIG)',
