@@ -277,6 +277,7 @@ export async function calculateNetSalary(
         basicPay = ?,
         teachingHours = ?,
         overtime = ?,
+        otHours = ?,
         grossPay = ?,
         deductions_json = ?,
         custom_values_json = ?,
@@ -567,12 +568,18 @@ export async function calculateNetSalary(
       if (otHours === 0 && dtrOvertimeHours > 0) {
         otHours = dtrOvertimeHours;
       }
+      if (explicitOverride && explicitOverride.otHours !== undefined) {
+        otHours = Number(explicitOverride.otHours);
+      }
 
       let computedOvertime = Number(entry.overtime || 0);
       if (emp && !isVisiting) {
         const monthlySalary = emp.basicSalary || 0;
         const hourlyRate = monthlySalary / (22 * 8);
         computedOvertime = Number((hourlyRate * otHours * 1.25).toFixed(2));
+      }
+      if (explicitOverride && explicitOverride.overtime !== undefined) {
+        computedOvertime = Number(explicitOverride.overtime);
       }
 
       let gross = Math.max(0, Number((computedBasicPay + compPera - absences + Number(entry.allowances || 0) + computedOvertime + Number(entry.bonuses || 0) + Number(entry.incentives || 0)).toFixed(2)));
@@ -822,6 +829,7 @@ export async function calculateNetSalary(
           computedBasicPay,
           teachingHoursToUpdate,
           computedOvertime,
+          otHours,
           gross, 
           JSON.stringify(deductionsMap), 
           updatedCustomJson,

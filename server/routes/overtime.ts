@@ -133,8 +133,8 @@ overtimeRouter.get(["/overtime-requests", "/overtime"], async (req: any, res: an
     }
 
     if (campus && campus !== "all") {
-      query += ` AND (e.campus = ? OR ot.campus = ?)`;
-      params.push(campus, campus);
+      query += ` AND e.campus = ?`;
+      params.push(campus);
     }
 
     if (search) {

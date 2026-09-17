@@ -36,7 +36,17 @@ import {
   CheckSquare,
   Square,
   Zap,
-  Layers
+  Layers,
+  ArrowUpRight,
+  HelpCircle,
+  FileCheck,
+  CalendarDays,
+  CheckCheck,
+  BadgeCheck,
+  Briefcase,
+  History,
+  SlidersHorizontal,
+  ChevronDown
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
@@ -61,7 +71,7 @@ import autoTable from 'jspdf-autotable';
 let cachedEmployeesList: any[] | null = null;
 let cachedOvertimeList: any[] | null = null;
 
-interface OvertimeRequestItem {
+export interface OvertimeRequestItem {
   id: string;
   employeeId: string;
   overtimeDate: string;
@@ -92,21 +102,60 @@ interface OvertimeRequestItem {
 }
 
 const COMMON_REASONS = [
-  "Grading, Student Assessment & Final Examination Evaluation",
-  "Institutional Accreditation Documents Preparation",
-  "Emergency System & Campus Network Infrastructure Maintenance",
-  "Semester Enrollment & Registration Processing Extension",
-  "Payroll Closing, BIR 2316 & Financial Reports Reconciliation",
-  "Official University Event & Commencement Exercise Coordination",
-  "Urgent Curriculum Revision & Faculty Board Meeting Requirements"
+  {
+    category: "Academic & Examination",
+    items: [
+      "Grading, Student Assessment & Final Examination Evaluation",
+      "Urgent Curriculum Revision & Academic Council Meeting Requirements",
+      "Board Examination Review Class & Diagnostic Test Coordination"
+    ]
+  },
+  {
+    category: "Institutional Quality & Accreditation",
+    items: [
+      "Institutional Accreditation Documents Preparation & AACCUP Compliance",
+      "CHED / SUC Leveling Verification & Program Portfolio Audit",
+      "ISO 9001:2015 Quality Management Audit Documents Finalization"
+    ]
+  },
+  {
+    category: "Administration & Financial Services",
+    items: [
+      "Payroll Closing, BIR 2316 Reconciliation & GSIS Remittance Report",
+      "Semester Enrollment, Student Registration & Late Assessment Extension",
+      "Annual Financial Statement Audit & COA Compliance Reconciliation"
+    ]
+  },
+  {
+    category: "Technical, Facilities & Campus Operations",
+    items: [
+      "Emergency Campus Server & Network Infrastructure Maintenance",
+      "Official University Commencement & Institutional Convocation Setup",
+      "Campus Facility Power Interruption Recovery & Urgent Repairs"
+    ]
+  }
 ];
 
 const TIME_PRESETS = [
-  { label: '5:00 PM – 8:00 PM (3.0 hrs)', start: '17:00', end: '20:00' },
-  { label: '5:00 PM – 9:00 PM (4.0 hrs)', start: '17:00', end: '21:00' },
-  { label: '6:00 PM – 10:00 PM (4.0 hrs)', start: '18:00', end: '22:00' },
-  { label: 'Weekend: 8:00 AM – 5:00 PM (8.0 hrs)', start: '08:00', end: '17:00' },
-  { label: 'Weekend: 1:00 PM – 6:00 PM (5.0 hrs)', start: '13:00', end: '18:00' },
+  { label: '5:00 PM – 8:00 PM (3.0 hrs)', start: '17:00', end: '20:00', hours: 3.0, type: 'Weekday Evening' },
+  { label: '5:00 PM – 9:00 PM (4.0 hrs)', start: '17:00', end: '21:00', hours: 4.0, type: 'Weekday Evening' },
+  { label: '6:00 PM – 10:00 PM (4.0 hrs)', start: '18:00', end: '22:00', hours: 4.0, type: 'Late Evening' },
+  { label: 'Weekend: 8:00 AM – 5:00 PM (8.0 hrs)', start: '08:00', end: '17:00', hours: 8.0, type: 'Weekend Full Day' },
+  { label: 'Weekend: 1:00 PM – 6:00 PM (5.0 hrs)', start: '13:00', end: '18:00', hours: 5.0, type: 'Weekend Half Day' },
+];
+
+const APPROVAL_TEMPLATES = [
+  "Verified against biometric punch log and endorsed for official payroll credit.",
+  "Approved pursuant to authorized Departmental Work Accomplishment Plan.",
+  "Endorsed for urgent institutional operations per Office Special Order.",
+  "Attendance confirmed by Unit Head; payable overtime authorized."
+];
+
+const REJECTION_TEMPLATES = [
+  "Insufficient justification provided for after-hours university service.",
+  "Overtime request exceeds approved departmental work plan budget ceiling.",
+  "No biometric punch record on file to corroborate rendered extra service.",
+  "Prior written authorization was not filed prior to service delivery."
 ];
 
 export const formatTimeTo12H = (timeStr: string) => {
@@ -127,6 +176,19 @@ export const formatTimeTo12H = (timeStr: string) => {
   return `${String(displayHour).padStart(2, '0')}:${min} ${ampm}`;
 };
 
+export const getDayTypeInfo = (dateStr: string) => {
+  if (!dateStr) return { label: '', isWeekend: false, badgeText: '' };
+  try {
+    const d = new Date(dateStr + 'T00:00:00');
+    const day = d.getDay();
+    if (day === 0) return { label: 'Sunday', isWeekend: true, badgeText: 'SUN • Weekend' };
+    if (day === 6) return { label: 'Saturday', isWeekend: true, badgeText: 'SAT • Weekend' };
+    return { label: format(d, 'EEEE'), isWeekend: false, badgeText: format(d, 'EEE') };
+  } catch {
+    return { label: '', isWeekend: false, badgeText: '' };
+  }
+};
+
 export default function OvertimePage({ onNavigate }: { onNavigate?: (page: string) => void }) {
   const { user } = useAuth();
   const isEmployeeRole = user?.role === 'employee';
@@ -136,6 +198,9 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
   const [currentEmployeeProfile, setCurrentEmployeeProfile] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(!cachedOvertimeList);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Active view mode for supervisors/admins (Approvals Queue vs All Records)
+  const [viewMode, setViewMode] = useState<'queue' | 'all'>('queue');
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -292,6 +357,11 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
   // High-performance Filtered requests list
   const filteredRequests = useMemo(() => {
     return requests.filter((r) => {
+      // If in Approvals Queue mode and not an employee, only show pending items
+      if (!isEmployeeRole && viewMode === 'queue' && r.status !== 'pending') {
+        return false;
+      }
+
       // Status filter
       if (statusFilter !== 'all' && r.status !== statusFilter) {
         return false;
@@ -315,7 +385,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
       if (endDateFilter && r.overtimeDate > endDateFilter) {
         return false;
       }
-      // Search query using deferredSearch for 60fps input responsiveness
+      // Search query using deferredSearch
       if (deferredSearch.trim()) {
         const q = deferredSearch.toLowerCase();
         const empName = `${r.firstName || ''} ${r.lastName || ''}`.toLowerCase();
@@ -328,7 +398,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
       }
       return true;
     });
-  }, [requests, statusFilter, selectedEmployeeId, selectedCampus, selectedDepartment, startDateFilter, endDateFilter, deferredSearch]);
+  }, [requests, isEmployeeRole, viewMode, statusFilter, selectedEmployeeId, selectedCampus, selectedDepartment, startDateFilter, endDateFilter, deferredSearch]);
 
   // Paginated requests
   const paginatedRequests = useMemo(() => {
@@ -338,27 +408,28 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
 
   const totalPages = Math.ceil(filteredRequests.length / pageSize) || 1;
 
-  // Summary Metrics
+  // Overall and filtered stats
   const stats = useMemo(() => {
-    const total = filteredRequests.length;
-    const pending = filteredRequests.filter((r) => r.status === 'pending').length;
-    const approved = filteredRequests.filter((r) => r.status === 'approved').length;
-    const rejected = filteredRequests.filter((r) => r.status === 'rejected').length;
-    const cancelled = filteredRequests.filter((r) => r.status === 'cancelled').length;
+    const baseList = requests;
+    const total = baseList.length;
+    const pending = baseList.filter((r) => r.status === 'pending').length;
+    const approved = baseList.filter((r) => r.status === 'approved').length;
+    const rejected = baseList.filter((r) => r.status === 'rejected').length;
+    const cancelled = baseList.filter((r) => r.status === 'cancelled').length;
     const totalApprovedHours = Number(
-      filteredRequests
+      baseList
         .filter((r) => r.status === 'approved')
         .reduce((sum, r) => sum + Number(r.approvedHours || r.requestedHours || 0), 0)
         .toFixed(2)
     );
     const totalPayableHours = Number(
-      filteredRequests
+      baseList
         .filter((r) => r.status === 'approved')
         .reduce((sum, r) => sum + Number(r.payableHours || r.approvedHours || r.requestedHours || 0), 0)
         .toFixed(2)
     );
     return { total, pending, approved, rejected, cancelled, totalApprovedHours, totalPayableHours };
-  }, [filteredRequests]);
+  }, [requests]);
 
   // Unique campuses & departments for filters
   const campuses = useMemo(() => {
@@ -418,7 +489,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
       return;
     }
     if (!reason.trim()) {
-      toast.error("Please provide a reason for the overtime");
+      toast.error("Please provide a reason / justification for the overtime");
       return;
     }
 
@@ -434,7 +505,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
         documentUrl: documentUrl.trim() || undefined
       });
 
-      toast.success("Overtime request submitted successfully! It is now pending approval.");
+      toast.success("Overtime request submitted successfully! It is now queued for supervisor approval.");
       setIsSubmitModalOpen(false);
       setReason('');
       setDocumentUrl('');
@@ -465,19 +536,19 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
             status: 'approved', 
             approvedHours: targetHours, 
             payableHours: targetHours, 
-            approverName: user?.displayName || user?.email || 'Supervisor',
-            approvalRemarks: 'Quick approved for official duty.'
+            approverName: user?.displayName || user?.email || 'Authorized Official',
+            approvalRemarks: 'Quick approved for official university duty.'
           } 
         : item
     ));
 
-    toast.success(`Quick approved overtime for ${req.firstName || 'Employee'} (${targetHours} hrs).`);
+    toast.success(`Authorized ${targetHours} hrs overtime for ${req.firstName || 'Employee'}.`);
 
     try {
       await api.overtime.approve(req.id, {
         approverId: user?.id || 'admin',
-        approverName: user?.displayName || user?.email || 'Supervisor',
-        approvalRemarks: 'Quick approved for official duty.',
+        approverName: user?.displayName || user?.email || 'Authorized Official',
+        approvalRemarks: 'Quick approved for official university duty.',
         approvedHours: targetHours
       });
     } catch (err: any) {
@@ -500,21 +571,21 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
             status: 'approved',
             approvedHours: item.requestedHours,
             payableHours: item.requestedHours,
-            approverName: user?.displayName || user?.email || 'Supervisor',
-            approvalRemarks: 'Batch approved for official duty.'
+            approverName: user?.displayName || user?.email || 'Authorized Official',
+            approvalRemarks: 'Batch authorized for official university duty.'
           }
         : item
     ));
     setSelectedIds([]);
-    toast.success(`Approved ${count} overtime requests successfully.`);
+    toast.success(`Batch approved ${count} overtime requests successfully.`);
 
     setIsProcessingBatch(true);
     try {
       await api.overtime.batchApprove({
         ids: idsToApprove,
         approverId: user?.id || 'admin',
-        approverName: user?.displayName || user?.email || 'Supervisor',
-        approvalRemarks: 'Batch approved for official duty.'
+        approverName: user?.displayName || user?.email || 'Authorized Official',
+        approvalRemarks: 'Batch authorized for official university duty.'
       });
     } catch (err: any) {
       setRequests(prevRequests);
@@ -538,20 +609,20 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
             status: 'rejected',
             approvedHours: 0,
             payableHours: 0,
-            approverName: user?.displayName || user?.email || 'Supervisor',
+            approverName: user?.displayName || user?.email || 'Authorized Official',
             approvalRemarks: 'Batch declined by supervisor.'
           }
         : item
     ));
     setSelectedIds([]);
-    toast.info(`Rejected ${count} overtime requests.`);
+    toast.info(`Declined ${count} overtime requests.`);
 
     setIsProcessingBatch(true);
     try {
       await api.overtime.batchReject({
         ids: idsToReject,
         approverId: user?.id || 'admin',
-        approverName: user?.displayName || user?.email || 'Supervisor',
+        approverName: user?.displayName || user?.email || 'Authorized Official',
         rejectionReason: 'Batch declined by supervisor.'
       });
     } catch (err: any) {
@@ -569,8 +640,8 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
     setReviewHours(Number(req.requestedHours || 0));
     setReviewRemarks(
       action === 'approve' 
-        ? 'Approved for official duty and payroll credit.' 
-        : 'Overtime request declined based on departmental scheduling / budget allocation.'
+        ? 'Verified against biometric attendance logbook and approved for payroll credit.' 
+        : 'Overtime application declined based on departmental scheduling / budget allocation.'
     );
     setIsReviewModalOpen(true);
 
@@ -604,14 +675,14 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
             status: reviewAction === 'approve' ? 'approved' : 'rejected',
             approvedHours: reviewAction === 'approve' ? Number(reviewHours) : 0,
             payableHours: reviewAction === 'approve' ? Number(reviewHours) : 0,
-            approverName: user?.displayName || user?.email || 'Supervisor',
+            approverName: user?.displayName || user?.email || 'Authorized Official',
             approvalRemarks: reviewRemarks.trim()
           }
         : item
     ));
 
     try {
-      const approverName = user?.displayName || user?.email || 'Supervisor';
+      const approverName = user?.displayName || user?.email || 'Authorized Official';
       const approverId = user?.id || 'admin';
 
       if (reviewAction === 'approve') {
@@ -621,14 +692,14 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
           approvalRemarks: reviewRemarks.trim(),
           approvedHours: Number(reviewHours)
         });
-        toast.success(`Overtime request approved for ${selectedRequest.firstName || 'Employee'} (${reviewHours} hrs).`);
+        toast.success(`Overtime application approved for ${selectedRequest.firstName || 'Employee'} (${reviewHours} hrs).`);
       } else {
         await api.overtime.reject(targetId, {
           approverId,
           approverName,
           rejectionReason: reviewRemarks.trim()
         });
-        toast.info("Overtime request rejected.");
+        toast.info("Overtime application declined.");
       }
 
       setIsReviewModalOpen(false);
@@ -643,7 +714,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
 
   // Cancel Request Handler (Employee - Optimistic)
   const handleCancelRequest = async (req: OvertimeRequestItem) => {
-    if (!confirm(`Are you sure you want to cancel your overtime request for ${req.overtimeDate}?`)) {
+    if (!confirm(`Are you sure you want to cancel your overtime application for ${req.overtimeDate}?`)) {
       return;
     }
     const prevRequests = [...requests];
@@ -685,20 +756,24 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
       const doc = new jsPDF('portrait');
       
       // Header
-      doc.setFontSize(14);
+      doc.setFontSize(13);
       doc.setFont('helvetica', 'bold');
       doc.text('SOUTHERN LEYTE STATE UNIVERSITY', 105, 18, { align: 'center' });
       doc.setFontSize(9);
       doc.setFont('helvetica', 'normal');
-      doc.text('Hinunangan Campus • San Roque, Hinunangan, Southern Leyte', 105, 24, { align: 'center' });
-      doc.setFontSize(12);
+      doc.text('Hinunangan Campus • San Roque, Hinunangan, Southern Leyte', 105, 23, { align: 'center' });
+      doc.setFontSize(11);
       doc.setFont('helvetica', 'bold');
-      doc.text('CERTIFICATE OF OVERTIME SERVICE & AUTHORIZATION SLIP', 105, 34, { align: 'center' });
+      doc.text('CERTIFICATE OF OVERTIME SERVICE & AUTHORIZATION SLIP', 105, 32, { align: 'center' });
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'italic');
+      doc.text('Pursuant to CSC & DBM Joint Circular No. 1, s. 2015 (CSC Form 48 Addendum)', 105, 36, { align: 'center' });
       
-      doc.setLineWidth(0.5);
-      doc.line(20, 38, 190, 38);
+      doc.setLineWidth(0.4);
+      doc.setDrawColor(200, 200, 200);
+      doc.line(20, 39, 190, 39);
 
-      doc.setFontSize(10);
+      doc.setFontSize(9);
       doc.setFont('helvetica', 'bold');
       doc.text(`CONTROL NO: ${req.id}`, 20, 46);
       doc.setFont('helvetica', 'normal');
@@ -706,45 +781,64 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
 
       // Box for employee info
       autoTable(doc, {
-        startY: 52,
-        head: [['EMPLOYEE INFORMATION', 'SERVICE DETAILS']],
+        startY: 50,
+        head: [['EMPLOYEE / APPLICANT INFORMATION', 'AUTHORIZATION & SERVICE DETAILS']],
         body: [
-          [`Name: ${req.lastName ? req.lastName + ', ' : ''}${req.firstName || 'Employee'}\nID No: ${req.employeeNo || req.employeeId}\nPosition: ${req.position || 'Staff'}\nDepartment: ${req.category || 'N/A'}\nCampus: ${req.campus || 'Hinunangan Campus'}`,
-           `OT Date: ${req.overtimeDate}\nTime Period: ${formatTimeTo12H(req.startTime)} - ${formatTimeTo12H(req.endTime)}\nRequested: ${req.requestedHours} hrs\nApproved Hours: ${req.approvedHours || 0} hrs\nPayable Units: ${req.payableHours || 0} hrs\nStatus: ${req.status.toUpperCase()}`]
+          [
+            `Name: ${req.lastName ? req.lastName + ', ' : ''}${req.firstName || 'Employee'}\nID No: ${req.employeeNo || req.employeeId}\nPosition: ${req.position || 'Staff'}\nDepartment: ${req.category || 'N/A'}\nCampus: ${req.campus || 'Hinunangan Campus'}`,
+            `Service Date: ${req.overtimeDate}\nTime Interval: ${formatTimeTo12H(req.startTime)} - ${formatTimeTo12H(req.endTime)}\nRequested Hours: ${req.requestedHours} hrs\nApproved Hours: ${req.approvedHours || 0} hrs\nPayable Units: ${req.payableHours || 0} hrs\nOfficial Status: ${req.status.toUpperCase()}`
+          ]
         ],
         theme: 'grid',
-        headStyles: { fillColor: [29, 88, 217], textColor: 255, fontSize: 9, fontStyle: 'bold' },
-        bodyStyles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [29, 88, 217], textColor: 255, fontSize: 8.5, fontStyle: 'bold' },
+        bodyStyles: { fontSize: 8.5, cellPadding: 4 },
         margin: { left: 20, right: 20 }
       });
 
       const currentY = (doc as any).lastAutoTable.finalY + 8;
 
       doc.setFont('helvetica', 'bold');
-      doc.text('JUSTIFICATION / SCOPE OF WORK:', 20, currentY);
+      doc.setFontSize(9);
+      doc.text('OFFICIAL PURPOSE & SCOPE OF WORK:', 20, currentY);
       doc.setFont('helvetica', 'normal');
-      doc.text(req.reason || 'Official university services rendered.', 20, currentY + 6, { maxWidth: 170 });
+      doc.setFontSize(8.5);
+      doc.text(req.reason || 'Official university services rendered.', 20, currentY + 5, { maxWidth: 170 });
+
+      let endY = currentY + 18;
 
       if (req.approvalRemarks) {
         doc.setFont('helvetica', 'bold');
-        doc.text('SUPERVISOR REMARKS:', 20, currentY + 22);
+        doc.setFontSize(9);
+        doc.text('SUPERVISOR / ENDORSING OFFICIAL REMARKS:', 20, endY);
         doc.setFont('helvetica', 'normal');
-        doc.text(req.approvalRemarks, 20, currentY + 28, { maxWidth: 170 });
+        doc.setFontSize(8.5);
+        doc.text(req.approvalRemarks, 20, endY + 5, { maxWidth: 170 });
+        endY += 16;
       }
 
       // Signatures
-      const sigY = currentY + 50;
+      const sigY = Math.max(endY + 25, 200);
+      doc.setDrawColor(80, 80, 80);
+      doc.setLineWidth(0.4);
+
+      doc.line(25, sigY, 85, sigY);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.text(`${req.firstName || ''} ${req.lastName || ''}`, 55, sigY + 5, { align: 'center' });
       doc.setFont('helvetica', 'normal');
-      doc.line(25, sigY, 80, sigY);
-      doc.text('Employee Signature', 52, sigY + 5, { align: 'center' });
+      doc.setFontSize(7.5);
+      doc.text('Employee / Applicant Signature', 55, sigY + 9, { align: 'center' });
 
-      doc.line(130, sigY, 185, sigY);
-      doc.text(req.approverName || 'Department Head / Approver', 157, sigY + 5, { align: 'center' });
-      doc.setFontSize(8);
-      doc.text('Authorized Approving Official', 157, sigY + 9, { align: 'center' });
+      doc.line(125, sigY, 185, sigY);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.text(req.approverName || 'Authorized Approving Official', 155, sigY + 5, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text('Department Head / Campus Director', 155, sigY + 9, { align: 'center' });
 
-      doc.save(`SLSU_Overtime_Slip_${req.employeeNo || 'Emp'}_${req.overtimeDate}.pdf`);
-      toast.success("Overtime slip downloaded successfully");
+      doc.save(`SLSU_Overtime_Authorization_${req.employeeNo || 'Emp'}_${req.overtimeDate}.pdf`);
+      toast.success("Official Overtime Slip downloaded successfully");
     } catch (err: any) {
       toast.error("Failed to generate slip: " + err.message);
     }
@@ -753,31 +847,31 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
   // Export to Excel
   const handleExportExcel = () => {
     try {
-      const exportData = filteredRequests.map((r, idx) => ({
-        "No.": idx + 1,
-        "Request ID": r.id,
-        "Employee ID": r.employeeNo || r.employeeId,
+      const exportData = filteredRequests.map((r) => ({
+        "Control ID": r.id,
+        "Employee No": r.employeeNo || r.employeeId,
         "Employee Name": `${r.lastName ? r.lastName + ', ' : ''}${r.firstName || ''}`,
-        "Category / Department": r.category || r.position || 'N/A',
+        "Department / Unit": r.category || r.position || 'N/A',
         "Campus": r.campus || 'SLSU Hinunangan Campus',
         "Overtime Date": r.overtimeDate,
+        "Day of Week": getDayTypeInfo(r.overtimeDate).label,
         "Start Time": formatTimeTo12H(r.startTime),
         "End Time": formatTimeTo12H(r.endTime),
         "Requested Hours": r.requestedHours,
         "Approved Hours": r.status === 'approved' ? r.approvedHours : 0,
         "Payable Hours": r.status === 'approved' ? r.payableHours : 0,
         "Status": r.status.toUpperCase(),
-        "Reason": r.reason,
+        "Scope of Work": r.reason,
         "Approver": r.approverName || 'N/A',
         "Approver Remarks": r.approvalRemarks || 'N/A',
-        "Submitted Date": r.createdAt ? format(new Date(r.createdAt), 'yyyy-MM-dd HH:mm') : ''
+        "Date Filed": r.createdAt ? format(new Date(r.createdAt), 'yyyy-MM-dd HH:mm') : ''
       }));
 
       const ws = XLSX.utils.json_to_sheet(exportData);
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Overtime Requests");
-      XLSX.writeFile(wb, `SLSU_Overtime_Requests_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`);
-      toast.success("Overtime requests exported to Excel successfully");
+      XLSX.utils.book_append_sheet(wb, ws, "Overtime Authorizations");
+      XLSX.writeFile(wb, `SLSU_Overtime_Authorizations_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`);
+      toast.success("Exported overtime authorizations to Excel");
     } catch (err: any) {
       toast.error("Failed to export Excel: " + err.message);
     }
@@ -792,15 +886,15 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
       doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
       doc.text('SOUTHERN LEYTE STATE UNIVERSITY', 148, 16, { align: 'center' });
-      doc.setFontSize(10);
+      doc.setFontSize(9.5);
       doc.setFont('helvetica', 'normal');
-      doc.text('Hinunangan Campus • Human Resource & Payroll Management Hub', 148, 22, { align: 'center' });
+      doc.text('Hinunangan Campus • Human Resource Management & Payroll Operations Office', 148, 22, { align: 'center' });
       doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
-      doc.text('OFFICIAL OVERTIME REQUESTS & APPROVAL REPORT', 148, 30, { align: 'center' });
-      doc.setFontSize(9);
+      doc.text('OFFICIAL OVERTIME AUTHORIZATIONS & APPROVAL SUMMARY REPORT', 148, 30, { align: 'center' });
+      doc.setFontSize(8.5);
       doc.setFont('helvetica', 'normal');
-      doc.text(`Generated on: ${format(new Date(), 'MMMM dd, yyyy hh:mm a')} | Status: ${statusFilter.toUpperCase()}`, 148, 36, { align: 'center' });
+      doc.text(`Generated: ${format(new Date(), 'MMMM dd, yyyy hh:mm a')} | Scope: ${statusFilter.toUpperCase()}`, 148, 35, { align: 'center' });
 
       const tableData = filteredRequests.map((r, i) => [
         i + 1,
@@ -808,31 +902,31 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
         `${r.lastName ? r.lastName + ', ' : ''}${r.firstName || ''}`,
         r.overtimeDate,
         `${formatTimeTo12H(r.startTime)} - ${formatTimeTo12H(r.endTime)}`,
-        `${r.requestedHours} hrs`,
-        r.status === 'approved' ? `${r.payableHours || r.approvedHours} hrs` : '-',
+        `${r.requestedHours}h`,
+        r.status === 'approved' ? `${r.payableHours || r.approvedHours}h` : '-',
         r.status.toUpperCase(),
-        r.reason ? (r.reason.length > 35 ? r.reason.substring(0, 32) + '...' : r.reason) : '-',
+        r.reason ? (r.reason.length > 32 ? r.reason.substring(0, 30) + '...' : r.reason) : '-',
         r.approverName || '-'
       ]);
 
       autoTable(doc, {
-        startY: 42,
-        head: [['#', 'EMP ID', 'EMPLOYEE NAME', 'DATE', 'TIME SPAN', 'REQ', 'PAYABLE', 'STATUS', 'REASON', 'APPROVER']],
+        startY: 40,
+        head: [['#', 'EMP ID', 'EMPLOYEE NAME', 'DATE', 'TIME PERIOD', 'REQ', 'PAYABLE', 'STATUS', 'SCOPE / PURPOSE', 'APPROVER']],
         body: tableData,
         theme: 'grid',
         headStyles: { 
           fillColor: [29, 88, 217],
           textColor: [255, 255, 255],
-          fontSize: 8,
+          fontSize: 7.5,
           fontStyle: 'bold'
         },
-        bodyStyles: { fontSize: 8 },
+        bodyStyles: { fontSize: 7.5 },
         alternateRowStyles: { fillColor: [248, 250, 252] },
         margin: { left: 10, right: 10 }
       });
 
       doc.save(`SLSU_Overtime_Report_${format(new Date(), 'yyyyMMdd')}.pdf`);
-      toast.success("Overtime report exported to PDF");
+      toast.success("Overtime summary report exported to PDF");
     } catch (err: any) {
       toast.error("Failed to generate PDF: " + err.message);
     }
@@ -843,28 +937,28 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
     switch (status) {
       case 'pending':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200/80">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs whitespace-nowrap">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-            Pending Approval
+            Pending Review
           </span>
         );
       case 'approved':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs whitespace-nowrap">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            Approved
+            Authorized
           </span>
         );
       case 'rejected':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200/80">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-800 border border-rose-200 shadow-2xs whitespace-nowrap">
             <XCircle className="w-3.5 h-3.5 text-rose-600" />
-            Rejected
+            Declined
           </span>
         );
       case 'cancelled':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-neutral-100 text-neutral-600 border border-neutral-200">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-neutral-100 text-neutral-600 border border-neutral-200 shadow-2xs whitespace-nowrap">
             <X className="w-3.5 h-3.5 text-neutral-400" />
             Cancelled
           </span>
@@ -880,151 +974,193 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16 font-sans">
-      {/* Top Header Card */}
-      <div className="bg-white rounded-2xl border border-neutral-200/80 p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-blue-50 text-[#1d58d9] flex items-center justify-center shrink-0 border border-blue-100 shadow-xs">
-            <Clock className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl md:text-2xl font-black text-neutral-900 tracking-tight">
-                Overtime Request &amp; Approval
-              </h1>
-              <span className="px-2.5 py-0.5 text-[11px] font-bold bg-blue-100/70 text-[#1d58d9] rounded-full border border-blue-200/60">
-                Official Form
-              </span>
+      {/* ========================================================================= */}
+      {/* 1. EXECUTIVE HEADER BANNER */}
+      {/* ========================================================================= */}
+      <div className="bg-white rounded-2xl border border-neutral-200/90 p-5 sm:p-6 shadow-xs">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-blue-50 text-[#1d58d9] flex items-center justify-center shrink-0 border border-blue-100/80 shadow-xs">
+              <Clock className="w-6 h-6 stroke-[2.2]" />
             </div>
-            <p className="text-sm text-neutral-500 mt-1">
-              {isEmployeeRole 
-                ? "Submit and track your official overtime requests. Approved hours are verified and integrated automatically into payroll."
-                : "Review, verify DTR attendance, and approve or reject employee overtime requests for official payroll computation."}
-            </p>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl sm:text-2xl font-black text-neutral-900 tracking-tight">
+                  {isEmployeeRole ? "Overtime Request" : "Overtime Approvals"}
+                </h1>
+                <Badge className="bg-blue-50 text-[#1d58d9] border border-blue-200/80 text-[11px] font-bold px-2.5 py-0.5 rounded-full">
+                  {isEmployeeRole ? "Employee Self-Service" : "CSC Form 48 Authorization Desk"}
+                </Badge>
+              </div>
+              <p className="text-xs sm:text-sm text-neutral-500 mt-1 max-w-2xl leading-relaxed">
+                {isEmployeeRole 
+                  ? "Submit official overtime applications and track approval endorsements. Authorized hours are automatically cross-checked against biometric DTR logs and forwarded to payroll."
+                  : "Review, verify biometric DTR attendance logs, and endorse employee overtime applications for official payroll credit in accordance with Civil Service rules."}
+              </p>
+            </div>
           </div>
-        </div>
 
-        {/* Header Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setRefreshing(true);
-              fetchData();
-            }}
-            disabled={refreshing}
-            className="rounded-xl border-neutral-200 text-neutral-700 hover:bg-neutral-50 h-10 font-medium"
-          >
-            <RefreshCw className={cn("w-4 h-4 mr-1.5", refreshing && "animate-spin")} />
-            Refresh
-          </Button>
+          {/* Action Toolbar */}
+          <div className="flex flex-wrap items-center gap-2 pt-1 lg:pt-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setRefreshing(true);
+                fetchData();
+              }}
+              disabled={refreshing}
+              className="rounded-xl border-neutral-200 text-neutral-700 hover:bg-neutral-50 h-9.5 px-3 font-semibold text-xs shadow-2xs"
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5 mr-1.5", refreshing && "animate-spin")} />
+              Refresh
+            </Button>
 
-          {!isEmployeeRole && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleExportExcel}
-                className="rounded-xl border-neutral-200 text-neutral-700 hover:bg-neutral-50 h-10 font-medium"
-              >
-                <FileSpreadsheet className="w-4 h-4 mr-1.5 text-emerald-600" />
-                Export Excel
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleExportPDF}
-                className="rounded-xl border-neutral-200 text-neutral-700 hover:bg-neutral-50 h-10 font-medium"
-              >
-                <Printer className="w-4 h-4 mr-1.5 text-blue-600" />
-                Print PDF
-              </Button>
-            </>
-          )}
+            {!isEmployeeRole && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportExcel}
+                  className="rounded-xl border-neutral-200 text-neutral-700 hover:bg-neutral-50 h-9.5 px-3 font-semibold text-xs shadow-2xs"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
+                  Excel Export
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportPDF}
+                  className="rounded-xl border-neutral-200 text-neutral-700 hover:bg-neutral-50 h-9.5 px-3 font-semibold text-xs shadow-2xs"
+                >
+                  <Printer className="w-3.5 h-3.5 mr-1.5 text-blue-600" />
+                  Print Report
+                </Button>
+              </>
+            )}
 
-          <Button
-            onClick={() => {
-              if (isEmployeeRole && currentEmployeeProfile) {
-                setTargetEmployeeId(currentEmployeeProfile.id);
-              }
-              setIsSubmitModalOpen(true);
-            }}
-            className="bg-[#1d58d9] hover:bg-[#1444b0] text-white font-bold rounded-xl h-10 px-4 shadow-sm flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            Overtime Request
-          </Button>
+            <Button
+              onClick={() => {
+                if (isEmployeeRole && currentEmployeeProfile) {
+                  setTargetEmployeeId(currentEmployeeProfile.id);
+                }
+                setIsSubmitModalOpen(true);
+              }}
+              className="bg-[#1d58d9] hover:bg-[#1444b0] text-white font-bold rounded-xl h-9.5 px-4 shadow-sm flex items-center gap-2 text-xs transition-all active:scale-[0.98]"
+            >
+              <Plus className="w-4 h-4 stroke-[2.5]" />
+              Overtime Request
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* KPI Metric Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="border-neutral-200/80 shadow-sm bg-white rounded-2xl p-4">
+      {/* ========================================================================= */}
+      {/* 2. EXECUTIVE METRIC KPI STAT CARDS */}
+      {/* ========================================================================= */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {/* Metric 1: Pending Approvals */}
+        <div className="bg-white rounded-2xl border border-amber-200/90 p-4 shadow-2xs relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-neutral-400">Total Requests</span>
-            <div className="w-8 h-8 rounded-xl bg-neutral-100 flex items-center justify-center text-neutral-600">
-              <FileText className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl md:text-3xl font-black text-neutral-900">{stats.total}</span>
-            <span className="text-xs text-neutral-400 font-medium">applications</span>
-          </div>
-        </Card>
-
-        <Card className="border-neutral-200/80 shadow-sm bg-white rounded-2xl p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-amber-600">Pending Review</span>
-            <div className="w-8 h-8 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700">
+              Pending Authorization
+            </span>
+            <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center border border-amber-200/70">
               <Clock className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl md:text-3xl font-black text-amber-600">{stats.pending}</span>
-            <span className="text-xs text-amber-600/70 font-medium">awaiting supervisor</span>
+          <div className="mt-2.5 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-amber-800 font-mono tracking-tight">
+              {stats.pending}
+            </span>
+            <span className="text-xs text-amber-700/80 font-medium">
+              {stats.pending === 1 ? "application" : "applications"}
+            </span>
           </div>
-        </Card>
+          <p className="text-[11px] text-neutral-400 mt-1">
+            {isEmployeeRole ? "Awaiting supervisor endorsement" : "Requires authorized officer action"}
+          </p>
+        </div>
 
-        <Card className="border-neutral-200/80 shadow-sm bg-white rounded-2xl p-4">
+        {/* Metric 2: Approved OT Hours */}
+        <div className="bg-white rounded-2xl border border-neutral-200/90 p-4 shadow-2xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">Approved OT Hours</span>
-            <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">
+              Authorized OT Hours
+            </span>
+            <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-200/70">
               <CheckCircle2 className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl md:text-3xl font-black text-emerald-700">{stats.totalApprovedHours}</span>
-            <span className="text-xs text-emerald-600/80 font-medium">hrs approved ({stats.approved} reqs)</span>
+          <div className="mt-2.5 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-emerald-800 font-mono tracking-tight">
+              {stats.totalApprovedHours}
+            </span>
+            <span className="text-xs text-emerald-700/80 font-medium">hours</span>
           </div>
-        </Card>
+          <p className="text-[11px] text-neutral-400 mt-1">
+            Across {stats.approved} approved applications
+          </p>
+        </div>
 
-        <Card className="border-neutral-200/80 shadow-sm bg-white rounded-2xl p-4">
+        {/* Metric 3: Payable Units */}
+        <div className="bg-white rounded-2xl border border-neutral-200/90 p-4 shadow-2xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-[#1d58d9]">Payable Hours</span>
-            <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-[#1d58d9]">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[#1d58d9]">
+              Payable to Payroll
+            </span>
+            <div className="w-7 h-7 rounded-lg bg-blue-50 text-[#1d58d9] flex items-center justify-center border border-blue-200/70">
               <Sparkles className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl md:text-3xl font-black text-[#1d58d9]">{stats.totalPayableHours}</span>
-            <span className="text-xs text-blue-600/80 font-medium">credited to payroll</span>
+          <div className="mt-2.5 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-[#1d58d9] font-mono tracking-tight">
+              {stats.totalPayableHours}
+            </span>
+            <span className="text-xs text-blue-700/80 font-medium">payable units</span>
           </div>
-        </Card>
+          <p className="text-[11px] text-neutral-400 mt-1">
+            Integrated with SLSU payroll engine
+          </p>
+        </div>
+
+        {/* Metric 4: Total Records */}
+        <div className="bg-white rounded-2xl border border-neutral-200/90 p-4 shadow-2xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">
+              Total Applications
+            </span>
+            <div className="w-7 h-7 rounded-lg bg-neutral-100 text-neutral-700 flex items-center justify-center border border-neutral-200/70">
+              <FileText className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2.5 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-neutral-900 font-mono tracking-tight">
+              {stats.total}
+            </span>
+            <span className="text-xs text-neutral-500 font-medium">filed to date</span>
+          </div>
+          <p className="text-[11px] text-neutral-400 mt-1">
+            {stats.rejected} declined • {stats.cancelled} cancelled
+          </p>
+        </div>
       </div>
 
-      {/* Main Content Area */}
-      <Card className="border-neutral-200/80 shadow-sm bg-white rounded-2xl overflow-hidden">
+      {/* ========================================================================= */}
+      {/* 3. MAIN TABLE & FILTER CONTAINER */}
+      {/* ========================================================================= */}
+      <div className="bg-white rounded-2xl border border-neutral-200/90 shadow-xs overflow-hidden">
         {/* Filter Toolbar */}
-        <div className="p-4 md:p-5 border-b border-neutral-100 bg-neutral-50/50 space-y-3">
-          {/* Status Tabs and Date Presets */}
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-1">
-            {/* Status Tabs */}
+        <div className="p-4 sm:p-5 border-b border-neutral-100 bg-neutral-50/40 space-y-3">
+          {/* Status Tabs and Quick Date Presets */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            {/* Status Pills */}
             <div className="flex flex-wrap items-center gap-1.5">
               {[
                 { id: 'all', label: 'All Requests', count: requests.length },
-                { id: 'pending', label: 'Pending', count: requests.filter((r) => r.status === 'pending').length },
-                { id: 'approved', label: 'Approved', count: requests.filter((r) => r.status === 'approved').length },
-                { id: 'rejected', label: 'Rejected', count: requests.filter((r) => r.status === 'rejected').length },
+                { id: 'pending', label: 'Pending Review', count: requests.filter((r) => r.status === 'pending').length },
+                { id: 'approved', label: 'Authorized', count: requests.filter((r) => r.status === 'approved').length },
+                { id: 'rejected', label: 'Declined', count: requests.filter((r) => r.status === 'rejected').length },
                 { id: 'cancelled', label: 'Cancelled', count: requests.filter((r) => r.status === 'cancelled').length },
               ].map((tab) => {
                 const active = statusFilter === tab.id;
@@ -1033,19 +1169,22 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                     key={tab.id}
                     onClick={() => {
                       setStatusFilter(tab.id);
+                      if (tab.id !== 'all' && tab.id !== 'pending') {
+                        setViewMode('all');
+                      }
                       setCurrentPage(1);
                     }}
                     className={cn(
-                      "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
+                      "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-2xs",
                       active
-                        ? "bg-[#1d58d9] text-white shadow-xs"
-                        : "bg-white text-neutral-600 hover:bg-neutral-100 border border-neutral-200/70"
+                        ? "bg-neutral-900 text-white"
+                        : "bg-white text-neutral-600 hover:bg-neutral-100 border border-neutral-200/80"
                     )}
                   >
                     {tab.label}
                     <span className={cn(
-                      "px-1.5 py-0.2 rounded-full text-[10px] font-extrabold",
-                      active ? "bg-white/20 text-white" : "bg-neutral-100 text-neutral-500"
+                      "px-1.5 py-0.2 rounded-full text-[10px] font-black",
+                      active ? "bg-white/20 text-white" : "bg-neutral-100 text-neutral-600"
                     )}>
                       {tab.count}
                     </span>
@@ -1055,16 +1194,16 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
             </div>
 
             {/* Quick Date Presets */}
-            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-neutral-200/80 shrink-0">
-              <span className="text-[11px] font-bold text-neutral-400 px-2 uppercase tracking-wider">Preset:</span>
+            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-neutral-200/80 shrink-0 self-start lg:self-auto shadow-2xs">
+              <span className="text-[10px] font-bold text-neutral-400 px-2 uppercase tracking-wider">Date:</span>
               {(['all', 'today', 'week', 'month'] as const).map((preset) => (
                 <button
                   key={preset}
                   onClick={() => handleApplyDatePreset(preset)}
                   className={cn(
-                    "px-2.5 py-1 rounded-lg text-xs font-semibold capitalize transition-all",
+                    "px-2.5 py-1 rounded-lg text-xs font-bold capitalize transition-all",
                     activeDatePreset === preset 
-                      ? "bg-neutral-900 text-white shadow-xs" 
+                      ? "bg-[#1d58d9] text-white shadow-2xs" 
                       : "text-neutral-600 hover:bg-neutral-100"
                   )}
                 >
@@ -1074,22 +1213,122 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
             </div>
           </div>
 
-          {/* Secondary Search & Filter Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 pt-1">
+          {/* View Mode Segmented Control (Below All Requests & Status Tabs) */}
+          {!isEmployeeRole && (
+            <div className="pt-2.5 border-t border-neutral-200/70 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5 bg-neutral-100/90 p-1 rounded-xl border border-neutral-200/80 shadow-2xs">
+                <button
+                  onClick={() => {
+                    setViewMode('queue');
+                    setStatusFilter('all');
+                    setCurrentPage(1);
+                  }}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2",
+                    viewMode === 'queue'
+                      ? "bg-white text-neutral-900 shadow-xs"
+                      : "text-neutral-500 hover:text-neutral-800"
+                  )}
+                >
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  Pending Approvals Queue
+                  <span className={cn(
+                    "px-1.5 py-0.2 rounded-full text-[10.5px] font-black",
+                    stats.pending > 0 ? "bg-amber-100 text-amber-800" : "bg-neutral-200 text-neutral-600"
+                  )}>
+                    {stats.pending}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setViewMode('all');
+                    setCurrentPage(1);
+                  }}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2",
+                    viewMode === 'all'
+                      ? "bg-white text-neutral-900 shadow-xs"
+                      : "text-neutral-500 hover:text-neutral-800"
+                  )}
+                >
+                  <Layers className="w-3.5 h-3.5 text-blue-600" />
+                  All Overtime Records &amp; History
+                  <span className="px-1.5 py-0.2 rounded-full text-[10.5px] font-black bg-neutral-200 text-neutral-600">
+                    {stats.total}
+                  </span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs text-neutral-500">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>Biometric Cross-Check Engine Active</span>
+              </div>
+            </div>
+          )}
+
+          {/* Secondary Search & Dropdown Filters */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2.5 pt-1">
             {/* Search Input */}
             <div className="relative sm:col-span-2">
               <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <Input
                 type="text"
-                placeholder="Search by employee, ID or reason..."
+                placeholder="Search applicant name, employee ID, reason..."
                 value={searchQuery}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="pl-9 h-9.5 text-xs bg-white rounded-xl border-neutral-200"
+                className="pl-9 h-9.5 text-xs bg-white rounded-xl border-neutral-200 font-medium"
               />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 p-0.5"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
+
+            {/* Campus Filter */}
+            {!isEmployeeRole && (
+              <div>
+                <select
+                  value={selectedCampus}
+                  onChange={(e) => {
+                    setSelectedCampus(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full h-9.5 px-3 rounded-xl border border-neutral-200 bg-white text-xs font-semibold text-neutral-700 outline-none focus:ring-2 focus:ring-[#1d58d9]"
+                >
+                  <option value="all">All Campuses</option>
+                  {campuses.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Department Filter */}
+            {!isEmployeeRole && (
+              <div>
+                <select
+                  value={selectedDepartment}
+                  onChange={(e) => {
+                    setSelectedDepartment(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full h-9.5 px-3 rounded-xl border border-neutral-200 bg-white text-xs font-semibold text-neutral-700 outline-none focus:ring-2 focus:ring-[#1d58d9]"
+                >
+                  <option value="all">All Departments</option>
+                  {departments.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Date Range Start */}
             <div>
@@ -1101,8 +1340,8 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                   setActiveDatePreset('all');
                   setCurrentPage(1);
                 }}
-                placeholder="From Date"
-                className="h-9.5 text-xs bg-white rounded-xl border-neutral-200"
+                aria-label="From Date"
+                className="h-9.5 text-xs bg-white rounded-xl border-neutral-200 font-mono"
               />
             </div>
 
@@ -1116,46 +1355,52 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                   setActiveDatePreset('all');
                   setCurrentPage(1);
                 }}
-                placeholder="To Date"
-                className="h-9.5 text-xs bg-white rounded-xl border-neutral-200"
+                aria-label="To Date"
+                className="h-9.5 text-xs bg-white rounded-xl border-neutral-200 font-mono"
               />
             </div>
-
-            {/* Reset Filters */}
-            {(searchQuery || startDateFilter || endDateFilter || statusFilter !== 'all' || selectedCampus !== 'all' || selectedDepartment !== 'all') && (
-              <div className="flex items-center">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setSearchQuery('');
-                    setStartDateFilter('');
-                    setEndDateFilter('');
-                    setStatusFilter('all');
-                    setSelectedCampus('all');
-                    setSelectedDepartment('all');
-                    setSelectedEmployeeId('all');
-                    setActiveDatePreset('all');
-                    setCurrentPage(1);
-                  }}
-                  className="text-xs text-neutral-500 hover:text-neutral-900 h-9.5 px-2"
-                >
-                  <X className="w-3.5 h-3.5 mr-1" /> Reset Filters
-                </Button>
-              </div>
-            )}
           </div>
+
+          {/* Active Filter Indicators */}
+          {(searchQuery || startDateFilter || endDateFilter || statusFilter !== 'all' || selectedCampus !== 'all' || selectedDepartment !== 'all') && (
+            <div className="flex items-center justify-between pt-1 text-xs">
+              <div className="flex items-center gap-1.5 text-neutral-500 font-medium">
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>Filters applied: showing <strong>{filteredRequests.length}</strong> matching records</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSearchQuery('');
+                  setStartDateFilter('');
+                  setEndDateFilter('');
+                  setStatusFilter('all');
+                  setSelectedCampus('all');
+                  setSelectedDepartment('all');
+                  setSelectedEmployeeId('all');
+                  setActiveDatePreset('all');
+                  setCurrentPage(1);
+                }}
+                className="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 h-7 px-2 font-bold"
+              >
+                <X className="w-3.5 h-3.5 mr-1" /> Reset Filters
+              </Button>
+            </div>
+          )}
         </div>
 
-        {/* Batch Operations Bar (Floats above table when items selected) */}
+        {/* ========================================================================= */}
+        {/* 4. MULTI-SELECT BATCH ACTION FLOATING TOOLBAR */}
+        {/* ========================================================================= */}
         {!isEmployeeRole && selectedIds.length > 0 && (
-          <div className="bg-blue-50/90 border-b border-blue-200/70 px-6 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="bg-neutral-900 text-white px-5 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in duration-200">
             <div className="flex items-center gap-3">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#1d58d9] text-white text-xs font-black">
                 {selectedIds.length}
               </span>
-              <span className="text-xs font-bold text-neutral-800">
-                {selectedIds.length} overtime {selectedIds.length === 1 ? 'request' : 'requests'} selected
+              <span className="text-xs font-bold tracking-wide">
+                {selectedIds.length} pending {selectedIds.length === 1 ? 'request' : 'requests'} selected for batch action
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -1163,62 +1408,65 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                 size="sm"
                 onClick={handleBatchApprove}
                 disabled={isProcessingBatch}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold h-8.5 px-3.5 shadow-xs flex items-center gap-1.5"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold h-8.5 px-3.5 shadow-sm flex items-center gap-1.5"
               >
-                <Check className="w-3.5 h-3.5" />
-                Batch Approve ({selectedIds.length})
+                <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                Batch Authorize ({selectedIds.length})
               </Button>
               <Button
                 size="sm"
                 variant="outline"
                 onClick={handleBatchReject}
                 disabled={isProcessingBatch}
-                className="text-rose-600 border-rose-200 hover:bg-rose-50 rounded-xl text-xs font-bold h-8.5 px-3.5 flex items-center gap-1.5"
+                className="text-rose-400 border-rose-800/80 hover:bg-rose-950/60 rounded-xl text-xs font-bold h-8.5 px-3.5 flex items-center gap-1.5"
               >
-                <X className="w-3.5 h-3.5" />
-                Batch Reject
+                <X className="w-3.5 h-3.5 stroke-[2.5]" />
+                Batch Decline
               </Button>
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={() => setSelectedIds([])}
-                className="text-neutral-500 hover:text-neutral-800 rounded-xl text-xs font-medium h-8.5 px-2"
+                className="text-neutral-400 hover:text-white rounded-xl text-xs font-medium h-8.5 px-2"
               >
-                Deselect All
+                Clear Selection
               </Button>
             </div>
           </div>
         )}
 
-        {/* Requests Table */}
+        {/* ========================================================================= */}
+        {/* 5. REQUESTS TABLE */}
+        {/* ========================================================================= */}
         <div className="overflow-x-auto">
           {loading ? (
-            <div className="py-16 text-center">
+            <div className="py-20 text-center">
               <div className="w-10 h-10 border-3 border-[#1d58d9] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-              <p className="text-sm font-medium text-neutral-500">Loading overtime requests...</p>
+              <p className="text-sm font-semibold text-neutral-600">Loading overtime records...</p>
+              <p className="text-xs text-neutral-400 mt-0.5">Fetching employee requests and biometric cross-checks</p>
             </div>
           ) : filteredRequests.length === 0 ? (
-            <div className="py-16 text-center px-4">
-              <div className="w-14 h-14 rounded-full bg-neutral-100 text-neutral-400 flex items-center justify-center mx-auto mb-3">
+            <div className="py-20 text-center px-4">
+              <div className="w-14 h-14 rounded-2xl bg-neutral-100 text-neutral-400 flex items-center justify-center mx-auto mb-3 border border-neutral-200">
                 <Clock className="w-7 h-7 stroke-[1.5]" />
               </div>
-              <h3 className="text-base font-bold text-neutral-800">No overtime requests found</h3>
-              <p className="text-xs text-neutral-400 max-w-sm mx-auto mt-1">
+              <h3 className="text-base font-bold text-neutral-800">No Overtime Requests Found</h3>
+              <p className="text-xs text-neutral-500 max-w-sm mx-auto mt-1">
                 {isEmployeeRole
-                  ? "You haven't submitted any overtime requests matching this filter. Click 'Overtime Request' above to submit one."
-                  : "No overtime records match the current filter selection."}
+                  ? "You haven't submitted any overtime requests matching this filter. Click 'Overtime Request' above to file an application."
+                  : "No overtime records match your current filter criteria."}
               </p>
               <Button
                 onClick={() => setIsSubmitModalOpen(true)}
-                className="mt-4 bg-[#1d58d9] hover:bg-[#1444b0] text-white text-xs font-bold rounded-xl h-9"
+                className="mt-4 bg-[#1d58d9] hover:bg-[#1444b0] text-white text-xs font-bold rounded-xl h-9 px-4 shadow-sm"
               >
-                <Plus className="w-3.5 h-3.5 mr-1.5" /> Submit Overtime Request
+                <Plus className="w-3.5 h-3.5 mr-1.5" /> File Overtime Request
               </Button>
             </div>
           ) : (
             <Table>
               <TableHeader className="bg-neutral-50/80">
-                <TableRow className="border-b border-neutral-200/80">
+                <TableRow className="border-b border-neutral-200/90">
                   {!isEmployeeRole && (
                     <TableHead className="w-10 py-3.5 pl-4 pr-0">
                       <input
@@ -1233,17 +1481,33 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                       />
                     </TableHead>
                   )}
-                  <TableHead className={cn("text-xs font-bold text-neutral-600 uppercase py-3.5", isEmployeeRole ? "pl-6" : "pl-3")}>
-                    Employee
+                  <TableHead className={cn("text-xs font-bold text-neutral-700 uppercase py-3.5 tracking-wider", isEmployeeRole ? "pl-6" : "pl-3")}>
+                    Employee / Applicant
                   </TableHead>
-                  <TableHead className="text-xs font-bold text-neutral-600 uppercase py-3.5">Overtime Date</TableHead>
-                  <TableHead className="text-xs font-bold text-neutral-600 uppercase py-3.5">Time Period</TableHead>
-                  <TableHead className="text-xs font-bold text-neutral-600 uppercase py-3.5 text-center">Requested</TableHead>
-                  <TableHead className="text-xs font-bold text-neutral-600 uppercase py-3.5 text-center">Payable</TableHead>
-                  <TableHead className="text-xs font-bold text-neutral-600 uppercase py-3.5">Reason / Justification</TableHead>
-                  <TableHead className="text-xs font-bold text-neutral-600 uppercase py-3.5">Status</TableHead>
-                  <TableHead className="text-xs font-bold text-neutral-600 uppercase py-3.5">Approver Remarks</TableHead>
-                  <TableHead className="text-xs font-bold text-neutral-600 uppercase py-3.5 text-right pr-6">Actions</TableHead>
+                  <TableHead className="text-xs font-bold text-neutral-700 uppercase py-3.5 tracking-wider">
+                    Service Date
+                  </TableHead>
+                  <TableHead className="text-xs font-bold text-neutral-700 uppercase py-3.5 tracking-wider">
+                    Time Interval
+                  </TableHead>
+                  <TableHead className="text-xs font-bold text-neutral-700 uppercase py-3.5 tracking-wider text-center">
+                    Requested
+                  </TableHead>
+                  <TableHead className="text-xs font-bold text-neutral-700 uppercase py-3.5 tracking-wider text-center">
+                    Payable
+                  </TableHead>
+                  <TableHead className="text-xs font-bold text-neutral-700 uppercase py-3.5 tracking-wider">
+                    Scope of Work / Justification
+                  </TableHead>
+                  <TableHead className="text-xs font-bold text-neutral-700 uppercase py-3.5 tracking-wider">
+                    Status
+                  </TableHead>
+                  <TableHead className="text-xs font-bold text-neutral-700 uppercase py-3.5 tracking-wider">
+                    Supervisor Endorsement
+                  </TableHead>
+                  <TableHead className="text-xs font-bold text-neutral-700 uppercase py-3.5 tracking-wider text-right pr-6">
+                    Actions
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1251,13 +1515,14 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                   const empName = `${req.lastName ? req.lastName + ', ' : ''}${req.firstName || 'Employee'}`;
                   const isPending = req.status === 'pending';
                   const isSelected = selectedIds.includes(req.id);
+                  const dayInfo = getDayTypeInfo(req.overtimeDate);
 
                   return (
                     <TableRow 
                       key={req.id} 
                       className={cn(
-                        "hover:bg-neutral-50/70 transition-colors border-b border-neutral-100",
-                        isSelected && "bg-blue-50/40"
+                        "hover:bg-neutral-50/80 transition-colors border-b border-neutral-100",
+                        isSelected && "bg-blue-50/50"
                       )}
                     >
                       {/* Checkbox Column */}
@@ -1277,10 +1542,10 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                         </TableCell>
                       )}
 
-                      {/* Employee Info */}
+                      {/* Employee Column */}
                       <TableCell className={cn("py-3.5", isEmployeeRole ? "pl-6" : "pl-3")}>
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-neutral-100 border border-neutral-200 overflow-hidden shrink-0 flex items-center justify-center text-xs font-bold text-neutral-600">
+                          <div className="w-8 h-8 rounded-full bg-blue-50 border border-blue-200 overflow-hidden shrink-0 flex items-center justify-center text-xs font-black text-[#1d58d9]">
                             {req.profileImage ? (
                               <img src={req.profileImage} alt={empName} className="w-full h-full object-cover" />
                             ) : (
@@ -1291,35 +1556,45 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                             <span className="text-xs font-bold text-neutral-900 block truncate leading-tight">
                               {empName}
                             </span>
-                            <span className="text-[10px] text-neutral-400 font-mono">
-                              {req.employeeNo || req.employeeId}
-                            </span>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[10px] text-neutral-500 font-mono">
+                                {req.employeeNo || req.employeeId}
+                              </span>
+                              {(req.category || req.position) && (
+                                <>
+                                  <span className="text-neutral-300">•</span>
+                                  <span className="text-[10px] text-neutral-500 truncate max-w-[120px]">
+                                    {req.category || req.position}
+                                  </span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </TableCell>
 
-                      {/* Overtime Date */}
+                      {/* Overtime Date Column */}
                       <TableCell className="py-3.5 whitespace-nowrap">
                         <div className="flex flex-col">
                           <span className="text-xs font-bold text-neutral-800 font-mono">
                             {req.overtimeDate}
                           </span>
-                          <span className="text-[10px] text-neutral-400 font-medium">
-                            {(() => {
-                              try {
-                                const d = new Date(req.overtimeDate + 'T00:00:00');
-                                return format(d, 'EEEE');
-                              } catch {
-                                return '';
-                              }
-                            })()}
-                          </span>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className={cn(
+                              "text-[9.5px] font-bold px-1.5 py-0.2 rounded-md",
+                              dayInfo.isWeekend 
+                                ? "bg-amber-100 text-amber-800" 
+                                : "bg-neutral-100 text-neutral-600"
+                            )}>
+                              {dayInfo.badgeText}
+                            </span>
+                          </div>
                         </div>
                       </TableCell>
 
-                      {/* Time Period */}
+                      {/* Time Period Column */}
                       <TableCell className="py-3.5 whitespace-nowrap">
-                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-neutral-100/80 rounded-lg text-xs font-semibold text-neutral-700 font-mono">
+                        <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-neutral-100/80 rounded-lg text-xs font-semibold text-neutral-700 font-mono">
                           <Clock className="w-3.5 h-3.5 text-neutral-400" />
                           {formatTimeTo12H(req.startTime)} – {formatTimeTo12H(req.endTime)}
                         </div>
@@ -1331,18 +1606,18 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                       </TableCell>
 
                       {/* Payable Hours */}
-                      <TableCell className="py-3.5 text-center">
+                      <TableCell className="py-3.5 text-center whitespace-nowrap">
                         {req.status === 'approved' ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-extrabold bg-emerald-100 text-emerald-800 font-mono">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-black bg-emerald-100 text-emerald-800 font-mono">
                             {req.payableHours || req.approvedHours} hrs
                           </span>
                         ) : (
-                          <span className="text-xs text-neutral-400 font-mono">-</span>
+                          <span className="text-xs text-neutral-300 font-mono">-</span>
                         )}
                       </TableCell>
 
-                      {/* Reason */}
-                      <TableCell className="py-3.5 max-w-[220px]">
+                      {/* Scope / Reason */}
+                      <TableCell className="py-3.5 max-w-[240px]">
                         <p className="text-xs text-neutral-700 truncate" title={req.reason}>
                           {req.reason}
                         </p>
@@ -1353,7 +1628,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                             rel="noopener noreferrer" 
                             className="inline-flex items-center gap-1 text-[10px] text-[#1d58d9] hover:underline font-bold mt-0.5"
                           >
-                            <ExternalLink className="w-2.5 h-2.5" /> View Attachment
+                            <ExternalLink className="w-2.5 h-2.5" /> View Attached Order / Memo
                           </a>
                         )}
                       </TableCell>
@@ -1364,14 +1639,14 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                       </TableCell>
 
                       {/* Approver Remarks */}
-                      <TableCell className="py-3.5 max-w-[180px]">
+                      <TableCell className="py-3.5 max-w-[190px]">
                         {req.approvalRemarks ? (
                           <div className="text-xs text-neutral-600 truncate" title={req.approvalRemarks}>
-                            <span className="font-semibold text-neutral-700">{req.approverName || 'Approver'}: </span>
+                            <span className="font-bold text-neutral-700">{req.approverName || 'Authorized Official'}: </span>
                             {req.approvalRemarks}
                           </div>
                         ) : (
-                          <span className="text-xs text-neutral-300 italic">No remarks yet</span>
+                          <span className="text-[11px] text-neutral-400 italic">Awaiting action</span>
                         )}
                       </TableCell>
 
@@ -1381,7 +1656,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                           {/* Print Official Slip (Available for approved records or any record) */}
                           <button
                             onClick={() => handlePrintSlip(req)}
-                            title="Print Official Authorization Slip"
+                            title="Download Official Overtime Slip (PDF)"
                             className="p-1.5 rounded-lg text-neutral-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
                           >
                             <Printer className="w-4 h-4" />
@@ -1390,7 +1665,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                           {/* View details */}
                           <button
                             onClick={() => openDetailsModal(req)}
-                            title="View Full Details"
+                            title="View Full Authorization Record"
                             className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors"
                           >
                             <Eye className="w-4 h-4" />
@@ -1402,7 +1677,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                               variant="outline"
                               size="sm"
                               onClick={() => handleCancelRequest(req)}
-                              className="text-xs text-rose-600 border-rose-200 hover:bg-rose-50 rounded-lg h-7 px-2 font-semibold"
+                              className="text-xs text-rose-600 border-rose-200 hover:bg-rose-50 rounded-lg h-7 px-2 font-bold"
                             >
                               Cancel
                             </Button>
@@ -1411,25 +1686,25 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                           {/* Admin / Supervisor Review Buttons */}
                           {!isEmployeeRole && isPending && (
                             <>
+                              {/* Primary Review Modal Trigger */}
+                              <Button
+                                size="sm"
+                                onClick={() => openReviewModal(req, 'approve')}
+                                title="Review with DTR Biometric Verification"
+                                className="bg-[#1d58d9] hover:bg-[#1444b0] text-white rounded-lg h-7 px-2.5 text-xs font-bold shadow-2xs flex items-center gap-1"
+                              >
+                                <Check className="w-3 h-3 stroke-[2.5]" /> Review
+                              </Button>
+
                               {/* 1-Click Fast Quick Approve */}
                               <Button
                                 size="sm"
-                                onClick={() => handleQuickApprove(req)}
-                                title="1-Click Approve (Full Requested Hours)"
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg h-7 px-2 text-xs font-bold shadow-xs flex items-center gap-1"
-                              >
-                                <Check className="w-3 h-3" /> Quick Approve
-                              </Button>
-
-                              {/* Detailed Review Modal Trigger */}
-                              <Button
-                                size="sm"
                                 variant="outline"
-                                onClick={() => openReviewModal(req, 'approve')}
-                                title="Adjust hours or leave customized remarks"
-                                className="border-neutral-200 text-neutral-700 hover:bg-neutral-100 rounded-lg h-7 px-2 text-xs font-medium"
+                                onClick={() => handleQuickApprove(req)}
+                                title="1-Click Approve Full Hours"
+                                className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-lg h-7 px-2 text-xs font-bold"
                               >
-                                Custom
+                                Quick
                               </Button>
 
                               {/* Reject */}
@@ -1437,9 +1712,10 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                                 size="sm"
                                 variant="outline"
                                 onClick={() => openReviewModal(req, 'reject')}
+                                title="Decline Request"
                                 className="text-rose-600 border-rose-200 hover:bg-rose-50 rounded-lg h-7 px-1.5 text-xs font-bold"
                               >
-                                <X className="w-3.5 h-3.5" />
+                                <X className="w-3.5 h-3.5 stroke-[2.5]" />
                               </Button>
                             </>
                           )}
@@ -1460,11 +1736,11 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
               <span>
                 Showing <strong className="text-neutral-800">{Math.min((currentPage - 1) * pageSize + 1, filteredRequests.length)}</strong> to{' '}
                 <strong className="text-neutral-800">{Math.min(currentPage * pageSize, filteredRequests.length)}</strong> of{' '}
-                <strong className="text-neutral-800">{filteredRequests.length}</strong> entries
+                <strong className="text-neutral-800">{filteredRequests.length}</strong> applications
               </span>
               <span className="text-neutral-300">|</span>
               <div className="flex items-center gap-1.5">
-                <span>Per page:</span>
+                <span>Rows:</span>
                 <select
                   value={pageSize}
                   onChange={(e) => {
@@ -1487,11 +1763,11 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                 size="sm"
                 disabled={currentPage === 1}
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                className="rounded-lg h-8 px-2.5 text-xs font-medium border-neutral-200 disabled:opacity-40"
+                className="rounded-lg h-8 px-2.5 text-xs font-bold border-neutral-200 disabled:opacity-40"
               >
                 Previous
               </Button>
-              <div className="px-2 text-xs font-bold text-neutral-700">
+              <div className="px-2.5 text-xs font-bold text-neutral-700">
                 Page {currentPage} of {totalPages}
               </div>
               <Button
@@ -1499,48 +1775,59 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                 size="sm"
                 disabled={currentPage >= totalPages}
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                className="rounded-lg h-8 px-2.5 text-xs font-medium border-neutral-200 disabled:opacity-40"
+                className="rounded-lg h-8 px-2.5 text-xs font-bold border-neutral-200 disabled:opacity-40"
               >
                 Next
               </Button>
             </div>
           </div>
         )}
-      </Card>
+      </div>
 
       {/* ========================================================================= */}
-      {/* MODAL 1: SUBMIT OVERTIME REQUEST */}
+      {/* MODAL 1: SUBMIT OVERTIME REQUEST (PROFESSIONAL APPLICATION FORM) */}
       {/* ========================================================================= */}
       <Dialog open={isSubmitModalOpen} onOpenChange={setIsSubmitModalOpen}>
-        <DialogContent className="max-w-lg bg-white rounded-3xl p-6 sm:p-7 shadow-xl border border-neutral-100">
-          <DialogHeader>
-            <div className="flex items-center gap-2.5 mb-1">
-              <div className="w-9 h-9 rounded-xl bg-blue-50 text-[#1d58d9] flex items-center justify-center">
-                <Clock className="w-5 h-5" />
+        <DialogContent className="max-w-xl bg-white rounded-3xl p-6 sm:p-7 shadow-2xl border border-neutral-100 max-h-[90vh] overflow-y-auto font-sans">
+          <DialogHeader className="pb-3 border-b border-neutral-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-blue-50 text-[#1d58d9] flex items-center justify-center shrink-0 border border-blue-100">
+                <Clock className="w-5 h-5 stroke-[2.2]" />
               </div>
               <div>
-                <DialogTitle className="text-lg font-black text-neutral-900 tracking-tight">
-                  Submit Overtime Request
+                <DialogTitle className="text-lg font-black text-neutral-900 tracking-tight flex items-center gap-2">
+                  Official Overtime Application
+                  <Badge className="bg-blue-50 text-[#1d58d9] border-blue-200 text-[10px] font-bold px-2 py-0.2">
+                    CSC Form 48 Addendum
+                  </Badge>
                 </DialogTitle>
                 <DialogDescription className="text-xs text-neutral-500">
-                  Fill out the details for your required extra working hours.
+                  Pursuant to CSC &amp; DBM Joint Circular No. 1, s. 2015. Please declare authorized rendered extra service.
                 </DialogDescription>
               </div>
             </div>
           </DialogHeader>
 
-          <form onSubmit={handleSubmitOvertime} className="space-y-4 pt-2">
-            {/* Employee Selection (if Admin) */}
+          <form onSubmit={handleSubmitOvertime} className="space-y-4 pt-3">
+            {/* Policy Tip Notice */}
+            <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-100 text-xs text-blue-900 flex items-start gap-2">
+              <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+              <p className="leading-relaxed text-[11.5px]">
+                Overtime must be pre-authorized by your Department Chair or Campus Director. Rendered hours will be corroborated against biometric DTR logs before payroll crediting.
+              </p>
+            </div>
+
+            {/* Applicant Profile / Target Selection */}
             {!isEmployeeRole ? (
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-neutral-700">Target Employee *</Label>
+                <Label className="text-xs font-bold text-neutral-700">Select Employee Applicant *</Label>
                 <select
                   value={targetEmployeeId}
                   onChange={(e) => setTargetEmployeeId(e.target.value)}
                   required
                   className="w-full h-10 px-3 rounded-xl border border-neutral-200 bg-white text-xs font-medium text-neutral-800 focus:outline-none focus:ring-2 focus:ring-[#1d58d9]"
                 >
-                  <option value="">-- Select Employee --</option>
+                  <option value="">-- Choose Employee --</option>
                   {employees.map((emp) => (
                     <option key={emp.id} value={emp.id}>
                       {emp.lastName}, {emp.firstName} ({emp.employeeId || emp.id}) – {emp.category || emp.position}
@@ -1549,14 +1836,17 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                 </select>
               </div>
             ) : (
-              <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200/70 flex items-center justify-between">
+              <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200/80 flex items-center justify-between">
                 <div>
-                  <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider block">Employee</span>
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block">Applicant</span>
                   <span className="text-xs font-bold text-neutral-900">
                     {currentEmployeeProfile ? `${currentEmployeeProfile.firstName} ${currentEmployeeProfile.lastName}` : (user?.displayName || user?.email)}
                   </span>
+                  <span className="text-[10.5px] text-neutral-500 block">
+                    {currentEmployeeProfile?.category || currentEmployeeProfile?.position || 'SLSU Staff'} • {currentEmployeeProfile?.campus || 'Hinunangan Campus'}
+                  </span>
                 </div>
-                <Badge variant="outline" className="text-[10px] font-mono bg-white">
+                <Badge variant="outline" className="text-[10px] font-mono bg-white border-neutral-300">
                   {currentEmployeeProfile?.employeeId || 'CURRENT USER'}
                 </Badge>
               </div>
@@ -1564,19 +1854,26 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
 
             {/* Overtime Date */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-neutral-700">Overtime Date *</Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-bold text-neutral-700">Date of Overtime Service *</Label>
+                {overtimeDate && (
+                  <span className="text-[11px] font-bold text-[#1d58d9]">
+                    {getDayTypeInfo(overtimeDate).label} {getDayTypeInfo(overtimeDate).isWeekend && "• Weekend Service"}
+                  </span>
+                )}
+              </div>
               <Input
                 type="date"
                 required
                 value={overtimeDate}
                 onChange={(e) => setOvertimeDate(e.target.value)}
-                className="rounded-xl border-neutral-200 text-xs h-10"
+                className="rounded-xl border-neutral-200 text-xs h-10 font-mono"
               />
             </div>
 
-            {/* Quick Presets */}
+            {/* Quick Time Presets */}
             <div className="space-y-1.5">
-              <span className="text-[11px] font-bold text-neutral-500 block">Quick Time Presets</span>
+              <span className="text-[11px] font-bold text-neutral-600 block">Standard University Time Presets:</span>
               <div className="flex flex-wrap gap-1.5">
                 {TIME_PRESETS.map((preset, idx) => (
                   <button
@@ -1589,7 +1886,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                     className={cn(
                       "px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all",
                       startTime === preset.start && endTime === preset.end
-                        ? "bg-blue-50 border-[#1d58d9] text-[#1d58d9]"
+                        ? "bg-blue-50 border-[#1d58d9] text-[#1d58d9] shadow-2xs"
                         : "bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50"
                     )}
                   >
@@ -1608,7 +1905,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                   required
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
-                  className="rounded-xl border-neutral-200 text-xs h-10 font-mono"
+                  className="rounded-xl border-neutral-200 text-xs h-10 font-mono font-bold"
                 />
               </div>
               <div className="space-y-1.5">
@@ -1618,62 +1915,92 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                   required
                   value={endTime}
                   onChange={(e) => setEndTime(e.target.value)}
-                  className="rounded-xl border-neutral-200 text-xs h-10 font-mono"
+                  className="rounded-xl border-neutral-200 text-xs h-10 font-mono font-bold"
                 />
               </div>
             </div>
 
             {/* Duration Summary */}
             <div className="flex items-center justify-between p-3 rounded-xl bg-blue-50/60 border border-blue-100">
-              <span className="text-xs font-bold text-blue-900">Total Requested Duration:</span>
-              <span className="text-xs font-black text-[#1d58d9] font-mono bg-white px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-blue-600" />
+                <span className="text-xs font-bold text-blue-900">Total Requested Duration:</span>
+              </div>
+              <span className="text-xs font-black text-[#1d58d9] font-mono bg-white px-3 py-1 rounded-lg border border-blue-200 shadow-2xs">
                 {calculatedHours} Hours
               </span>
             </div>
 
-            {/* Reason with suggestions */}
+            {/* Scope of Work & Institutional Justification */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <Label className="text-xs font-bold text-neutral-700">Reason / Justification *</Label>
-                <span className="text-[10px] text-neutral-400">Required for audit</span>
+                <Label className="text-xs font-bold text-neutral-700">Purpose &amp; Scope of Work *</Label>
+                <span className="text-[10px] text-neutral-400">Required for official audit</span>
               </div>
               <textarea
                 required
                 rows={3}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="Explain the specific university tasks to be rendered during overtime..."
+                placeholder="Detail the specific tasks or deliverables rendered beyond regular working hours..."
                 className="w-full p-3 rounded-xl border border-neutral-200 text-xs font-normal text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#1d58d9]"
               />
 
-              {/* Common reason chips */}
-              <div className="pt-1">
-                <span className="text-[10px] font-bold text-neutral-400 block mb-1">Common templates:</span>
-                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-                  {COMMON_REASONS.map((r, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => setReason(r)}
-                      className="text-[10px] text-left px-2 py-0.5 rounded bg-neutral-100 hover:bg-blue-50 hover:text-blue-700 text-neutral-600 transition-colors"
-                    >
-                      • {r}
-                    </button>
+              {/* Categorized Quick Template Chips */}
+              <div className="pt-1 space-y-1.5">
+                <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block">
+                  Quick Institutional Templates:
+                </span>
+                <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
+                  {COMMON_REASONS.map((grp, gIdx) => (
+                    <div key={gIdx} className="space-y-1">
+                      <span className="text-[9.5px] font-bold text-neutral-400 block">{grp.category}:</span>
+                      <div className="flex flex-wrap gap-1">
+                        {grp.items.map((item, iIdx) => (
+                          <button
+                            key={iIdx}
+                            type="button"
+                            onClick={() => setReason(item)}
+                            className="text-[10px] text-left px-2 py-0.5 rounded bg-neutral-100 hover:bg-blue-50 hover:text-blue-700 text-neutral-600 border border-neutral-200/60 transition-colors"
+                          >
+                            • {item}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
             </div>
 
-            {/* Document URL (Optional) */}
+            {/* Document Link / Special Order Link */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-neutral-700">Supporting Document / Notice Link (Optional)</Label>
+              <Label className="text-xs font-bold text-neutral-700">
+                Supporting Memo / Special Order URL (Optional)
+              </Label>
               <Input
                 type="url"
                 value={documentUrl}
                 onChange={(e) => setDocumentUrl(e.target.value)}
-                placeholder="https://drive.google.com/... or cloud document URL"
+                placeholder="https://drive.google.com/... or scanned Special Order URL"
                 className="rounded-xl border-neutral-200 text-xs h-10"
               />
+            </div>
+
+            {/* Submission Pre-Confirmation Card */}
+            <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200/80 text-xs text-neutral-600 space-y-1">
+              <div className="flex justify-between">
+                <span>Target Date:</span>
+                <strong className="text-neutral-900 font-mono">{overtimeDate || '-'}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span>Rendered Hours:</span>
+                <strong className="text-neutral-900 font-mono">{calculatedHours} hrs ({formatTimeTo12H(startTime)} - {formatTimeTo12H(endTime)})</strong>
+              </div>
+              <div className="flex justify-between">
+                <span>Routing:</span>
+                <span className="text-amber-700 font-semibold">Immediate Supervisor Endorsement Queue</span>
+              </div>
             </div>
 
             <DialogFooter className="pt-3 gap-2">
@@ -1681,7 +2008,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                 type="button"
                 variant="outline"
                 onClick={() => setIsSubmitModalOpen(false)}
-                className="rounded-xl border-neutral-200 text-xs h-10"
+                className="rounded-xl border-neutral-200 text-xs h-10 font-semibold"
               >
                 Cancel
               </Button>
@@ -1690,7 +2017,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                 disabled={isSubmitting || calculatedHours <= 0}
                 className="bg-[#1d58d9] hover:bg-[#1444b0] text-white font-bold rounded-xl text-xs h-10 px-5 shadow-sm"
               >
-                {isSubmitting ? "Submitting..." : "Submit Overtime Request"}
+                {isSubmitting ? "Submitting Application..." : "Submit Overtime Request"}
               </Button>
             </DialogFooter>
           </form>
@@ -1698,137 +2025,222 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
       </Dialog>
 
       {/* ========================================================================= */}
-      {/* MODAL 2: ADMIN / SUPERVISOR REVIEW MODAL */}
+      {/* MODAL 2: SUPERVISOR REVIEW & DTR VERIFICATION MODAL */}
       {/* ========================================================================= */}
       <Dialog open={isReviewModalOpen} onOpenChange={setIsReviewModalOpen}>
-        <DialogContent className="max-w-lg bg-white rounded-3xl p-6 sm:p-7 shadow-xl border border-neutral-100">
-          <DialogHeader>
-            <div className="flex items-center gap-2.5 mb-1">
+        <DialogContent className="max-w-lg bg-white rounded-3xl p-6 sm:p-7 shadow-2xl border border-neutral-100 max-h-[90vh] overflow-y-auto font-sans">
+          <DialogHeader className="pb-3 border-b border-neutral-100">
+            <div className="flex items-center gap-3">
               <div className={cn(
-                "w-9 h-9 rounded-xl flex items-center justify-center",
-                reviewAction === 'approve' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+                "w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border",
+                reviewAction === 'approve' 
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
+                  : "bg-rose-50 text-rose-700 border-rose-200"
               )}>
-                {reviewAction === 'approve' ? <Check className="w-5 h-5" /> : <X className="w-5 h-5" />}
+                {reviewAction === 'approve' ? <Check className="w-5 h-5 stroke-[2.5]" /> : <X className="w-5 h-5 stroke-[2.5]" />}
               </div>
               <div>
                 <DialogTitle className="text-lg font-black text-neutral-900 tracking-tight">
-                  {reviewAction === 'approve' ? 'Approve Overtime Request' : 'Reject Overtime Request'}
+                  {reviewAction === 'approve' ? 'Authorize Overtime Service' : 'Decline Overtime Application'}
                 </DialogTitle>
                 <DialogDescription className="text-xs text-neutral-500">
-                  Review attendance cross-reference and verify payable hours for payroll.
+                  Cross-examine attendance punch records and confirm payable hours for payroll.
                 </DialogDescription>
               </div>
             </div>
           </DialogHeader>
 
           {selectedRequest && (
-            <div className="space-y-4 pt-2">
-              {/* Request Summary Banner */}
-              <div className="p-3.5 bg-neutral-50 rounded-2xl border border-neutral-200/80 space-y-2">
+            <div className="space-y-4 pt-3">
+              {/* Applicant & Application Summary */}
+              <div className="p-3.5 bg-neutral-50 rounded-2xl border border-neutral-200/80 space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-neutral-900">
-                    {selectedRequest.lastName}, {selectedRequest.firstName}
-                  </span>
-                  <span className="text-[10px] font-mono text-neutral-500">
-                    {selectedRequest.employeeNo || selectedRequest.employeeId}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
                   <div>
-                    <span className="text-neutral-400 block text-[10px]">Date:</span>
+                    <span className="text-xs font-bold text-neutral-900 block">
+                      {selectedRequest.lastName}, {selectedRequest.firstName}
+                    </span>
+                    <span className="text-[10px] text-neutral-500">
+                      {selectedRequest.category || selectedRequest.position || 'Staff'} • {selectedRequest.campus || 'SLSU'}
+                    </span>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] font-mono bg-white">
+                    {selectedRequest.employeeNo || selectedRequest.employeeId}
+                  </Badge>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs bg-white p-2.5 rounded-xl border border-neutral-200/60">
+                  <div>
+                    <span className="text-neutral-400 block text-[10px] uppercase font-bold">Service Date:</span>
                     <span className="font-bold text-neutral-800 font-mono">{selectedRequest.overtimeDate}</span>
                   </div>
                   <div>
-                    <span className="text-neutral-400 block text-[10px]">Time Span:</span>
+                    <span className="text-neutral-400 block text-[10px] uppercase font-bold">Time Interval:</span>
                     <span className="font-bold text-neutral-800 font-mono">
                       {formatTimeTo12H(selectedRequest.startTime)} – {formatTimeTo12H(selectedRequest.endTime)}
                     </span>
                   </div>
                 </div>
+
                 <div>
-                  <span className="text-neutral-400 block text-[10px]">Reason:</span>
-                  <p className="text-xs text-neutral-700 italic">"{selectedRequest.reason}"</p>
+                  <span className="text-neutral-400 block text-[10px] uppercase font-bold">Declared Justification:</span>
+                  <p className="text-xs text-neutral-800 italic bg-white p-2 rounded-lg border border-neutral-200/60 mt-0.5 leading-relaxed">
+                    "{selectedRequest.reason}"
+                  </p>
                 </div>
               </div>
 
-              {/* DTR Cross-Reference Verification */}
-              <div className="p-3 rounded-xl bg-blue-50/50 border border-blue-100/80 space-y-1.5">
+              {/* DTR Biometric Cross-Reference Verification */}
+              <div className="p-3.5 rounded-2xl bg-blue-50/50 border border-blue-100/90 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
                     <ShieldCheck className="w-4 h-4 text-blue-600" />
-                    DTR Attendance Cross-Check
+                    Biometric DTR Cross-Check
                   </span>
-                  <span className="text-[10px] font-mono text-blue-600">
-                    {loadingDtrRecord ? 'Verifying...' : (dtrRecordOnDate ? 'DTR Record Found' : 'No DTR punch yet')}
+                  <span className="text-[10.5px] font-bold text-blue-700">
+                    {loadingDtrRecord ? 'Verifying biometric logs...' : (dtrRecordOnDate ? '✓ Biometric Punch Confirmed' : 'ℹ️ No Punch Recorded')}
                   </span>
                 </div>
+
                 {dtrRecordOnDate ? (
-                  <div className="text-xs text-neutral-700 grid grid-cols-3 gap-1 pt-1 font-mono">
-                    <div>
-                      <span className="text-[10px] text-neutral-400 block">AM Out:</span>
-                      <span>{dtrRecordOnDate.amOut ? formatTimeTo12H(dtrRecordOnDate.amOut) : '-'}</span>
+                  <div className="bg-white p-2.5 rounded-xl border border-blue-200/70 space-y-1.5">
+                    <div className="grid grid-cols-3 gap-1 text-xs font-mono">
+                      <div>
+                        <span className="text-[9.5px] text-neutral-400 block uppercase">AM Out:</span>
+                        <span className="font-bold text-neutral-800">{dtrRecordOnDate.amOut ? formatTimeTo12H(dtrRecordOnDate.amOut) : '-'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[9.5px] text-neutral-400 block uppercase">PM Out:</span>
+                        <span className="font-bold text-neutral-800">{dtrRecordOnDate.pmOut ? formatTimeTo12H(dtrRecordOnDate.pmOut) : '-'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[9.5px] text-neutral-400 block uppercase">Logged DTR:</span>
+                        <span className="font-black text-blue-700">{dtrRecordOnDate.hoursWorked || 0} hrs</span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-[10px] text-neutral-400 block">PM Out:</span>
-                      <span>{dtrRecordOnDate.pmOut ? formatTimeTo12H(dtrRecordOnDate.pmOut) : '-'}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-neutral-400 block">DTR Hours:</span>
-                      <span className="font-bold text-blue-700">{dtrRecordOnDate.hoursWorked || 0} hrs</span>
-                    </div>
+                    <p className="text-[10px] text-emerald-700 font-semibold pt-0.5">
+                      Biometric punch verified. Extra hours beyond 8:00 AM - 5:00 PM are authenticated.
+                    </p>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-neutral-500">
-                    No punch record found on this date. You may still approve based on official department authorization.
+                  <p className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200/70">
+                    No machine punch log found on this date. You may authorize based on signed physical logbook or Special Order.
                   </p>
                 )}
               </div>
 
-              {/* Editable Approved Hours (if Approving) */}
-              {reviewAction === 'approve' && (
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-bold text-neutral-700">Official Approved Hours *</Label>
-                    <span className="text-[10px] text-neutral-400 font-mono">
-                      Requested: {selectedRequest.requestedHours} hrs
-                    </span>
+              {/* Approval Mode Form: Approved Hours & Endorsement */}
+              {reviewAction === 'approve' ? (
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-bold text-neutral-800">Authorized Hours for Payroll *</Label>
+                      <span className="text-[10px] text-neutral-500 font-mono font-bold">
+                        Requested: {selectedRequest.requestedHours} hrs
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        step="0.25"
+                        min="0.5"
+                        max="16"
+                        value={reviewHours}
+                        onChange={(e) => setReviewHours(Number(e.target.value))}
+                        className="rounded-xl border-neutral-200 text-xs h-10 font-mono font-black text-neutral-900 w-32"
+                      />
+                      {/* Quick Adjust Buttons */}
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setReviewHours(Number(selectedRequest.requestedHours))}
+                          className="px-2 py-1.5 text-[11px] font-bold rounded-lg border border-neutral-200 hover:bg-neutral-100"
+                        >
+                          Full ({selectedRequest.requestedHours}h)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReviewHours(Number((selectedRequest.requestedHours / 2).toFixed(2)))}
+                          className="px-2 py-1.5 text-[11px] font-bold rounded-lg border border-neutral-200 hover:bg-neutral-100"
+                        >
+                          Half ({(selectedRequest.requestedHours / 2).toFixed(1)}h)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReviewHours(h => Math.max(0.5, Number((h - 0.5).toFixed(2))))}
+                          className="px-2 py-1.5 text-[11px] font-bold rounded-lg border border-neutral-200 hover:bg-neutral-100"
+                        >
+                          -0.5h
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReviewHours(h => Number((h + 0.5).toFixed(2)))}
+                          className="px-2 py-1.5 text-[11px] font-bold rounded-lg border border-neutral-200 hover:bg-neutral-100"
+                        >
+                          +0.5h
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <Input
-                    type="number"
-                    step="0.25"
-                    min="0.5"
-                    max="16"
-                    value={reviewHours}
-                    onChange={(e) => setReviewHours(Number(e.target.value))}
-                    className="rounded-xl border-neutral-200 text-xs h-10 font-mono font-bold"
+
+                  {/* Endorsement Remarks */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-neutral-800">Official Endorsement Remarks</Label>
+                    <textarea
+                      rows={2}
+                      value={reviewRemarks}
+                      onChange={(e) => setReviewRemarks(e.target.value)}
+                      placeholder="Enter supervisor endorsement notes..."
+                      className="w-full p-2.5 rounded-xl border border-neutral-200 text-xs font-normal text-neutral-800 focus:outline-none focus:ring-2 focus:ring-[#1d58d9]"
+                    />
+
+                    {/* Quick Preset Buttons */}
+                    <div className="flex flex-wrap gap-1 pt-0.5">
+                      {APPROVAL_TEMPLATES.map((tmpl, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setReviewRemarks(tmpl)}
+                          className="text-[9.5px] px-2 py-0.5 rounded bg-neutral-100 hover:bg-emerald-50 hover:text-emerald-800 text-neutral-600 border border-neutral-200/60"
+                        >
+                          • {tmpl.substring(0, 42)}...
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Rejection Mode Form */
+                <div className="space-y-2">
+                  <Label className="text-xs font-bold text-rose-800">Rejection Justification *</Label>
+                  <textarea
+                    rows={3}
+                    required
+                    value={reviewRemarks}
+                    onChange={(e) => setReviewRemarks(e.target.value)}
+                    placeholder="State the official ground for declining this overtime application..."
+                    className="w-full p-2.5 rounded-xl border border-rose-200 text-xs font-normal text-neutral-800 focus:outline-none focus:ring-2 focus:ring-rose-500"
                   />
-                  <span className="text-[10px] text-neutral-400 block">
-                    These approved hours will be used by the system to compute official overtime pay.
-                  </span>
+                  <div className="flex flex-wrap gap-1 pt-0.5">
+                    {REJECTION_TEMPLATES.map((tmpl, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setReviewRemarks(tmpl)}
+                        className="text-[9.5px] px-2 py-0.5 rounded bg-neutral-100 hover:bg-rose-50 hover:text-rose-800 text-neutral-600 border border-neutral-200/60"
+                      >
+                        • {tmpl.substring(0, 42)}...
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 
-              {/* Remarks */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-neutral-700">
-                  {reviewAction === 'approve' ? 'Approval Remarks' : 'Rejection Reason *'}
-                </Label>
-                <textarea
-                  rows={3}
-                  required={reviewAction === 'reject'}
-                  value={reviewRemarks}
-                  onChange={(e) => setReviewRemarks(e.target.value)}
-                  placeholder={reviewAction === 'approve' ? "Enter endorsement notes..." : "Enter clear reason for declining..."}
-                  className="w-full p-3 rounded-xl border border-neutral-200 text-xs font-normal text-neutral-800 focus:outline-none focus:ring-2 focus:ring-[#1d58d9]"
-                />
-              </div>
-
-              <DialogFooter className="pt-2 gap-2">
+              <DialogFooter className="pt-3 gap-2">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setIsReviewModalOpen(false)}
-                  className="rounded-xl border-neutral-200 text-xs h-10"
+                  className="rounded-xl border-neutral-200 text-xs h-10 font-semibold"
                 >
                   Cancel
                 </Button>
@@ -1843,7 +2255,9 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                       : "bg-rose-600 hover:bg-rose-700"
                   )}
                 >
-                  {isProcessingReview ? "Processing..." : (reviewAction === 'approve' ? "Confirm Approval" : "Confirm Rejection")}
+                  {isProcessingReview 
+                    ? "Processing..." 
+                    : (reviewAction === 'approve' ? `Authorize ${reviewHours} Hours` : "Confirm Rejection")}
                 </Button>
               </DialogFooter>
             </div>
@@ -1852,100 +2266,114 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
       </Dialog>
 
       {/* ========================================================================= */}
-      {/* MODAL 3: FULL DETAILS MODAL */}
+      {/* MODAL 3: FULL DETAILS & CERTIFICATE RECORD MODAL */}
       {/* ========================================================================= */}
       <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
-        <DialogContent className="max-w-lg bg-white rounded-3xl p-6 sm:p-7 shadow-xl border border-neutral-100">
-          <DialogHeader>
-            <div className="flex items-center gap-2.5 mb-1">
-              <div className="w-9 h-9 rounded-xl bg-neutral-100 text-neutral-700 flex items-center justify-center">
-                <FileText className="w-5 h-5" />
+        <DialogContent className="max-w-lg bg-white rounded-3xl p-6 sm:p-7 shadow-2xl border border-neutral-100 max-h-[90vh] overflow-y-auto font-sans">
+          <DialogHeader className="pb-3 border-b border-neutral-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-neutral-100 text-neutral-700 flex items-center justify-center shrink-0 border border-neutral-200">
+                <FileCheck className="w-5 h-5 stroke-[2.2]" />
               </div>
               <div>
                 <DialogTitle className="text-lg font-black text-neutral-900 tracking-tight">
-                  Overtime Application Details
+                  Overtime Service Record
                 </DialogTitle>
                 <DialogDescription className="text-xs text-neutral-500 font-mono">
-                  {selectedRequest?.id}
+                  Control No: {selectedRequest?.id}
                 </DialogDescription>
               </div>
             </div>
           </DialogHeader>
 
           {selectedRequest && (
-            <div className="space-y-4 pt-2">
+            <div className="space-y-4 pt-3">
               <div className="flex items-center justify-between pb-2 border-b border-neutral-100">
-                <span className="text-xs font-bold text-neutral-500">Status</span>
+                <span className="text-xs font-bold text-neutral-500">Official Status</span>
                 {renderStatusBadge(selectedRequest.status)}
               </div>
 
               <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-100">
-                  <span className="text-[10px] font-bold text-neutral-400 uppercase">Employee</span>
+                <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200/70">
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase">Employee Applicant</span>
                   <span className="font-bold text-neutral-900 block mt-0.5">
                     {selectedRequest.lastName}, {selectedRequest.firstName}
                   </span>
                   <span className="text-[10px] text-neutral-500 font-mono">{selectedRequest.employeeNo || selectedRequest.employeeId}</span>
+                  <span className="text-[10px] text-neutral-500 block">{selectedRequest.category || selectedRequest.position || 'Staff'}</span>
                 </div>
 
-                <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-100">
-                  <span className="text-[10px] font-bold text-neutral-400 uppercase">Overtime Date</span>
+                <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200/70">
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase">Service Date &amp; Span</span>
                   <span className="font-bold text-neutral-900 block mt-0.5 font-mono">{selectedRequest.overtimeDate}</span>
-                  <span className="text-[10px] text-neutral-500">
+                  <span className="text-[10px] text-neutral-600 font-mono block">
                     {formatTimeTo12H(selectedRequest.startTime)} – {formatTimeTo12H(selectedRequest.endTime)}
                   </span>
+                  <span className="text-[10px] text-neutral-400">{getDayTypeInfo(selectedRequest.overtimeDate).label}</span>
                 </div>
               </div>
 
+              {/* Hours Breakdown */}
               <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="p-2.5 bg-neutral-50 rounded-xl border border-neutral-100">
+                <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200/70">
                   <span className="text-[10px] text-neutral-400 block font-bold uppercase">Requested</span>
-                  <span className="text-sm font-black text-neutral-800 font-mono">{selectedRequest.requestedHours} hrs</span>
+                  <span className="text-base font-black text-neutral-800 font-mono">{selectedRequest.requestedHours} hrs</span>
                 </div>
-                <div className="p-2.5 bg-neutral-50 rounded-xl border border-neutral-100">
+                <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200/70">
                   <span className="text-[10px] text-neutral-400 block font-bold uppercase">Approved</span>
-                  <span className="text-sm font-black text-emerald-600 font-mono">{selectedRequest.approvedHours || 0} hrs</span>
+                  <span className="text-base font-black text-emerald-700 font-mono">{selectedRequest.approvedHours || 0} hrs</span>
                 </div>
-                <div className="p-2.5 bg-neutral-50 rounded-xl border border-neutral-100">
-                  <span className="text-[10px] text-neutral-400 block font-bold uppercase">Payable</span>
-                  <span className="text-sm font-black text-[#1d58d9] font-mono">{selectedRequest.payableHours || 0} hrs</span>
+                <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200/70">
+                  <span className="text-[10px] text-neutral-400 block font-bold uppercase">Payable Units</span>
+                  <span className="text-base font-black text-[#1d58d9] font-mono">{selectedRequest.payableHours || 0} hrs</span>
                 </div>
               </div>
 
+              {/* Justification */}
               <div className="space-y-1">
-                <span className="text-xs font-bold text-neutral-600">Reason</span>
-                <p className="text-xs text-neutral-800 p-3 bg-neutral-50 rounded-xl border border-neutral-100 leading-relaxed">
+                <span className="text-xs font-bold text-neutral-700">Official Purpose &amp; Scope of Work</span>
+                <p className="text-xs text-neutral-800 p-3 bg-neutral-50 rounded-xl border border-neutral-200/70 leading-relaxed">
                   {selectedRequest.reason}
                 </p>
               </div>
 
+              {/* Supervisor Remarks */}
               {selectedRequest.approvalRemarks && (
                 <div className="space-y-1">
-                  <span className="text-xs font-bold text-neutral-600">Supervisor Remarks</span>
-                  <p className="text-xs text-neutral-800 p-3 bg-blue-50/40 rounded-xl border border-blue-100/80 leading-relaxed">
-                    <span className="font-bold text-[#1d58d9]">{selectedRequest.approverName || 'Approver'}: </span>
+                  <span className="text-xs font-bold text-neutral-700">Endorsing Official Remarks</span>
+                  <p className="text-xs text-neutral-800 p-3 bg-blue-50/50 rounded-xl border border-blue-100 leading-relaxed">
+                    <span className="font-bold text-[#1d58d9]">{selectedRequest.approverName || 'Authorized Official'}: </span>
                     {selectedRequest.approvalRemarks}
                   </p>
                 </div>
               )}
 
+              {/* Attachment link if present */}
               {selectedRequest.documentUrl && (
-                <div className="pt-1">
+                <div>
                   <a
                     href={selectedRequest.documentUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-full py-2 px-3 rounded-xl bg-blue-50 text-[#1d58d9] hover:bg-blue-100 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                    className="w-full py-2.5 px-3 rounded-xl bg-blue-50 text-[#1d58d9] hover:bg-blue-100 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors border border-blue-200/60"
                   >
-                    <ExternalLink className="w-3.5 h-3.5" /> View Attached Authorization Document
+                    <ExternalLink className="w-3.5 h-3.5" /> View Attached Special Order / Travel Order
                   </a>
                 </div>
               )}
 
-              <DialogFooter className="pt-2">
+              <DialogFooter className="pt-2 gap-2">
+                <Button
+                  onClick={() => handlePrintSlip(selectedRequest)}
+                  variant="outline"
+                  className="flex-1 border-neutral-200 hover:bg-neutral-50 text-neutral-800 font-bold rounded-xl text-xs h-10 flex items-center justify-center gap-1.5"
+                >
+                  <Printer className="w-4 h-4 text-[#1d58d9]" />
+                  Download Official Slip (PDF)
+                </Button>
                 <Button
                   onClick={() => setIsDetailsModalOpen(false)}
-                  className="w-full bg-neutral-900 hover:bg-neutral-800 text-white font-bold rounded-xl text-xs h-10"
+                  className="flex-1 bg-neutral-900 hover:bg-neutral-800 text-white font-bold rounded-xl text-xs h-10"
                 >
                   Close
                 </Button>
