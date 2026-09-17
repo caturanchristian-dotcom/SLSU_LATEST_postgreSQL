@@ -151,7 +151,11 @@ overtimeRouter.get(["/overtime-requests", "/overtime"], async (req: any, res: an
 
     query += ` ORDER BY ot."overtimeDate" DESC, ot."createdAt" DESC`;
 
-    const allRows = await db.prepare(query).all(...params) as any[];
+    const rawRows = await db.prepare(query).all(...params) as any[];
+    const allRows = rawRows.map(r => ({
+      ...r,
+      overtimeDate: normalizeDateStr(r.overtimeDate)
+    }));
 
     // Calculate Summary Statistics for requested set
     const stats = {

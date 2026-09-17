@@ -32,10 +32,16 @@ export const OvertimeDetailsDialog: React.FC<OvertimeDetailsDialogProps> = ({
 
   let formattedDate = dateStr;
   try {
-    const parts = dateStr.split('-');
-    if (parts.length === 3) {
-      const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-      formattedDate = format(d, 'EEEE, MMMM dd, yyyy');
+    const isoMatch = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) {
+      const [, y, m, d] = isoMatch;
+      const dateObj = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
+      formattedDate = format(dateObj, 'EEEE, MMMM dd, yyyy');
+    } else {
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        formattedDate = format(d, 'EEEE, MMMM dd, yyyy');
+      }
     }
   } catch (e) {
     formattedDate = dateStr;

@@ -176,14 +176,65 @@ export const formatTimeTo12H = (timeStr: string) => {
   return `${String(displayHour).padStart(2, '0')}:${min} ${ampm}`;
 };
 
-export const getDayTypeInfo = (dateStr: string) => {
+export const formatServiceDate = (dateStr?: string | null) => {
+  if (!dateStr) return '—';
+  try {
+    const str = String(dateStr).trim();
+    const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) {
+      const [, y, m, d] = isoMatch;
+      const dateObj = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
+      return format(dateObj, 'MMM dd, yyyy');
+    }
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return format(d, 'MMM dd, yyyy');
+    }
+    return str;
+  } catch {
+    return String(dateStr);
+  }
+};
+
+export const formatFullServiceDate = (dateStr?: string | null) => {
+  if (!dateStr) return '—';
+  try {
+    const str = String(dateStr).trim();
+    const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) {
+      const [, y, m, d] = isoMatch;
+      const dateObj = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
+      return format(dateObj, 'EEEE, MMMM dd, yyyy');
+    }
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return format(d, 'EEEE, MMMM dd, yyyy');
+    }
+    return str;
+  } catch {
+    return String(dateStr);
+  }
+};
+
+export const getDayTypeInfo = (dateStr?: string | null) => {
   if (!dateStr) return { label: '', isWeekend: false, badgeText: '' };
   try {
-    const d = new Date(dateStr + 'T00:00:00');
+    const str = String(dateStr).trim();
+    const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    let d: Date;
+    if (isoMatch) {
+      const [, y, m, dNum] = isoMatch;
+      d = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(dNum, 10));
+    } else {
+      d = new Date(str);
+    }
+    if (isNaN(d.getTime())) {
+      return { label: '', isWeekend: false, badgeText: '' };
+    }
     const day = d.getDay();
     if (day === 0) return { label: 'Sunday', isWeekend: true, badgeText: 'SUN • Weekend' };
     if (day === 6) return { label: 'Saturday', isWeekend: true, badgeText: 'SAT • Weekend' };
-    return { label: format(d, 'EEEE'), isWeekend: false, badgeText: format(d, 'EEE') };
+    return { label: format(d, 'EEEE'), isWeekend: false, badgeText: `${format(d, 'EEE')} • Weekday` };
   } catch {
     return { label: '', isWeekend: false, badgeText: '' };
   }
@@ -379,10 +430,11 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
         return false;
       }
       // Date range filter
-      if (startDateFilter && r.overtimeDate < startDateFilter) {
+      const cleanDate = (r.overtimeDate || '').substring(0, 10);
+      if (startDateFilter && cleanDate < startDateFilter) {
         return false;
       }
-      if (endDateFilter && r.overtimeDate > endDateFilter) {
+      if (endDateFilter && cleanDate > endDateFilter) {
         return false;
       }
       // Search query using deferredSearch
@@ -777,7 +829,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
       doc.setFont('helvetica', 'bold');
       doc.text(`CONTROL NO: ${req.id}`, 20, 46);
       doc.setFont('helvetica', 'normal');
-      doc.text(`Date Filed: ${req.createdAt ? format(new Date(req.createdAt), 'MMMM dd, yyyy') : req.overtimeDate}`, 140, 46);
+      doc.text(`Date Filed: ${req.createdAt ? format(new Date(req.createdAt), 'MMMM dd, yyyy') : formatServiceDate(req.overtimeDate)}`, 140, 46);
 
       // Box for employee info
       autoTable(doc, {
@@ -786,7 +838,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
         body: [
           [
             `Name: ${req.lastName ? req.lastName + ', ' : ''}${req.firstName || 'Employee'}\nID No: ${req.employeeNo || req.employeeId}\nPosition: ${req.position || 'Staff'}\nDepartment: ${req.category || 'N/A'}\nCampus: ${req.campus || 'Hinunangan Campus'}`,
-            `Service Date: ${req.overtimeDate}\nTime Interval: ${formatTimeTo12H(req.startTime)} - ${formatTimeTo12H(req.endTime)}\nRequested Hours: ${req.requestedHours} hrs\nApproved Hours: ${req.approvedHours || 0} hrs\nPayable Units: ${req.payableHours || 0} hrs\nOfficial Status: ${req.status.toUpperCase()}`
+            `Service Date: ${formatFullServiceDate(req.overtimeDate)}\nTime Interval: ${formatTimeTo12H(req.startTime)} - ${formatTimeTo12H(req.endTime)}\nRequested Hours: ${req.requestedHours} hrs\nApproved Hours: ${req.approvedHours || 0} hrs\nPayable Units: ${req.payableHours || 0} hrs\nOfficial Status: ${req.status.toUpperCase()}`
           ]
         ],
         theme: 'grid',
@@ -853,7 +905,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
         "Employee Name": `${r.lastName ? r.lastName + ', ' : ''}${r.firstName || ''}`,
         "Department / Unit": r.category || r.position || 'N/A',
         "Campus": r.campus || 'SLSU Hinunangan Campus',
-        "Overtime Date": r.overtimeDate,
+        "Overtime Date": formatServiceDate(r.overtimeDate),
         "Day of Week": getDayTypeInfo(r.overtimeDate).label,
         "Start Time": formatTimeTo12H(r.startTime),
         "End Time": formatTimeTo12H(r.endTime),
@@ -900,7 +952,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
         i + 1,
         r.employeeNo || r.employeeId,
         `${r.lastName ? r.lastName + ', ' : ''}${r.firstName || ''}`,
-        r.overtimeDate,
+        formatServiceDate(r.overtimeDate),
         `${formatTimeTo12H(r.startTime)} - ${formatTimeTo12H(r.endTime)}`,
         `${r.requestedHours}h`,
         r.status === 'approved' ? `${r.payableHours || r.approvedHours}h` : '-',
@@ -1576,8 +1628,8 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                       {/* Overtime Date Column */}
                       <TableCell className="py-3.5 whitespace-nowrap">
                         <div className="flex flex-col">
-                          <span className="text-xs font-bold text-neutral-800 font-mono">
-                            {req.overtimeDate}
+                          <span className="text-xs font-bold text-neutral-900 tracking-tight">
+                            {formatServiceDate(req.overtimeDate)}
                           </span>
                           <div className="flex items-center gap-1 mt-0.5">
                             <span className={cn(
@@ -2071,7 +2123,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                 <div className="grid grid-cols-2 gap-2 text-xs bg-white p-2.5 rounded-xl border border-neutral-200/60">
                   <div>
                     <span className="text-neutral-400 block text-[10px] uppercase font-bold">Service Date:</span>
-                    <span className="font-bold text-neutral-800 font-mono">{selectedRequest.overtimeDate}</span>
+                    <span className="font-bold text-neutral-800">{formatFullServiceDate(selectedRequest.overtimeDate)}</span>
                   </div>
                   <div>
                     <span className="text-neutral-400 block text-[10px] uppercase font-bold">Time Interval:</span>
@@ -2305,7 +2357,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
 
                 <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200/70">
                   <span className="text-[10px] font-bold text-neutral-400 uppercase">Service Date &amp; Span</span>
-                  <span className="font-bold text-neutral-900 block mt-0.5 font-mono">{selectedRequest.overtimeDate}</span>
+                  <span className="font-bold text-neutral-900 block mt-0.5">{formatFullServiceDate(selectedRequest.overtimeDate)}</span>
                   <span className="text-[10px] text-neutral-600 font-mono block">
                     {formatTimeTo12H(selectedRequest.startTime)} – {formatTimeTo12H(selectedRequest.endTime)}
                   </span>
