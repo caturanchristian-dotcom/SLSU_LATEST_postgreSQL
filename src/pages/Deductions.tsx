@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useRealtime } from '../hooks/useRealtime';
 import * as XLSX from 'xlsx';
 import { api } from '../lib/api';
@@ -21,7 +21,9 @@ import {
   Maximize2,
   Minimize2,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
@@ -73,26 +75,38 @@ const capitalizeName = (str: string): string => {
     .join(' ');
 };
 
-const MATRIX_COLUMNS = [
-  { id: 'policy', label: 'GSIS POLICY LOAN', typeName: 'Policy Loan' },
-  { id: 'consol', label: 'GSIS CONSOL LOAN', typeName: 'Consol Loan' },
-  { id: 'mplLite', label: 'GSIS MPL LITE', typeName: 'MPL Lite' },
-  { id: 'mpl', label: 'GSIS MPL', typeName: 'Multipurpose Loan' },
-  { id: 'cpl', label: 'GSIS CPL', typeName: 'Computer Purchase Loan' },
-  { id: 'gfal', label: 'GSIS GFAL', typeName: 'GFAL' },
-  { id: 'emergency', label: 'GSIS EMERGENCY LOAN', typeName: 'Emergency Loan' },
-  { id: 'gsisPrem', label: 'GSIS PREM PERSONAL', typeName: 'GSIS Personal Premium' },
-  { id: 'educAsst', label: 'GSIS EDUC ASST.', typeName: 'Educational Assistance' },
-  { id: 'pagibigPersonal', label: 'PAG-IBIG PERSONAL(EE)', typeName: 'Pag-ibig Personal Contribution' },
-  { id: 'pagibigMpl', label: 'PAG-IBIG MPL', typeName: 'Pag-ibig MPL' },
-  { id: 'sss', label: 'SSS CONTRIBUTION', typeName: 'SSS Contribution/Loan' },
-  { id: 'mp2', label: 'PAG-IBIG MP2', typeName: 'Pag-ibig MP2' },
-  { id: 'philhealth', label: 'PHILHLTH CONT', typeName: 'PhilHealth Contribution' },
-  { id: 'csb', label: 'CSB SAL. LOAN', typeName: 'CSB Loan' },
-  { id: 'tax', label: 'TAX WITHHELD', typeName: 'Withholding Tax' },
+const BASE_COLUMNS = [
+  { id: 'policy', label: 'GSIS POLICY LOAN', typeName: 'Policy Loan', isDefault: true },
+  { id: 'consol', label: 'GSIS CONSOL LOAN', typeName: 'Consol Loan', isDefault: true },
+  { id: 'mplLite', label: 'GSIS MPL LITE', typeName: 'MPL Lite', isDefault: true },
+  { id: 'mpl', label: 'GSIS MPL', typeName: 'Multipurpose Loan', isDefault: true },
+  { id: 'cpl', label: 'GSIS CPL', typeName: 'Computer Purchase Loan', isDefault: true },
+  { id: 'gfal', label: 'GSIS GFAL', typeName: 'GFAL', isDefault: true },
+  { id: 'emergency', label: 'GSIS EMERGENCY LOAN', typeName: 'Emergency Loan', isDefault: true },
+  { id: 'gsisPrem', label: 'GSIS PREM PERSONAL', typeName: 'GSIS Personal Premium', isDefault: true },
+  { id: 'educAsst', label: 'GSIS EDUC ASST.', typeName: 'Educational Assistance', isDefault: true },
+  { id: 'pagibigPersonal', label: 'PAG-IBIG PERSONAL(EE)', typeName: 'Pag-ibig Personal Contribution', isDefault: true },
+  { id: 'pagibigMpl', label: 'PAG-IBIG MPL', typeName: 'Pag-ibig MPL', isDefault: true },
+  { id: 'sss', label: 'SSS CONTRIBUTION', typeName: 'SSS Contribution/Loan', isDefault: true },
+  { id: 'mp2', label: 'PAG-IBIG MP2', typeName: 'Pag-ibig MP2', isDefault: true },
+  { id: 'philhealth', label: 'PHILHLTH CONT', typeName: 'PhilHealth Contribution', isDefault: true },
+  { id: 'csb', label: 'CSB SAL. LOAN', typeName: 'CSB Loan', isDefault: true },
+  { id: 'tax', label: 'TAX WITHHELD', typeName: 'Withholding Tax', isDefault: true },
 ];
 
-const getEmployeeDeductionObj = (empDeds: any[], columnId: string) => {
+const getEmployeeDeductionObj = (empDeds: any[], column: { id: string; typeName: string; isCustom?: boolean }) => {
+  if (!empDeds || !Array.isArray(empDeds)) return null;
+
+  const colTarget = String(column.typeName || column.id || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  // 1. Direct match with deduction.type or deduction.typeName
+  const directMatch = empDeds.find(d => {
+    const dT = String(d.type || d.typeName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return dT === colTarget;
+  });
+  if (directMatch) return directMatch;
+
+  // 2. Fuzzy / alias mappings for standard base columns
   const mappings: { [key: string]: string[] } = {
     policy: ['policyloan', 'policy loan', 'gsis policy loan', 'policy_loan', 'dedpolicyloan'],
     consol: ['consoloan', 'consol loan', 'consolidation loan', 'conso loan', 'consolidation', 'dedconsoloan'],
@@ -112,37 +126,27 @@ const getEmployeeDeductionObj = (empDeds: any[], columnId: string) => {
     tax: ['tax', 'dedtaxwithheld', 'withholding tax', 'tax withheld', 'wtax', 'income tax', 'withholding_tax', 'tax_withheld', 'wtax withheld', 'withholding tax(ee)', 'taxwithheld']
   };
 
-  const colKeys = mappings[columnId] || [];
-  const matched = empDeds.find(d => {
-    const dT = String(d.type || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    return colKeys.some(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === dT);
-  });
-  return matched || null;
+  const colKeys = mappings[column.id] || [];
+  if (colKeys.length > 0) {
+    const matched = empDeds.find(d => {
+      const dT = String(d.type || d.typeName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      return colKeys.some(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === dT);
+    });
+    if (matched) return matched;
+  }
+
+  return null;
 };
 
-const getEmployeeOtherDeductionsTotal = (empDeds: any[]) => {
-  const mappings = [
-    'policyloan', 'policy loan', 'gsis policy loan', 'policy_loan', 'dedpolicyloan',
-    'consoloan', 'consol loan', 'consolidation loan', 'conso loan', 'consolidation', 'dedconsoloan',
-    'mpllite', 'mpl_lite', 'mpl-lite', 'mpl_lite rlp', 'mplliterlp', 'mpl lite', 'multi-purpose loan lite', 'dedmpllite', 'mpl_lite_rlp',
-    'mpl', 'multipurpose loan', 'multi purpose loan', 'multi-purpose loan', 'mpl loan', 'dedmpl', 'gsis multipurpose loan',
-    'cpl', 'computer purchase loan', 'computer loan', 'cpl loan', 'dedcpl', 'gsis computer loan', 'cpl_loan',
-    'gfal', 'gsis financial assistance loan', 'gsis financial assistance', 'gfal loan', 'dedgfal',
-    'emrgyln', 'gsis emergency loan', 'emergency loan', 'emrgy ln', 'emrgy_ln', 'emergency_loan', 'dedemergencyloan',
-    'gsisprem', 'gsispersonal', 'gsisprempersonal', 'gsisEE', 'gsis personal', 'gsis contribution', 'gsis premium', 'gsis ee', 'dedgsisprempersonal', 'gsis prem personal', 'gsis personal share', 'gsis_prem', 'gsis personal premium',
-    'educasst', 'educ_asst', 'educational assistance', 'educational assistance loan', 'educ asst', 'dededucasst', 'gsis educational assistance',
-    'pagibigprem', 'pagibigpersonal', 'pagibigpersonalee', 'pagibigregular', 'pagibigee', 'hdmfpersonal', 'hdmfpersonalee', 'hdmfee', 'pagibig regular', 'pagibig personal', 'pagibig contribution', 'pagibig premium', 'pagibig ee', 'hdmf personal', 'hdmf contribution', 'hdmf ee', 'dedpagibigpersonal', 'pag-ibig personal', 'pag-ibig ee', 'pag-ibig regular', 'pagibig_prem', 'hdmf premium', 'pag-ibig personal(ee)',
-    'pagibigmpl', 'pagibig_mpl', 'hdmf_mpl', 'pag-ibig mpl', 'dedpagibigmpl', 'hdmf mpl', 'pag-ibig mpl',
-    'sss', 'dedsss', 'sss contribution', 'sss premium', 'sss ee', 'sss_prem', 'sss share',
-    'mp2', 'dedpagibigmp2', 'pagibig mp2', 'pag-ibig mp2', 'mp2 contribution', 'pagibig_mp2', 'hdmf mp2',
-    'philhealth', 'dedphilhealthcont', 'philhealth contribution', 'philhealth premium', 'philhealth ee', 'philhealth cont', 'philhealth_prem', 'ph_prem', 'phee', 'ph ee', 'philhealth ee share', 'philhealth cont.',
-    'csbloan', 'dedcsbloan', 'csb loan', 'csb', 'csbsalloan', 'csb sal loan',
-    'tax', 'dedtaxwithheld', 'withholding tax', 'tax withheld', 'wtax', 'income tax', 'withholding_tax', 'tax_withheld', 'wtax withheld', 'withholding tax(ee)', 'taxwithheld'
-  ];
+const getEmployeeOtherDeductionsTotal = (empDeds: any[], activeColumns: any[]) => {
+  if (!empDeds || !Array.isArray(empDeds)) return 0;
   
   const unmapped = empDeds.filter(d => {
-    const dT = String(d.type || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    return !mappings.some(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === dT);
+    const isMatchedInAnyCol = activeColumns.some(col => {
+      const match = getEmployeeDeductionObj([d], col);
+      return match !== null;
+    });
+    return !isMatchedInAnyCol;
   });
   
   return unmapped.reduce((sum, d) => sum + Number(d.amount || 0), 0);
@@ -165,6 +169,9 @@ const Deductions = () => {
   const [isImporting, setIsImporting] = useState(false);
   const [importSearch, setImportSearch] = useState('');
   const [isDeductionDragging, setIsDeductionDragging] = useState(false);
+
+  // Selected cell state for Excel-like active cell indicator
+  const [selectedCell, setSelectedCell] = useState<{ employeeId: string; columnId: string } | null>(null);
 
   // Cell Edit Modal State
   const [isCellEditOpen, setIsCellEditOpen] = useState(false);
@@ -216,6 +223,127 @@ const Deductions = () => {
   const handleTableScroll = () => {
     updateScrollButtons();
   };
+
+  // Dynamic columns computation: Base 16 columns + any added Deduction Types
+  const dynamicColumns = useMemo(() => {
+    const cols: Array<{
+      id: string;
+      label: string;
+      typeName: string;
+      isDefault?: boolean;
+      isCustom?: boolean;
+      typeId?: string | null;
+      description?: string;
+    }> = [...BASE_COLUMNS];
+
+    // Add types defined in deductionTypes
+    (Array.isArray(deductionTypes) ? deductionTypes : []).forEach(type => {
+      const typeNameClean = String(type.name || '').trim();
+      if (!typeNameClean) return;
+      const normName = typeNameClean.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+      const isBase = BASE_COLUMNS.some(baseCol => {
+        const normCol = baseCol.typeName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const normId = baseCol.id.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return normName === normCol || normName === normId;
+      });
+
+      if (!isBase) {
+        cols.push({
+          id: `type_${type.id || normName}`,
+          label: typeNameClean.toUpperCase(),
+          typeName: typeNameClean,
+          isCustom: true,
+          typeId: type.id,
+          description: type.description || ''
+        });
+      }
+    });
+
+    // Also include any deductions that might have custom type not in deductionTypes table
+    (Array.isArray(deductions) ? deductions : []).forEach(ded => {
+      const dType = String(ded.type || ded.typeName || '').trim();
+      if (!dType) return;
+      const normDType = dType.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+      const exists = cols.some(col => {
+        const normCol = col.typeName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const normId = col.id.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return normDType === normCol || normDType === normId;
+      });
+
+      if (!exists) {
+        cols.push({
+          id: `ded_${normDType}`,
+          label: dType.toUpperCase(),
+          typeName: dType,
+          isCustom: true,
+          typeId: null,
+          description: ''
+        });
+      }
+    });
+
+    return cols;
+  }, [deductionTypes, deductions]);
+
+  // Toggle state to hide columns where every employee value is ₱0.00
+  const [hideEmptyColumns, setHideEmptyColumns] = useState(false);
+
+  // Helper to extract numeric deduction amount safely
+  const getDeductionNumericAmount = (empDeds: any[], col: any): number => {
+    const obj = getEmployeeDeductionObj(empDeds, col);
+    if (!obj || obj.amount === undefined || obj.amount === null) return 0;
+    let val = obj.amount;
+    if (typeof val === 'string') {
+      val = val.replace(/[^0-9.-]/g, '');
+    }
+    const num = Number(val);
+    return isNaN(num) ? 0 : Math.abs(num);
+  };
+
+  // Check if a deduction column has ANY employee with amount > 0
+  const isColumnNonEmpty = (col: any): boolean => {
+    return employees.some(emp => {
+      const empDeds = deductions.filter(d => d.employeeId === emp.id);
+      const amt = getDeductionNumericAmount(empDeds, col);
+      return amt > 0.0001;
+    });
+  };
+
+  // Check if other deductions column has any non-zero value across all employees
+  const hasOtherDeductionsNonZero = useMemo(() => {
+    return employees.some(emp => {
+      const empDeds = deductions.filter(d => d.employeeId === emp.id);
+      return getEmployeeOtherDeductionsTotal(empDeds, dynamicColumns) > 0.0001;
+    });
+  }, [employees, deductions, dynamicColumns]);
+
+  // Determine whether OTHER DEDS column is displayed
+  const showOtherDedsColumn = !hideEmptyColumns || hasOtherDeductionsNonZero;
+
+  // Filter columns to display based on hideEmptyColumns toggle
+  const displayedColumns = useMemo(() => {
+    if (!hideEmptyColumns) {
+      return dynamicColumns;
+    }
+    return dynamicColumns.filter(col => isColumnNonEmpty(col));
+  }, [hideEmptyColumns, dynamicColumns, employees, deductions]);
+
+  // Count of columns currently hidden
+  const emptyColumnCount = useMemo(() => {
+    const emptyCols = dynamicColumns.filter(col => !isColumnNonEmpty(col)).length;
+    const emptyOther = !hasOtherDeductionsNonZero ? 1 : 0;
+    return emptyCols + emptyOther;
+  }, [dynamicColumns, employees, deductions, hasOtherDeductionsNonZero]);
+
+  // Update scroll buttons when columns view is toggled
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      updateScrollButtons();
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [hideEmptyColumns, displayedColumns.length]);
 
   const scrollTable = (direction: 'left' | 'right') => {
     const el = tableContainerRef.current;
@@ -724,7 +852,9 @@ const Deductions = () => {
 
   const handleCellClick = (employee: any, column: any) => {
     const empDeds = deductions.filter(d => d.employeeId === employee.id);
-    const existingObj = getEmployeeDeductionObj(empDeds, column.id);
+    const existingObj = getEmployeeDeductionObj(empDeds, column);
+
+    setSelectedCell({ employeeId: employee.id, columnId: column.id });
 
     setCellEditData({
       employeeId: employee.id,
@@ -820,6 +950,19 @@ const Deductions = () => {
           <p className="text-neutral-500">Interactive matrix for active loans, insurance, and other payroll subtractions.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {/* Add new Deduction Type button */}
+          <Button 
+            onClick={() => {
+              setEditingType(null);
+              setTypeFormData({ name: '', description: '' });
+              setIsAddTypeOpen(true);
+            }} 
+            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 font-semibold text-xs h-10 px-4 rounded-xl shadow-xs transition-colors cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            Add new Deduction Type
+          </Button>
+
           {/* Clear All Deductions */}
           <Button 
             variant="outline" 
@@ -1173,20 +1316,20 @@ const Deductions = () => {
         </div>
       </div>
 
-      {/* Complete Horizontal Matrix Table Container with Fullscreen & Hover Arrows */}
+      {/* Complete Horizontal Matrix Table Container with Fullscreen & Excel Grid Styling */}
       <div className={cn(
-        "bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden transition-all duration-200",
+        "bg-white rounded-2xl border border-neutral-200/90 shadow-sm overflow-hidden transition-all duration-200",
         isFullscreen && "fixed inset-0 z-[1000] rounded-none border-none p-2 sm:p-3 bg-white flex flex-col h-screen w-screen"
       )}>
-        {/* Top Bar: In fullscreen, shows search, filter, count, and exit fullscreen */}
+        {/* Top Control Bar */}
         {isFullscreen ? (
-          <div className="px-4 py-3 bg-neutral-900 text-white rounded-lg shadow-sm flex items-center justify-between gap-4 shrink-0 mb-2.5">
+          <div className="px-4 py-3 bg-neutral-900 text-white rounded-xl shadow-sm flex items-center justify-between gap-4 shrink-0 mb-2.5">
             <div className="flex items-center gap-4 flex-1 max-w-3xl">
               <div className="relative flex-1">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
                 <Input 
-                  placeholder="Search employee name, ID or category..." 
-                  className="pl-11 h-10 bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-400 text-sm focus-visible:ring-neutral-400 font-sans"
+                  placeholder="Search by employee name or ID..." 
+                  className="pl-10 h-10 bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-400 text-xs focus-visible:ring-neutral-400 font-sans rounded-xl"
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
                   autoFocus
@@ -1194,7 +1337,7 @@ const Deductions = () => {
                 {searchTerm && (
                   <button 
                     onClick={() => setSearchTerm('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white text-sm font-bold cursor-pointer"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white text-xs font-bold cursor-pointer"
                   >
                     ✕
                   </button>
@@ -1207,48 +1350,83 @@ const Deductions = () => {
                     if (v) setFilterCategory(v);
                   }}
                 >
-                  <SelectTrigger className="w-[180px] bg-neutral-800 border-neutral-700 text-white h-10 text-xs">
+                  <SelectTrigger className="w-[140px] bg-neutral-800 border-neutral-700 text-white h-10 text-xs rounded-xl">
                     <SelectValue placeholder="All Categories" />
                   </SelectTrigger>
                   <SelectContent className="bg-neutral-800 text-white border-neutral-700">
-                    <SelectItem value="all" className="hover:bg-neutral-700 text-white">All Categories</SelectItem>
+                    <SelectItem value="all" className="hover:bg-neutral-700 text-white">all</SelectItem>
                     {uniqueCategories.map(cat => (
                       <SelectItem key={cat} value={cat} className="hover:bg-neutral-700 text-white">{cat}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="text-sm text-neutral-200 font-medium whitespace-nowrap hidden sm:block">
-                <span className="font-bold text-white text-base">{filteredEmployees.length}</span> of {employees.length} Staff
+              <div className="text-xs text-neutral-300 font-semibold whitespace-nowrap hidden sm:block">
+                <span className="font-bold text-white text-sm">{filteredEmployees.length}</span> Staff
               </div>
             </div>
 
             <div className="flex items-center gap-2">
+              {/* Hide/Show Empty Columns Button in Fullscreen */}
+              <Button 
+                variant="outline" 
+                size="default" 
+                onClick={() => setHideEmptyColumns(!hideEmptyColumns)} 
+                className={cn(
+                  "gap-2 h-10 px-3.5 font-sans shadow-sm font-semibold text-xs transition-colors cursor-pointer rounded-xl",
+                  hideEmptyColumns 
+                    ? "bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border-amber-500/50" 
+                    : "bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border-neutral-700"
+                )}
+                title={hideEmptyColumns ? "Show all deduction columns" : "Hide deduction columns where all values are ₱0.00"}
+                aria-label={hideEmptyColumns ? "Show all deduction columns" : "Hide deduction columns where all values are ₱0.00"}
+              >
+                {hideEmptyColumns ? (
+                  <Eye className="w-4 h-4 text-amber-300" />
+                ) : (
+                  <EyeOff className="w-4 h-4 text-neutral-400" />
+                )}
+                <span>{hideEmptyColumns ? "Show All Columns" : "Hide Empty Columns"}</span>
+                {hideEmptyColumns && emptyColumnCount > 0 && (
+                  <span className="bg-amber-400/30 text-amber-200 font-bold px-1.5 py-0.5 rounded text-[10px] leading-none">
+                    {emptyColumnCount} hidden
+                  </span>
+                )}
+              </Button>
+
               <Button 
                 variant="outline" 
                 size="default" 
                 onClick={toggleFullscreen} 
-                className="gap-2 h-10 px-4 bg-red-600 hover:bg-red-700 text-white border-red-500 hover:border-red-600 font-sans shadow-sm font-semibold text-sm transition-colors cursor-pointer"
+                className="gap-2 h-10 px-4 bg-red-600 hover:bg-red-700 text-white border-red-500 hover:border-red-600 font-sans shadow-sm font-semibold text-xs transition-colors cursor-pointer rounded-xl"
                 title="Exit Fullscreen (ESC)"
               >
                 <Minimize2 className="w-4 h-4" />
                 <span>Exit Fullscreen</span>
-                <kbd className="hidden sm:inline-block text-[10px] bg-red-800/80 text-white px-2 py-0.5 rounded font-mono border border-red-700/50">ESC</kbd>
+                <kbd className="hidden sm:inline-block text-[10px] bg-red-800/80 text-white px-1.5 py-0.5 rounded font-mono border border-red-700/50">ESC</kbd>
               </Button>
             </div>
           </div>
         ) : (
-          <div className="p-4 border-b border-neutral-100 bg-neutral-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="p-4 border-b border-neutral-200/80 bg-white flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
               <Input 
                 placeholder="Search by employee name or ID..." 
-                className="pl-10 bg-white border-neutral-300 h-9"
+                className="pl-10 pr-4 bg-white border border-neutral-200 h-10 rounded-xl text-xs placeholder:text-neutral-400 focus-visible:ring-1 focus-visible:ring-neutral-400"
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
               />
+              {searchTerm && (
+                <button 
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 text-xs font-bold cursor-pointer"
+                >
+                  ✕
+                </button>
+              )}
             </div>
-            <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-2">
                 <Filter className="w-4 h-4 text-neutral-400 shrink-0" />
                 <Select 
@@ -1257,11 +1435,11 @@ const Deductions = () => {
                     if (v) setFilterCategory(v);
                   }}
                 >
-                  <SelectTrigger className="w-[180px] bg-white border-neutral-300 h-9 text-xs">
-                    <SelectValue placeholder="All Categories" />
+                  <SelectTrigger className="w-[140px] sm:w-[150px] bg-white border border-neutral-200 h-10 text-xs rounded-xl text-neutral-700 font-medium">
+                    <SelectValue placeholder="all" />
                   </SelectTrigger>
                   <SelectContent className="bg-white">
-                    <SelectItem value="all">All Employment Categories</SelectItem>
+                    <SelectItem value="all">all</SelectItem>
                     {uniqueCategories.map(cat => (
                       <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                     ))}
@@ -1271,7 +1449,7 @@ const Deductions = () => {
                   <Button 
                     variant="ghost" 
                     size="sm" 
-                    className="text-neutral-500 text-xs px-2 h-9"
+                    className="text-neutral-500 text-xs px-2 h-10 hover:text-neutral-800"
                     onClick={() => {
                       setSearchTerm('');
                       setFilterCategory('all');
@@ -1282,22 +1460,47 @@ const Deductions = () => {
                 )}
               </div>
 
-              <div className="h-5 w-px bg-neutral-200 hidden sm:block" />
+              <div className="text-xs font-semibold text-neutral-600 whitespace-nowrap pl-1">
+                {filteredEmployees.length} Staff
+              </div>
+
+              {/* Hide/Show Empty Columns Button in Normal View */}
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setHideEmptyColumns(!hideEmptyColumns)} 
+                className={cn(
+                  "gap-2 h-10 px-3.5 border rounded-xl font-medium text-xs shadow-2xs transition-colors cursor-pointer",
+                  hideEmptyColumns 
+                    ? "bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100 hover:border-amber-400" 
+                    : "bg-white border-neutral-200 text-neutral-700 hover:bg-neutral-50"
+                )}
+                title={hideEmptyColumns ? "Show all deduction columns" : "Hide deduction columns where all values are ₱0.00"}
+                aria-label={hideEmptyColumns ? "Show all deduction columns" : "Hide deduction columns where all values are ₱0.00"}
+              >
+                {hideEmptyColumns ? (
+                  <Eye className="w-3.5 h-3.5 text-amber-700" />
+                ) : (
+                  <EyeOff className="w-3.5 h-3.5 text-neutral-600" />
+                )}
+                <span>{hideEmptyColumns ? "Show All Columns" : "Hide Empty Columns"}</span>
+                {hideEmptyColumns && emptyColumnCount > 0 && (
+                  <span className="bg-amber-200/80 text-amber-900 font-bold px-1.5 py-0.5 rounded-md text-[10px] leading-none ml-0.5">
+                    {emptyColumnCount} hidden
+                  </span>
+                )}
+              </Button>
 
               <Button 
                 variant="outline" 
                 size="sm" 
                 onClick={toggleFullscreen} 
-                className="gap-2 h-9 border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-50 font-sans shadow-2xs font-semibold text-xs transition-colors"
+                className="gap-2 h-10 px-3.5 border border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50 rounded-xl font-medium text-xs shadow-2xs transition-colors"
                 title="Expand deductions matrix to fullscreen view"
               >
-                <Maximize2 className="w-3.5 h-3.5 text-neutral-700" />
+                <Maximize2 className="w-3.5 h-3.5 text-neutral-600" />
                 <span>Fullscreen</span>
               </Button>
-
-              <div className="text-xs font-medium text-neutral-500 whitespace-nowrap pl-1">
-                {filteredEmployees.length} Staff
-              </div>
             </div>
           </div>
         )}
@@ -1314,90 +1517,113 @@ const Deductions = () => {
           }}
           onMouseLeave={() => setIsTableHovered(false)}
         >
-          {/* Floating Left Scroll Arrow */}
-          <button
-            type="button"
-            onClick={() => scrollTable('left')}
-            disabled={!canScrollLeft}
-            className={cn(
-              "absolute left-2 sm:left-[288px] top-1/2 -translate-y-1/2 z-[60] flex items-center justify-center w-11 h-11 rounded-full bg-neutral-900/90 hover:bg-neutral-950 text-white shadow-2xl border border-white/30 backdrop-blur-md transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer group/btn disabled:opacity-0 disabled:pointer-events-none",
-              isTableHovered && canScrollLeft ? "opacity-100 scale-100" : "opacity-0 scale-90 pointer-events-none"
-            )}
-            title="Scroll Left"
-            aria-label="Scroll table left"
-          >
-            <ChevronLeft className="w-6 h-6 text-white stroke-[2.5] transition-transform group-hover/btn:-translate-x-0.5" />
-          </button>
-
-          {/* Floating Right Scroll Arrow */}
+          {/* Floating Right Scroll Arrow Button (like Excel navigation arrow) */}
           <button
             type="button"
             onClick={() => scrollTable('right')}
-            disabled={!canScrollRight}
-            className={cn(
-              "absolute right-3 top-1/2 -translate-y-1/2 z-[60] flex items-center justify-center w-11 h-11 rounded-full bg-neutral-900/90 hover:bg-neutral-950 text-white shadow-2xl border border-white/30 backdrop-blur-md transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer group/btn disabled:opacity-0 disabled:pointer-events-none",
-              isTableHovered && canScrollRight ? "opacity-100 scale-100" : "opacity-0 scale-90 pointer-events-none"
-            )}
-            title="Scroll Right"
-            aria-label="Scroll table right"
+            className="absolute right-3.5 top-1/2 -translate-y-1/2 z-40 w-9 h-9 rounded-full bg-[#1e293b] hover:bg-neutral-900 text-white shadow-xl flex items-center justify-center cursor-pointer transition-all hover:scale-105 active:scale-95 border border-white/20"
+            title="Scroll spreadsheet right"
+            aria-label="Scroll spreadsheet right"
           >
-            <ChevronRight className="w-6 h-6 text-white stroke-[2.5] transition-transform group-hover/btn:translate-x-0.5" />
+            <ChevronRight className="w-5 h-5 text-white stroke-[2.5]" />
           </button>
+
+          {/* Floating Left Scroll Arrow (when scrolled) */}
+          {canScrollLeft && (
+            <button
+              type="button"
+              onClick={() => scrollTable('left')}
+              className="absolute left-[315px] top-1/2 -translate-y-1/2 z-40 w-9 h-9 rounded-full bg-[#1e293b] hover:bg-neutral-900 text-white shadow-xl flex items-center justify-center cursor-pointer transition-all hover:scale-105 active:scale-95 border border-white/20"
+              title="Scroll spreadsheet left"
+              aria-label="Scroll spreadsheet left"
+            >
+              <ChevronLeft className="w-5 h-5 text-white stroke-[2.5]" />
+            </button>
+          )}
 
           <div 
             ref={tableContainerRef}
             onScroll={handleTableScroll}
             className={cn(
               "overflow-auto custom-scrollbar w-full select-none",
-              isFullscreen ? "flex-1 min-h-0 h-full max-h-[calc(100vh-60px)]" : "max-h-[600px]"
+              isFullscreen ? "flex-1 min-h-0 h-full max-h-[calc(100vh-65px)]" : "max-h-[640px]"
             )}
           >
-            <table className={cn(
-              "w-full border-collapse border-spacing-0 text-[11.5px] select-text transition-all",
-              isFullscreen && "spreadsheet-fullscreen-mode text-[13.5px]"
-            )}>
-              <thead className="sticky top-0 bg-white z-40">
-                {/* Header Row 1: Navy category and Spanning "DEDUCTIONS" Banner */}
-                <tr className="border-b-0 hover:bg-transparent">
+            <table className="w-full border-collapse border-spacing-0 text-xs select-text">
+              <thead className="sticky top-0 z-30">
+                <tr className="border-b border-neutral-200">
+                  {/* Serial No Header: Deep Navy */}
                   <th 
-                    rowSpan={2} 
-                    className="sticky left-0 top-0 z-50 bg-[#12284c] text-white font-bold text-xs uppercase tracking-wider text-center align-middle border-r border-[#1a3a6b]"
-                    style={{ minWidth: '60px', width: '60px', height: '64px' }}
+                    className="sticky left-0 top-0 z-50 bg-[#102747] text-white font-extrabold text-[11px] uppercase tracking-wider text-center align-middle border-r border-[#1a3a6b] py-3.5 px-2"
+                    style={{ minWidth: '70px', width: '70px' }}
                   >
-                    Serial No.
+                    <div className="leading-tight">
+                      <div>SERIAL</div>
+                      <div>NO.</div>
+                    </div>
                   </th>
-                  <th 
-                    rowSpan={2} 
-                    className="sticky left-[60px] top-0 z-50 bg-[#12284c] text-white font-bold text-xs uppercase tracking-wider text-left align-middle border-r border-[#1a3a6b]"
-                    style={{ minWidth: '220px', width: '220px' }}
-                  >
-                    Name
-                  </th>
-                  <th 
-                    colSpan={MATRIX_COLUMNS.length + 1} 
-                    className="sticky top-0 z-30 bg-rose-50 border-b border-rose-100 text-rose-800 text-center font-extrabold text-xs tracking-[0.25em] uppercase py-2 leading-none"
-                    style={{ height: '34px' }}
-                  >
-                    DEDUCTIONS
-                  </th>
-                </tr>
 
-                {/* Header Row 2: Sub-headers for specific deductions */}
-                <tr className="border-b border-neutral-200 hover:bg-transparent">
-                  {MATRIX_COLUMNS.map((col) => (
+                  {/* Name Header: Deep Navy */}
+                  <th 
+                    className="sticky left-[70px] top-0 z-50 bg-[#102747] text-white font-extrabold text-[11px] uppercase tracking-wider text-left align-middle border-r border-[#1a3a6b] py-3.5 pl-4 pr-2"
+                    style={{ minWidth: '240px', width: '240px' }}
+                  >
+                    NAME
+                  </th>
+
+                  {/* Deduction Matrix Headers: Pale Blush Pink with Dark Maroon Text */}
+                  {displayedColumns.map((col) => (
                     <th 
                       key={col.id} 
-                      className="sticky top-[34px] z-30 bg-rose-50/90 text-[#71161d] font-extrabold text-[10px] text-center leading-normal uppercase px-2 py-3 border-r border-rose-100/60"
-                      style={{ minWidth: '130px', width: '140px', height: '34px' }}
+                      className="sticky top-0 z-30 bg-[#fef4f4] text-[#781827] font-extrabold text-[10.5px] text-center leading-snug uppercase px-3 py-3.5 border-r border-rose-100/80 whitespace-normal group/colhead"
+                      style={{ minWidth: '135px', width: '140px' }}
                     >
-                      {col.label}
+                      <div className="flex items-center justify-center gap-1">
+                        <span>{col.label}</span>
+                        {col.isCustom && col.typeId && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteType(col.typeId!);
+                            }}
+                            className="opacity-0 group-hover/colhead:opacity-100 p-0.5 text-rose-400 hover:text-rose-700 hover:bg-rose-100 rounded cursor-pointer transition-opacity"
+                            title={`Remove "${col.label}" deduction type`}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     </th>
                   ))}
+
+                  {showOtherDedsColumn && (
+                    <th 
+                      className="sticky top-0 z-30 bg-[#fef4f4] text-[#781827] font-extrabold text-[10.5px] text-center leading-snug uppercase px-3 py-3.5 border-r border-rose-100/80"
+                      style={{ minWidth: '130px', width: '135px' }}
+                    >
+                      OTHER DEDS
+                    </th>
+                  )}
+
+                  {/* Quick Add Deduction Type Column Header */}
                   <th 
-                    className="sticky top-[34px] z-30 bg-rose-50/90 text-[#71161d] font-extrabold text-[10px] text-center leading-normal uppercase px-2 py-3"
-                    style={{ minWidth: '120px', width: '130px' }}
+                    className="sticky top-0 z-30 bg-[#fef4f4] text-center border-r border-rose-100/80 p-2"
+                    style={{ minWidth: '140px', width: '140px' }}
                   >
-                    OTHER DEDS
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setEditingType(null);
+                        setTypeFormData({ name: '', description: '' });
+                        setIsAddTypeOpen(true);
+                      }}
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg border border-dashed border-emerald-500/80 bg-emerald-50/80 hover:bg-emerald-100 text-emerald-800 font-bold text-[10.5px] tracking-wide transition-all cursor-pointer shadow-2xs hover:scale-[1.02]"
+                      title="Add new deduction type column"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ Add Type</span>
+                    </button>
                   </th>
                 </tr>
               </thead>
@@ -1405,14 +1631,14 @@ const Deductions = () => {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={MATRIX_COLUMNS.length + 3} className="text-center py-12 text-neutral-500">
-                      Loading spreadsheet deductions...
+                    <td colSpan={displayedColumns.length + (showOtherDedsColumn ? 1 : 0) + 3} className="text-center py-16 text-neutral-400 font-medium text-xs">
+                      Loading deductions matrix...
                     </td>
                   </tr>
                 ) : filteredEmployees.length === 0 ? (
                   <tr>
-                    <td colSpan={MATRIX_COLUMNS.length + 3} className="text-center py-12 text-neutral-500">
-                      No matching employee records.
+                    <td colSpan={displayedColumns.length + (showOtherDedsColumn ? 1 : 0) + 3} className="text-center py-16 text-neutral-400 font-medium text-xs">
+                      No matching employee records found.
                     </td>
                   </tr>
                 ) : (
@@ -1420,74 +1646,104 @@ const Deductions = () => {
                     const empDeds = deductions.filter(d => d.employeeId === emp.id);
 
                     return (
-                      <tr key={emp.id} className="hover:bg-neutral-50/60 transition-colors border-b border-neutral-100 group">
-                        {/* Serial Number */}
+                      <tr 
+                        key={emp.id} 
+                        className="border-b border-neutral-100 hover:bg-neutral-50/50 transition-colors group"
+                      >
+                        {/* Serial Number: Centered bold text with crisp border */}
                         <td 
-                          className="sticky left-0 z-20 font-mono text-xs text-center font-bold text-neutral-500 border-r border-[#1a3a6b]/20 bg-[#f9fafb] group-hover:bg-[#f3f4f6]"
-                          style={{ minWidth: '60px', width: '60px' }}
+                          className="sticky left-0 z-20 bg-white group-hover:bg-[#fafbfc] text-center font-bold text-xs text-neutral-700 border-r border-neutral-100 py-3.5 px-2 select-none"
+                          style={{ minWidth: '70px', width: '70px' }}
                         >
                           {idx + 1}
                         </td>
 
-                        {/* Name Row with Trash icon hovered */}
+                        {/* Name Column: Bold Employee Name + Category • ID + Trash Button on Hover */}
                         <td 
-                          className="sticky left-[60px] z-20 font-medium text-xs border-r border-[#1a3a6b]/20 relative pr-10 bg-white group-hover:bg-[#f9fafb]"
-                          style={{ minWidth: '220px', width: '220px' }}
+                          className="sticky left-[70px] z-20 bg-white group-hover:bg-[#fafbfc] border-r border-neutral-100 pl-4 pr-8 py-3.5 relative select-none"
+                          style={{ minWidth: '240px', width: '240px' }}
                         >
                           <div className="flex flex-col">
-                            <span className="font-bold text-neutral-800 leading-snug truncate block max-w-[140px]" title={`${capitalizeName(emp.lastName)}, ${capitalizeName(emp.firstName)}`}>
+                            <span 
+                              className="font-bold text-neutral-900 text-xs leading-snug truncate block max-w-[175px]" 
+                              title={`${capitalizeName(emp.lastName)}, ${capitalizeName(emp.firstName)}`}
+                            >
                               {capitalizeName(emp.lastName)}, {capitalizeName(emp.firstName)}
                             </span>
-                            <span className="text-[10px] text-neutral-500 font-sans tracking-wide truncate block max-w-[145px]" title={emp.category}>
-                              {emp.category} • {emp.employeeId || emp.bpno || 'No ID'}
+                            <span 
+                              className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase mt-0.5 truncate block max-w-[175px]" 
+                              title={emp.category}
+                            >
+                              {emp.category || 'STAFF'} • {emp.employeeId || emp.bpno || 'No ID'}
                             </span>
                           </div>
                           
-                          {/* Always accessible / visible on hover action to clear deductions */}
+                          {/* Trash action button on hover */}
                           <Button 
                             variant="ghost" 
                             size="icon" 
                             onClick={() => handleDeleteEmployeeDeductions(emp.id, `${capitalizeName(emp.lastName)}, ${capitalizeName(emp.firstName)}`)}
-                            className="absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 bg-transparent hover:bg-red-50 text-neutral-400 hover:text-red-600 rounded-md transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 text-neutral-300 hover:text-red-600 hover:bg-red-50 rounded-md transition-all opacity-0 group-hover:opacity-100 shrink-0 cursor-pointer"
                             title="Clear all deductions for this employee"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
                         </td>
 
-                        {/* Standard Columns Cells */}
-                        {MATRIX_COLUMNS.map((col) => {
-                          const dedObj = getEmployeeDeductionObj(empDeds, col.id);
+                        {/* Deduction Data Cells: Exact Excel look with pale yellow highlight when active */}
+                        {displayedColumns.map((col) => {
+                          const dedObj = getEmployeeDeductionObj(empDeds, col);
                           const numVal = dedObj ? Number(dedObj.amount || 0) : 0;
+                          const isCellSelected = selectedCell?.employeeId === emp.id && selectedCell?.columnId === col.id;
 
                           return (
                             <td 
                               key={col.id} 
                               onClick={() => handleCellClick(emp, col)}
-                              className={`text-right text-xs font-mono border-r border-neutral-100/60 cursor-pointer transition-all hover:bg-amber-50/50 hover:shadow-inner px-3 py-4 select-none ${
-                                numVal > 0 
-                                  ? 'font-bold text-neutral-900 bg-[#fef2f2]/60' 
-                                  : 'text-neutral-300 font-normal hover:text-neutral-500'
-                              }`}
+                              className={cn(
+                                "text-right text-xs font-mono border-r border-neutral-100 px-4 py-3.5 cursor-pointer transition-colors select-none",
+                                isCellSelected 
+                                  ? "bg-[#fef9c3] ring-1 ring-inset ring-amber-300 font-bold text-neutral-900" 
+                                  : numVal > 0 
+                                  ? "font-bold text-neutral-900 hover:bg-amber-50/60" 
+                                  : "text-neutral-300 font-normal hover:text-neutral-600 hover:bg-amber-50/30"
+                              )}
                             >
-                              ₱{formatCurrency(numVal)}
+                              ₱{numVal > 0 ? formatCurrency(numVal) : "0.00"}
                             </td>
                           );
                         })}
 
                         {/* OTHER DEDUCTIONS Column */}
-                        {(() => {
-                          const otherVal = getEmployeeOtherDeductionsTotal(empDeds);
+                        {showOtherDedsColumn && (() => {
+                          const otherVal = getEmployeeOtherDeductionsTotal(empDeds, dynamicColumns);
+                          const isOtherSelected = selectedCell?.employeeId === emp.id && selectedCell?.columnId === 'other';
+
                           return (
                             <td 
-                              className={`text-right text-xs font-mono px-3 py-4 select-none ${
-                                otherVal > 0 ? 'font-bold text-neutral-900 bg-[#fef2f2]/60' : 'text-neutral-300 font-normal'
-                              }`}
+                              onClick={() => {
+                                setSelectedCell({ employeeId: emp.id, columnId: 'other' });
+                              }}
+                              className={cn(
+                                "text-right text-xs font-mono border-r border-neutral-100 px-4 py-3.5 select-none transition-colors",
+                                isOtherSelected
+                                  ? "bg-[#fef9c3] ring-1 ring-inset ring-amber-300 font-bold text-neutral-900"
+                                  : otherVal > 0 
+                                  ? "font-bold text-neutral-900" 
+                                  : "text-neutral-300 font-normal"
+                              )}
                             >
-                              ₱{formatCurrency(otherVal)}
+                              ₱{otherVal > 0 ? formatCurrency(otherVal) : "0.00"}
                             </td>
                           );
                         })()}
+
+                        {/* Column cell under + Add Type */}
+                        <td 
+                          className="border-r border-neutral-100 text-center text-[11px] text-neutral-300 px-2 py-3.5"
+                        >
+                          -
+                        </td>
                       </tr>
                     );
                   })
@@ -1526,28 +1782,28 @@ const Deductions = () => {
 
       {/* Cell Quick Edit / Add Popover Dialog */}
       <Dialog open={isCellEditOpen} onOpenChange={setIsCellEditOpen}>
-        <DialogContent className="max-w-sm bg-white p-6 rounded-xl border border-neutral-200">
-          <DialogHeader className="space-y-1">
-            <DialogTitle className="text-lg font-bold text-neutral-900 flex items-center gap-2">
+        <DialogContent className="max-w-[420px] bg-white p-6 rounded-2xl border border-neutral-200 shadow-2xl">
+          <DialogHeader className="space-y-1.5 text-left">
+            <DialogTitle className="text-xl font-bold text-neutral-900 flex items-center gap-2">
               {cellEditData?.deductionId ? "Edit Deduction" : "Add Deduction"}
             </DialogTitle>
-            <DialogDescription className="text-xs text-neutral-500">
-              For <strong className="text-neutral-700">{cellEditData?.employeeName}</strong> under <span className="text-rose-900 font-semibold">{cellEditData?.colLabel}</span>.
+            <DialogDescription className="text-xs text-neutral-500 leading-relaxed">
+              For <strong className="text-neutral-800 font-bold">{cellEditData?.employeeName}</strong> under <span className="text-rose-900 font-bold">{cellEditData?.colLabel}</span>.
             </DialogDescription>
           </DialogHeader>
 
           {cellEditData && (
-            <form onSubmit={handleCellSave} className="space-y-4 pt-3">
+            <form onSubmit={handleCellSave} className="space-y-4 pt-2">
               <div className="space-y-1.5">
                 <Label htmlFor="cellAmount" className="text-xs font-semibold text-neutral-700">Amount (₱)</Label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-neutral-400 font-mono">₱</span>
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-neutral-400 font-mono select-none">₱</span>
                   <Input 
                     id="cellAmount"
                     type="number" 
                     step="0.01"
                     placeholder="0.00" 
-                    className="pl-7 font-mono text-sm border-neutral-300"
+                    className="pl-8 font-mono text-sm h-11 border-neutral-300 rounded-xl focus-visible:ring-neutral-900 focus-visible:border-neutral-900 text-neutral-900"
                     value={cellEditData.amount === 0 ? '' : cellEditData.amount}
                     onChange={e => setCellEditData({...cellEditData, amount: parseFloat(e.target.value) || 0})}
                     autoFocus
@@ -1561,27 +1817,29 @@ const Deductions = () => {
                 <Input 
                   id="cellDesc"
                   placeholder="Monthly deduction description"
-                  className="text-xs border-neutral-300"
+                  className="text-xs h-11 border-neutral-300 rounded-xl focus-visible:ring-neutral-900 text-neutral-900"
                   value={cellEditData.description}
                   onChange={e => setCellEditData({...cellEditData, description: e.target.value})}
                 />
               </div>
 
-              <div className="flex gap-2 pt-2">
-                {cellEditData.deductionId && (
+              <div className="flex items-center justify-between gap-3 pt-3">
+                {cellEditData.deductionId ? (
                   <Button 
                     type="button" 
                     variant="ghost" 
                     onClick={handleCellDelete}
-                    className="flex-1 text-red-600 hover:bg-red-50 border border-transparent hover:border-red-100 hover:text-red-700 text-xs h-9"
+                    className="text-red-600 hover:bg-red-50 hover:text-red-700 text-xs h-10 px-4 rounded-xl font-semibold gap-1.5 cursor-pointer transition-colors"
                   >
-                    <Trash2 className="w-4 h-4 mr-1 shrink-0" />
-                    Delete
+                    <Trash2 className="w-4 h-4 text-red-600 shrink-0" />
+                    <span>Delete</span>
                   </Button>
+                ) : (
+                  <div />
                 )}
                 <Button 
                   type="submit" 
-                  className="flex-1 bg-neutral-900 hover:bg-neutral-800 text-white text-xs h-9"
+                  className="bg-neutral-900 hover:bg-neutral-800 text-white text-xs h-10 px-6 rounded-xl font-semibold shadow-xs cursor-pointer ml-auto"
                 >
                   {cellEditData.deductionId ? "Save Changes" : "Apply Deduction"}
                 </Button>
