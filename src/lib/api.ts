@@ -479,6 +479,15 @@ export const api = {
       });
       return handleResponse(res);
     },
+    // Update a payroll cycle's Salaries & Wages column label
+    updateSalariesLabel: async (cycleId: string, salariesLabel: string) => {
+      const res = await fetchWithAuth(`${API_BASE}/payroll-cycles/${cycleId}/salaries-label`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salariesLabel }),
+      });
+      return handleResponse(res);
+    },
     // Update a payroll cycle's totals directly
     updateCycleTotals: async (cycleId: string, totals: { totalGross: number; totalDeductions: number; totalNet: number }) => {
       const res = await fetchWithAuth(`${API_BASE}/payroll-cycles/${cycleId}/totals`, {
@@ -633,6 +642,11 @@ export const api = {
     // Delete payroll record entry
     deleteRecord: async (id: string) => {
       const res = await fetchWithAuth(`${API_BASE}/payroll-records/${id}`, { method: 'DELETE' });
+      return handleResponse(res);
+    },
+    // Sync all disbursed cycles to payroll records
+    syncAllRecords: async () => {
+      const res = await fetchWithAuth(`${API_BASE}/payroll-records/sync-all`, { method: 'POST' });
       return handleResponse(res);
     },
     // Mark payroll entry as validated / reviewed

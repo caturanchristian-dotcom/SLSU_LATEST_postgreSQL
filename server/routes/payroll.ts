@@ -227,6 +227,7 @@ payrollRouter.get("/payroll-cycles", async (req: any, res: any) => {
         total_gross: effectiveGross.toFixed(2),
         total_deductions: effectiveDeds.toFixed(2),
         total_net: effectiveNet.toFixed(2),
+        salariesLabel: c.salariesLabel || c.salaries_label || 'Salaries and Wages-2nd Tranch',
         categoryFilter: c.categoryFilter || c.category_filter || ((c.name && (c.name.trim().toUpperCase() === 'VI' || c.name.toLowerCase().includes('visiting'))) ? 'visiting-instructor' : 'all')
       };
     });
@@ -325,10 +326,40 @@ payrollRouter.put("/payroll-cycles/:id/category-filter", async (req: any, res: a
   }
 });
 
+payrollRouter.put("/payroll-cycles/:id/salaries-label", async (req: any, res: any) => {
+  try {
+    const { id } = req.params;
+    const { salariesLabel } = req.body;
+    const label = (salariesLabel || '').trim() || 'Salaries and Wages-2nd Tranch';
+
+    try {
+      await db.prepare(`
+        UPDATE payroll_cycles 
+        SET "salariesLabel" = ?, salaries_label = ? 
+        WHERE id = ?
+      `).run(label, label, id);
+    } catch {
+      await db.prepare(`
+        UPDATE payroll_cycles 
+        SET salaries_label = ? 
+        WHERE id = ?
+      `).run(label, id);
+    }
+
+    broadcastRealtime("payroll_changed", { cycleId: id, source: "updateSalariesLabel", salariesLabel: label });
+    await logAudit(req, "UPDATE_PAYROLL_CYCLE_LABEL", `Updated column label to "${label}" for cycle ${id}`);
+    res.json({ success: true, salariesLabel: label });
+  } catch (err: any) {
+    console.error("[Payroll] Error in PUT /payroll-cycles/:id/salaries-label:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 payrollRouter.post("/payroll-cycles", async (req: any, res: any) => {
   try {
-    const { name, startDate, endDate, type, categoryFilter, managedBy, campus } = req.body;
+    const { name, startDate, endDate, type, categoryFilter, salariesLabel, managedBy, campus } = req.body;
     const id = `cycle-${Date.now()}`;
+    const customSalLabel = (salariesLabel || '').trim() || 'Salaries and Wages-2nd Tranch';
 
     // Get accountant profile
     let accountantName = "System Accountant";
@@ -347,15 +378,15 @@ payrollRouter.post("/payroll-cycles", async (req: any, res: any) => {
 
     try {
       await db.prepare(`
-        INSERT INTO payroll_cycles (id, name, "startDate", "endDate", type, "categoryFilter", category_filter, status, "managedBy", "managedByName", campus)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
-      `).run(id, name || `Cycle ${new Date().toISOString().split('T')[0]}`, sDate, eDate, type || 'all', categoryFilter || 'all', categoryFilter || 'all', managedBy || 'accountant-1', accountantName, assignedCampus);
+        INSERT INTO payroll_cycles (id, name, "startDate", "endDate", type, "categoryFilter", category_filter, "salariesLabel", salaries_label, status, "managedBy", "managedByName", campus)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
+      `).run(id, name || `Cycle ${new Date().toISOString().split('T')[0]}`, sDate, eDate, type || 'all', categoryFilter || 'all', categoryFilter || 'all', customSalLabel, customSalLabel, managedBy || 'accountant-1', accountantName, assignedCampus);
     } catch (insertErr: any) {
       console.warn("[Payroll] Standard insert failed, trying snake_case insert:", insertErr?.message);
       await db.prepare(`
-        INSERT INTO payroll_cycles (id, name, start_date, end_date, type, category_filter, status, managed_by, managed_by_name, campus)
-        VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
-      `).run(id, name || `Cycle ${new Date().toISOString().split('T')[0]}`, sDate, eDate, type || 'all', categoryFilter || 'all', managedBy || 'accountant-1', accountantName, assignedCampus);
+        INSERT INTO payroll_cycles (id, name, start_date, end_date, type, category_filter, salaries_label, status, managed_by, managed_by_name, campus)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
+      `).run(id, name || `Cycle ${new Date().toISOString().split('T')[0]}`, sDate, eDate, type || 'all', categoryFilter || 'all', customSalLabel, managedBy || 'accountant-1', accountantName, assignedCampus);
     }
 
     // Populate employees and calculate all deductions, DTR and totals
@@ -397,6 +428,7 @@ payrollRouter.get("/payroll-cycles/:id", async (req: any, res: any) => {
     }
 
     if (cycle) {
+      cycle.salariesLabel = cycle.salariesLabel || cycle.salaries_label || 'Salaries and Wages-2nd Tranch';
       cycle.categoryFilter = cycle.categoryFilter || cycle.category_filter || ((cycle.name && (cycle.name.trim().toUpperCase() === 'VI' || cycle.name.toLowerCase().includes('visiting'))) ? 'visiting-instructor' : 'all');
       
       const storedNet = Number(cycle.totalNet ?? cycle.total_net ?? cycle.totalnet ?? 0);
@@ -431,7 +463,25 @@ payrollRouter.get("/payroll-cycles/:id/entries", async (req: any, res: any) => {
     const cycle = await db.prepare("SELECT * FROM payroll_cycles WHERE id = ?").get(id) as any;
 
     let entries = await db.prepare(`
-      SELECT pe.*, e.employeeId as employeeNo, e.category, e.position, e.campus, e.email, e.phoneNumber, e.hasPhilhealth, e.hasPagibig, e.hasSss, e.basicSalary, e.salaryType, e.bpno, e.crn
+      SELECT pe.*, 
+             e."employeeId" as "employeeNo", 
+             e.category, 
+             e.position, 
+             e.campus, 
+             e.email, 
+             e."phoneNumber" as "phoneNumber", 
+             e."hasPhilhealth" as "hasPhilhealth", 
+             e."hasPagibig" as "hasPagibig", 
+             e."hasSss" as "hasSss", 
+             e."basicSalary" as "basicSalary", 
+             e."salaryType" as "salaryType", 
+             e.bpno, 
+             e.crn, 
+             e.gender, 
+             e."firstName" as "firstName", 
+             e."lastName" as "lastName", 
+             e.mi, 
+             e.appellation
       FROM payroll_entries pe
       LEFT JOIN employees e ON pe.employeeId = e.id
       WHERE pe.cycleId = ?
@@ -452,7 +502,25 @@ payrollRouter.get("/payroll-cycles/:id/entries", async (req: any, res: any) => {
       try {
         await populateCycleEmployees(id);
         entries = await db.prepare(`
-          SELECT pe.*, e.employeeId as employeeNo, e.category, e.position, e.campus, e.email, e.phoneNumber, e.hasPhilhealth, e.hasPagibig, e.hasSss, e.basicSalary, e.salaryType, e.bpno, e.crn
+          SELECT pe.*, 
+                 e."employeeId" as "employeeNo", 
+                 e.category, 
+                 e.position, 
+                 e.campus, 
+                 e.email, 
+                 e."phoneNumber" as "phoneNumber", 
+                 e."hasPhilhealth" as "hasPhilhealth", 
+                 e."hasPagibig" as "hasPagibig", 
+                 e."hasSss" as "hasSss", 
+                 e."basicSalary" as "basicSalary", 
+                 e."salaryType" as "salaryType", 
+                 e.bpno, 
+                 e.crn, 
+                 e.gender, 
+                 e."firstName" as "firstName", 
+                 e."lastName" as "lastName", 
+                 e.mi, 
+                 e.appellation
           FROM payroll_entries pe
           LEFT JOIN employees e ON pe.employeeId = e.id
           WHERE pe.cycleId = ?
@@ -905,7 +973,18 @@ payrollRouter.get("/payroll-entries/:id", async (req: any, res: any) => {
   try {
     const { id } = req.params;
     const entry = await db.prepare(`
-      SELECT pe.*, e.employeeId as employeeNo, e.category, e.position, e.campus, e.email, e.phoneNumber
+      SELECT pe.*, 
+             e."employeeId" as "employeeNo", 
+             e.category, 
+             e.position, 
+             e.campus, 
+             e.email, 
+             e."phoneNumber" as "phoneNumber", 
+             e.gender, 
+             e."firstName" as "firstName", 
+             e."lastName" as "lastName", 
+             e.mi, 
+             e.appellation
       FROM payroll_entries pe
       LEFT JOIN employees e ON pe.employeeId = e.id
       WHERE pe.id = ?

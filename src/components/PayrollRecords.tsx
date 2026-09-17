@@ -62,10 +62,24 @@ const MONTH_NAMES = [
 ];
 
 function getEmployeeGroupAndGender(entry: any): { group: 'FACULTY' | 'STAFF' | 'OTHERS'; isMale: boolean } {
-  const category = (entry.category || entry.group || '').toUpperCase();
-  const firstName = (entry.firstName || '').toUpperCase();
-  const lastName = (entry.lastName || '').toUpperCase();
-  const name = (entry.employeeName || '').toUpperCase();
+  if (!entry) return { group: 'OTHERS', isMale: true };
+  const category = (entry.category || entry.group || '').toUpperCase().trim();
+  let firstName = (entry.firstName || '').toUpperCase().trim();
+  let lastName = (entry.lastName || '').toUpperCase().trim();
+  const name = (entry.employeeName || entry.name || '').toUpperCase().trim();
+
+  // If firstName or lastName are missing, extract from employeeName
+  if ((!lastName || !firstName) && name) {
+    if (name.includes(',')) {
+      const parts = name.split(',');
+      if (!lastName) lastName = parts[0].trim();
+      if (!firstName) firstName = parts[1]?.trim() || '';
+    } else {
+      const parts = name.split(' ');
+      if (!lastName) lastName = parts[parts.length - 1].trim();
+      if (!firstName) firstName = parts.slice(0, -1).join(' ').trim();
+    }
+  }
 
   // Determine group
   let group: 'FACULTY' | 'STAFF' | 'OTHERS' = 'OTHERS';
@@ -87,17 +101,36 @@ function getEmployeeGroupAndGender(entry: any): { group: 'FACULTY' | 'STAFF' | '
   const femaleLastNames = [
     'AGAD', 'ALMINE', 'BATIANCILA', 'BRUN', 'BUGAIS-PAGOBO', 'CABERTE', 'CAPAPAS', 
     'CARBONILLA', 'CRUZADA', 'CUENCO', 'CUPAT', 'CUTA', 'MARUCOT', 'MEMBREVE', 'NUÑEZ', 
-    'PALER', 'PASCUAL', 'RIVERA', 'SABALO', 'SABEJON', 'SUMALJAG', 'TORMIS', 'VILLAMOR'
+    'ORIAS', 'PAUG', 'PERNITES', 'PIAMONTE', 'PLANA', 'ROSOLADA', 'SINAHON', 'TIIN', 'DE LA CRUZ', 'DELA CRUZ',
+    'SALUDSOD', 'MANUN-OG', 'PALER', 'PASCUAL', 'RIVERA', 'SABALO', 'SABEJON', 'SUMALJAG', 'TORMIS', 'VILLAMOR'
+  ];
+
+  const femaleFirstNames = [
+    'ROSEBEB', 'MARY', 'SEBIAN', 'CECILE', 'CHARISSE', 'LESLIE', 'MERYL', 'JOJE', 
+    'MARJORIE', 'RUBIE', 'LEONISA', 'ANA', 'AZILA', 'CHRISTSELDA', 'EDELYN', 'CAROL', 
+    'FEBIE', 'EMMA', 'SUZETTE', 'ROJELYN', 'ROXAN', 'ROMECITA', 'CHRESTIAN', 'CLARISH', 
+    'MADELYN', 'JANE', 'MARIA', 'MA.', 'JENNIFER', 'GRACE', 'JOY', 'CRISTINA', 'CHRISTINE'
   ];
 
   let isMale = true;
-  if (entry.gender) {
-    isMale = entry.gender.toUpperCase() === 'MALE' || entry.gender.toUpperCase() === 'M';
-  } else {
-    const matchedFemale = femaleLastNames.some(fn => name.includes(fn) || lastName.includes(fn));
-    if (matchedFemale) {
+  const rawGender = String(entry.gender || '').toUpperCase().trim();
+
+  if (rawGender === 'FEMALE' || rawGender === 'F') {
+    isMale = false;
+  } else if (rawGender === 'MALE' || rawGender === 'M') {
+    isMale = true;
+  } else if (lastName === 'SINAHON') {
+    if (firstName.includes('CHRESTIAN') || firstName.includes('JEDE') || name.includes('CHRESTIAN') || name.includes('JEDE')) {
       isMale = false;
+    } else {
+      isMale = true;
     }
+  } else if (lastName === 'MANUN-OG' && (firstName.includes('MADELYN') || name.includes('MADELYN'))) {
+    isMale = false;
+  } else if (femaleLastNames.some(fln => lastName === fln || lastName.includes(fln) || name.startsWith(fln) || name.includes(fln))) {
+    isMale = false;
+  } else if (femaleFirstNames.some(ffn => firstName.includes(ffn) || name.includes(ffn))) {
+    isMale = false;
   }
 
   return { group, isMale };
@@ -973,6 +1006,38 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
 
               {/* Spreadsheet Table with Floating Scroll Buttons */}
               {(() => {
+                const recordSalariesLabel = selectedRecordForDetails.salariesLabel || selectedRecordForDetails.salaries_label || 'Salaries and Wages-2nd Tranch';
+                const renderSalariesHeader = (label: string) => {
+                  const clean = (label || '').trim();
+                  if (!clean || clean === 'Salaries and Wages-2nd Tranch' || clean.toLowerCase() === 'salaries and wages-2nd tranch') {
+                    return (
+                      <div className="flex flex-col items-center justify-center text-center leading-[1.1] py-0.5 text-[10px] sm:text-[10.5px] font-bold">
+                        <span>Salaries and</span>
+                        <span>Wages-2nd</span>
+                        <span>Tranch</span>
+                      </div>
+                    );
+                  }
+                  if (clean === 'Salaries and Wages-1st Tranch' || clean.toLowerCase() === 'salaries and wages-1st tranch') {
+                    return (
+                      <div className="flex flex-col items-center justify-center text-center leading-[1.1] py-0.5 text-[10px] sm:text-[10.5px] font-bold">
+                        <span>Salaries and</span>
+                        <span>Wages-1st</span>
+                        <span>Tranch</span>
+                      </div>
+                    );
+                  }
+                  if (clean === 'Salaries and Wages-3rd Tranch' || clean.toLowerCase() === 'salaries and wages-3rd tranch') {
+                    return (
+                      <div className="flex flex-col items-center justify-center text-center leading-[1.1] py-0.5 text-[10px] sm:text-[10.5px] font-bold">
+                        <span>Salaries and</span>
+                        <span>Wages-3rd</span>
+                        <span>Tranch</span>
+                      </div>
+                    );
+                  }
+                  return <span className="font-bold block text-center leading-tight text-[10.5px]">{clean}</span>;
+                };
                 const rawData = selectedRecordForDetails.recordData || [];
                 const filteredData = rawData.filter((e: any) => {
                   if (!sheetSearchTerm) return true;
@@ -1014,9 +1079,9 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
 
                 const sections = [
                   { label: 'FACULTY: MALE', entries: facultyMale, isGenderSub: false },
-                  { label: 'Female:', entries: facultyFemale, isGenderSub: true },
+                  { label: facultyMale.length > 0 ? 'Female:' : 'FACULTY: FEMALE', entries: facultyFemale, isGenderSub: facultyMale.length > 0 },
                   { label: 'STAFF: MALE', entries: staffMale, isGenderSub: false },
-                  { label: 'Female:', entries: staffFemale, isGenderSub: true },
+                  { label: staffMale.length > 0 ? 'Female:' : 'STAFF: FEMALE', entries: staffFemale, isGenderSub: staffMale.length > 0 },
                   { label: 'OTHERS', entries: others, isGenderSub: false }
                 ].filter(sect => sect.entries.length > 0);
 
@@ -1119,7 +1184,7 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
                               onClick={() => {
                                 setShowGsisFormula(!showGsisFormula);
                                 if (!showGsisFormula) {
-                                  toast.info("Formula view enabled: 12% of Salaries and Wages-2nd Tranch");
+                                  toast.info(`Formula view enabled: 12% of ${recordSalariesLabel}`);
                                 }
                               }}
                               className={`sticky top-[34px] z-30 p-1.5 cursor-pointer select-none transition-all duration-200 ${showGsisFormula ? 'bg-blue-100 text-blue-950 min-w-[210px] text-center font-bold font-sans border-x border-blue-300' : 'p-1.5 text-right min-w-[70px] bg-blue-50 text-blue-950 hover:bg-blue-100'}`}
@@ -1129,7 +1194,7 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
                               <div className={`flex items-center gap-1 ${showGsisFormula ? 'justify-center text-blue-900' : 'justify-end'}`}>
                                 {showGsisFormula ? (
                                   <span className="text-[10px] font-extrabold tracking-tight">
-                                    12% of Salaries and Wages-2nd Tranch
+                                    12% of {recordSalariesLabel}
                                   </span>
                                 ) : (
                                   <>
@@ -1146,7 +1211,7 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
                               onClick={() => {
                                 setShowPhilhealthFormula(!showPhilhealthFormula);
                                 if (!showPhilhealthFormula) {
-                                  toast.info("Formula view enabled: 5% of Salaries and Wages-2nd Tranch / 2");
+                                  toast.info(`Formula view enabled: 5% of ${recordSalariesLabel} / 2`);
                                 }
                               }}
                               className={`sticky top-[34px] z-30 p-1.5 cursor-pointer select-none transition-all duration-200 ${showPhilhealthFormula ? 'bg-blue-100 text-blue-950 min-w-[210px] text-center font-bold font-sans border-x border-blue-300' : 'p-1.5 text-right min-w-[70px] bg-blue-50 text-blue-950 hover:bg-blue-100'}`}
@@ -1156,7 +1221,7 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
                               <div className={`flex items-center gap-1 ${showPhilhealthFormula ? 'justify-center text-blue-900' : 'justify-end'}`}>
                                 {showPhilhealthFormula ? (
                                   <span className="text-[10px] font-extrabold tracking-tight">
-                                    5% of Salaries and Wages-2nd Tranch / 2
+                                    5% of {recordSalariesLabel} / 2
                                   </span>
                                 ) : (
                                   <>
@@ -1171,8 +1236,10 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
                             </th>
 
                             {/* Compensations */}
-                            <th className="sticky top-[34px] z-30 p-1.5 text-right min-w-[95px] bg-emerald-50 text-emerald-950" style={{ height: '30px' }}>
-                              Salaries and Wages-2nd Tranch
+                            <th className="sticky top-[34px] z-30 p-1 text-center min-w-[125px] bg-emerald-50 text-emerald-950 border-x border-emerald-200" style={{ height: '36px' }}>
+                              <div className="text-[10px] sm:text-[10.5px] leading-tight text-center font-bold text-emerald-950">
+                                {renderSalariesHeader(recordSalariesLabel)}
+                              </div>
                             </th>
                             <th className="sticky top-[34px] z-30 p-1.5 text-right min-w-[70px] bg-emerald-50 text-emerald-950" style={{ height: '30px' }}>
                               PERA
@@ -1181,7 +1248,7 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
                               onClick={() => {
                                 setShowGrossFormula(!showGrossFormula);
                                 if (!showGrossFormula) {
-                                  toast.info("Formula view enabled: Salaries and Wages-2nd Tranch + PERA - Abs.");
+                                  toast.info(`Formula view enabled: ${recordSalariesLabel} + PERA - Abs.`);
                                 }
                               }}
                               className={`sticky top-[34px] z-30 p-1.5 cursor-pointer select-none transition-all duration-200 ${showGrossFormula ? 'bg-emerald-100 text-emerald-950 min-w-[310px] text-center font-bold font-sans border-x border-emerald-300' : 'p-1.5 text-right min-w-[90px] bg-emerald-100 text-emerald-950 hover:bg-emerald-200'}`}
@@ -1191,7 +1258,7 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
                               <div className={`flex items-center gap-1 ${showGrossFormula ? 'justify-center text-emerald-900' : 'justify-end'}`}>
                                 {showGrossFormula ? (
                                   <span className="text-[10px] font-extrabold tracking-tight">
-                                    Salaries and Wages-2nd Tranch + PERA - Abs.
+                                    {recordSalariesLabel} + PERA - Abs.
                                   </span>
                                 ) : (
                                   <>
@@ -1252,7 +1319,7 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
                               onClick={() => {
                                 setShowGsisPersonalFormula(!showGsisPersonalFormula);
                                 if (!showGsisPersonalFormula) {
-                                  toast.info("Formula view enabled: 9% of Salaries and Wages-2nd Tranch");
+                                  toast.info(`Formula view enabled: 9% of ${recordSalariesLabel}`);
                                 }
                               }}
                               className={`sticky top-[34px] z-30 p-1.5 cursor-pointer select-none transition-all duration-200 border border-zinc-300 ${showGsisPersonalFormula ? 'bg-rose-100 text-rose-950 min-w-[210px]' : 'bg-rose-50 text-rose-950 hover:bg-rose-100'}`}
@@ -1262,7 +1329,7 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
                               <div className="flex flex-col items-center justify-center text-center leading-[1.1] min-h-[28px] px-1">
                                 {showGsisPersonalFormula ? (
                                   <span className="text-[10px] font-extrabold tracking-tight text-rose-900 leading-[1.2]">
-                                    9% of Salaries and Wages-2nd Tranch
+                                    9% of {recordSalariesLabel}
                                   </span>
                                 ) : (
                                   <>
@@ -1284,7 +1351,7 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
                               onClick={() => {
                                 setShowPagibigPersonalFormula(!showPagibigPersonalFormula);
                                 if (!showPagibigPersonalFormula) {
-                                  toast.info("Formula view enabled: 2% of Salaries and Wages-2nd Tranch");
+                                  toast.info(`Formula view enabled: 2% of ${recordSalariesLabel}`);
                                 }
                               }}
                               className={`sticky top-[34px] z-30 p-1.5 cursor-pointer select-none transition-all duration-200 border border-zinc-300 ${showPagibigPersonalFormula ? 'bg-rose-100 text-rose-950 min-w-[210px]' : 'bg-rose-50 text-rose-950 hover:bg-rose-100'}`}
@@ -1294,7 +1361,7 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
                               <div className="flex flex-col items-center justify-center text-center leading-[1.1] min-h-[28px] px-1">
                                 {showPagibigPersonalFormula ? (
                                   <span className="text-[10px] font-extrabold tracking-tight text-rose-900 leading-[1.2]">
-                                    2% of Salaries and Wages-2nd Tranch
+                                    2% of {recordSalariesLabel}
                                   </span>
                                 ) : (
                                   <>
@@ -1328,7 +1395,7 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
                               onClick={() => {
                                 setShowPhilhealthContFormula(!showPhilhealthContFormula);
                                 if (!showPhilhealthContFormula) {
-                                  toast.info("Formula view enabled: 2.5% of Salaries and Wages-2nd Tranch");
+                                  toast.info(`Formula view enabled: 2.5% of ${recordSalariesLabel}`);
                                 }
                               }}
                               className={`sticky top-[34px] z-30 p-1.5 cursor-pointer select-none transition-all duration-200 border border-zinc-300 ${showPhilhealthContFormula ? 'bg-rose-100 text-rose-950 min-w-[210px]' : 'bg-rose-50 text-rose-950 hover:bg-rose-100'}`}
@@ -1338,7 +1405,7 @@ export const PayrollRecords: React.FC<PayrollRecordsProps> = ({ onBackToCycles, 
                               <div className="flex flex-col items-center justify-center text-center leading-[1.1] min-h-[28px] px-1">
                                 {showPhilhealthContFormula ? (
                                   <span className="text-[10px] font-extrabold tracking-tight text-rose-900 leading-[1.2]">
-                                    2.5% of Salaries and Wages-2nd Tranch
+                                    2.5% of {recordSalariesLabel}
                                   </span>
                                 ) : (
                                   <>

@@ -459,6 +459,7 @@ export const SCHEMA_TABLES = [
     "endDate" DATE,
     type VARCHAR(50) DEFAULT 'all',
     "categoryFilter" VARCHAR(50) DEFAULT 'all',
+    "salariesLabel" VARCHAR(255) DEFAULT 'Salaries and Wages-2nd Tranch',
     status VARCHAR(50) DEFAULT 'draft',
     "totalGross" DECIMAL(15, 2) DEFAULT 0.00,
     "totalDeductions" DECIMAL(15, 2) DEFAULT 0.00,
@@ -968,6 +969,10 @@ export async function initDb() {
         'ALTER TABLE deductions ADD COLUMN IF NOT EXISTS description TEXT',
         "ALTER TABLE deductions ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active'",
 
+        'ALTER TABLE payroll_cycles ADD COLUMN IF NOT EXISTS "salariesLabel" VARCHAR(255) DEFAULT \'Salaries and Wages-2nd Tranch\'',
+        'ALTER TABLE payroll_cycles ADD COLUMN IF NOT EXISTS salaries_label VARCHAR(255) DEFAULT \'Salaries and Wages-2nd Tranch\'',
+        'ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS "salariesLabel" VARCHAR(255) DEFAULT \'Salaries and Wages-2nd Tranch\'',
+        'ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS salaries_label VARCHAR(255) DEFAULT \'Salaries and Wages-2nd Tranch\'',
         'ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS "cycleId" VARCHAR(191)',
         'ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS year INTEGER',
         'ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS month INTEGER',

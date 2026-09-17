@@ -51,7 +51,8 @@ import {
   Layers,
   Filter,
   GraduationCap,
-  Briefcase
+  Briefcase,
+  Edit3
 } from 'lucide-react';
 import { SLSU_CAMPUSES } from '../lib/constants';
 import { PayrollRecords } from '../components/PayrollRecords';
@@ -156,10 +157,24 @@ export function isEmployeeMatchingCategoryFilter(empCategory?: string, cycleCate
 
 function getEmployeeGroupAndGender(entry: any): { group: 'VISITING' | 'FACULTY' | 'STAFF' | 'JOB_ORDER' | 'OTHERS'; isMale: boolean } {
   if (!entry) return { group: 'OTHERS', isMale: true };
-  const category = (entry?.category || '').toUpperCase().trim();
-  const firstName = (entry?.firstName || '').toUpperCase();
-  const lastName = (entry?.lastName || '').toUpperCase();
-  const pos = (entry?.position || '').toUpperCase();
+  const category = (entry?.category || entry?.group || '').toUpperCase().trim();
+  let firstName = (entry?.firstName || '').toUpperCase().trim();
+  let lastName = (entry?.lastName || '').toUpperCase().trim();
+  const pos = (entry?.position || '').toUpperCase().trim();
+  const rawEmpName = (entry?.employeeName || entry?.name || '').toUpperCase().trim();
+
+  // If firstName or lastName are missing, extract from employeeName (e.g., "LASTNAME, FIRSTNAME M.")
+  if ((!lastName || !firstName) && rawEmpName) {
+    if (rawEmpName.includes(',')) {
+      const parts = rawEmpName.split(',');
+      if (!lastName) lastName = parts[0].trim();
+      if (!firstName) firstName = parts[1]?.trim() || '';
+    } else {
+      const parts = rawEmpName.split(' ');
+      if (!lastName) lastName = parts[parts.length - 1].trim();
+      if (!firstName) firstName = parts.slice(0, -1).join(' ').trim();
+    }
+  }
 
   // Determine group - Check Job Order & Visiting first
   let group: 'VISITING' | 'FACULTY' | 'STAFF' | 'JOB_ORDER' | 'OTHERS' = 'OTHERS';
@@ -207,27 +222,39 @@ function getEmployeeGroupAndGender(entry: any): { group: 'VISITING' | 'FACULTY' 
   }
 
   // Determine gender (isMale)
-  // These are the exact females we identified from the DB + images:
+  // Complete list of verified female personnel across departments:
   const femaleLastNames = [
     'AGAD', 'ALMINE', 'BATIANCILA', 'BRUN', 'BUGAIS-PAGOBO', 'CABERTE', 'CAPAPAS', 
     'CARBONILLA', 'CRUZADA', 'CUENCO', 'CUPAT', 'CUTA', 'MARUCOT', 'MEMBREVE', 'NUÑEZ', 
-    'ORIAS', 'PAUG', 'PERNITES', 'PIAMONTE', 'PLANA', 'ROSOLADA', 'SINAHON', 'TIIN', 'DE LA CRUZ',
-    'SALUDSOD'
+    'ORIAS', 'PAUG', 'PERNITES', 'PIAMONTE', 'PLANA', 'ROSOLADA', 'SINAHON', 'TIIN', 'DE LA CRUZ', 'DELA CRUZ',
+    'SALUDSOD', 'MANUN-OG', 'PALER', 'PASCUAL', 'RIVERA', 'SABALO', 'SABEJON', 'SUMALJAG', 'TORMIS', 'VILLAMOR'
+  ];
+
+  const femaleFirstNames = [
+    'ROSEBEB', 'MARY', 'SEBIAN', 'CECILE', 'CHARISSE', 'LESLIE', 'MERYL', 'JOJE', 
+    'MARJORIE', 'RUBIE', 'LEONISA', 'ANA', 'AZILA', 'CHRISTSELDA', 'EDELYN', 'CAROL', 
+    'FEBIE', 'EMMA', 'SUZETTE', 'ROJELYN', 'ROXAN', 'ROMECITA', 'CHRESTIAN', 'CLARISH', 
+    'MADELYN', 'JANE', 'MARIA', 'MA.', 'JENNIFER', 'GRACE', 'JOY', 'CRISTINA', 'CHRISTINE'
   ];
 
   let isMale = true;
+  const rawGender = String(entry?.gender || '').toUpperCase().trim();
 
-  if (entry.gender) {
-    isMale = (entry.gender.toUpperCase() !== 'FEMALE');
+  if (rawGender === 'FEMALE' || rawGender === 'F') {
+    isMale = false;
+  } else if (rawGender === 'MALE' || rawGender === 'M') {
+    isMale = true;
   } else if (lastName === 'SINAHON') {
-    if (firstName.includes('CHRESTIAN') || firstName.includes('JEDE')) {
+    if (firstName.includes('CHRESTIAN') || firstName.includes('JEDE') || rawEmpName.includes('CHRESTIAN') || rawEmpName.includes('JEDE')) {
       isMale = false;
     } else {
       isMale = true;
     }
-  } else if (lastName === 'MANUN-OG' && firstName.includes('MADELYN')) {
+  } else if (lastName === 'MANUN-OG' && (firstName.includes('MADELYN') || rawEmpName.includes('MADELYN'))) {
     isMale = false;
-  } else if (femaleLastNames.includes(lastName)) {
+  } else if (femaleLastNames.some(fln => lastName === fln || lastName.includes(fln) || rawEmpName.startsWith(fln) || rawEmpName.includes(fln))) {
+    isMale = false;
+  } else if (femaleFirstNames.some(ffn => firstName.includes(ffn) || rawEmpName.includes(ffn))) {
     isMale = false;
   }
 
@@ -527,6 +554,71 @@ const Payroll = () => {
     campus: user?.campus || 'Hinunangan Campus'
   });
 
+  // Custom Salaries & Wages Column Label (Editable per cycle & globally)
+  const [salariesLabel, setSalariesLabel] = useState<string>('Salaries and Wages-2nd Tranch');
+  const [isEditingSalariesLabel, setIsEditingSalariesLabel] = useState(false);
+  const [tempSalariesLabel, setTempSalariesLabel] = useState('Salaries and Wages-2nd Tranch');
+  const [isSavingSalariesLabel, setIsSavingSalariesLabel] = useState(false);
+
+  // Formatter for Salaries & Wages header to match multi-line layout exactly as in standard sheet
+  const renderSalariesHeader = (label: string) => {
+    const clean = (label || '').trim();
+    if (!clean || clean === 'Salaries and Wages-2nd Tranch' || clean.toLowerCase() === 'salaries and wages-2nd tranch') {
+      return (
+        <div className="flex flex-col items-center justify-center text-center leading-[1.1] py-0.5 text-[10px] sm:text-[10.5px] font-bold">
+          <span>Salaries and</span>
+          <span>Wages-2nd</span>
+          <span>Tranch</span>
+        </div>
+      );
+    }
+    if (clean === 'Salaries and Wages-1st Tranch' || clean.toLowerCase() === 'salaries and wages-1st tranch') {
+      return (
+        <div className="flex flex-col items-center justify-center text-center leading-[1.1] py-0.5 text-[10px] sm:text-[10.5px] font-bold">
+          <span>Salaries and</span>
+          <span>Wages-1st</span>
+          <span>Tranch</span>
+        </div>
+      );
+    }
+    if (clean === 'Salaries and Wages-3rd Tranch' || clean.toLowerCase() === 'salaries and wages-3rd tranch') {
+      return (
+        <div className="flex flex-col items-center justify-center text-center leading-[1.1] py-0.5 text-[10px] sm:text-[10.5px] font-bold">
+          <span>Salaries and</span>
+          <span>Wages-3rd</span>
+          <span>Tranch</span>
+        </div>
+      );
+    }
+    if (clean.includes(' - ') || clean.includes('-')) {
+      const parts = clean.split(/[-–—]/);
+      return (
+        <div className="flex flex-col items-center justify-center text-center leading-[1.1] py-0.5 text-[10px] sm:text-[10.5px] font-bold">
+          <span>{parts[0].trim()}</span>
+          <span>{parts.slice(1).join('-').trim()}</span>
+        </div>
+      );
+    }
+    const words = clean.split(' ');
+    if (words.length >= 3) {
+      return (
+        <div className="flex flex-col items-center justify-center text-center leading-[1.1] py-0.5 text-[10px] sm:text-[10.5px] font-bold">
+          <span>{words.slice(0, 2).join(' ')}</span>
+          <span>{words.slice(2).join(' ')}</span>
+        </div>
+      );
+    }
+    return <span className="font-bold block text-center leading-tight text-[10.5px]">{clean}</span>;
+  };
+
+  // Sync salariesLabel whenever selectedCycle changes
+  useEffect(() => {
+    if (selectedCycle) {
+      const label = selectedCycle.salariesLabel || selectedCycle.salaries_label || localStorage.getItem(`slsu_salaries_label_${selectedCycle.id}`) || localStorage.getItem('slsu_salaries_label_global') || 'Salaries and Wages-2nd Tranch';
+      setSalariesLabel(label);
+    }
+  }, [selectedCycle?.id, selectedCycle?.salariesLabel, selectedCycle?.salaries_label]);
+
   // Dynamic deduction types from global deductions directory
   const [deductionTypes, setDeductionTypes] = useState<any[]>([]);
 
@@ -571,7 +663,7 @@ const Payroll = () => {
     ];
 
     const baseComp: { key: string; label: string; category: string; isReadOnly?: boolean }[] = [
-      { key: 'compSal2nd', label: 'Salaries and Wages-2nd Tranch', category: 'COMPENSATIONS' },
+      { key: 'compSal2nd', label: salariesLabel, category: 'COMPENSATIONS' },
       { key: 'compPera', label: 'PERA', category: 'COMPENSATIONS' },
       { key: 'compGross', label: 'Gross Amount Earned', category: 'COMPENSATIONS', isReadOnly: true },
       { key: 'absences', label: 'Abs.', category: 'COMPENSATIONS' },
@@ -933,6 +1025,31 @@ const Payroll = () => {
     }
   };
 
+  const handleSaveSalariesLabel = async () => {
+    const newLabel = tempSalariesLabel.trim() || 'Salaries and Wages-2nd Tranch';
+    setIsSavingSalariesLabel(true);
+    try {
+      setSalariesLabel(newLabel);
+      if (selectedCycle) {
+        try {
+          await api.payroll.updateSalariesLabel(selectedCycle.id, newLabel);
+        } catch (apiErr) {
+          console.warn('[Payroll] Failed to save salariesLabel via API:', apiErr);
+        }
+        localStorage.setItem(`slsu_salaries_label_${selectedCycle.id}`, newLabel);
+        setSelectedCycle((prev: any) => prev ? { ...prev, salariesLabel: newLabel, salaries_label: newLabel } : prev);
+        setCycles((prev: any[]) => prev.map(c => c.id === selectedCycle.id ? { ...c, salariesLabel: newLabel, salaries_label: newLabel } : c));
+      }
+      localStorage.setItem('slsu_salaries_label_global', newLabel);
+      toast.success(`Column header updated to "${newLabel}"`);
+      setIsEditingSalariesLabel(false);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to update column title');
+    } finally {
+      setIsSavingSalariesLabel(false);
+    }
+  };
+
   const fetchDeductionTypes = async () => {
     try {
       const types = await api.deductions.listTypes();
@@ -1037,7 +1154,8 @@ const Payroll = () => {
         setEntries([]);
       }
     } catch (error: any) {
-      toast.error('Failed to fetch entries');
+      console.error('Failed to fetch entries:', error);
+      toast.error(error?.message || 'Failed to fetch entries');
     } finally {
       setEntriesLoading(false);
     }
@@ -2200,7 +2318,7 @@ const Payroll = () => {
       '',
       '',
       'GSIS PREM', 'HDMF PREM', 'PHILHEALTH ES', 'ECIP',
-      'Salaries and Wages-2nd Tranch', 'PERA', 'Gross Amount Earned',
+      salariesLabel, 'PERA', 'Gross Amount Earned',
       'Absences', 'GSIS PREM Policy', 'GSIS PREM Consol', 'GSIS PREM MPL Lite', 'GSIS PREM MPL', 'GSIS PREM CPL', 'GSIS PREM GFAL', 'GSIS PREM Emergency', 'GSIS PREM PERSONAL', 'GSIS PREM Educ', 'HDMF PREM PERSONAL(EE)', 'HDMF PREM MPL', 'SSS', 'HDMF PREM MP2', 'PHILHEALTH ES CONT', 'CSB Sal', 'TAX', 'TOTAL',
       '',
       ''
@@ -2267,23 +2385,23 @@ const Payroll = () => {
     if (isVisitingOnly) {
       rawSections = [
         { label: 'VISITING INSTRUCTORS: MALE', entries: visitingMale, isGenderSub: false },
-        { label: 'Female:', entries: visitingFemale, isGenderSub: true }
+        { label: visitingMale.length > 0 ? 'Female:' : 'VISITING INSTRUCTORS: FEMALE', entries: visitingFemale, isGenderSub: visitingMale.length > 0 }
       ];
     } else if (isFacultyStaffOnly) {
       rawSections = [
         { label: 'FACULTY: MALE', entries: facultyMale, isGenderSub: false },
-        { label: 'Female:', entries: facultyFemale, isGenderSub: true },
+        { label: facultyMale.length > 0 ? 'Female:' : 'FACULTY: FEMALE', entries: facultyFemale, isGenderSub: facultyMale.length > 0 },
         { label: 'STAFF: MALE', entries: staffMale, isGenderSub: false },
-        { label: 'Female:', entries: staffFemale, isGenderSub: true }
+        { label: staffMale.length > 0 ? 'Female:' : 'STAFF: FEMALE', entries: staffFemale, isGenderSub: staffMale.length > 0 }
       ];
     } else {
       rawSections = [
         { label: 'VISITING INSTRUCTORS: MALE', entries: visitingMale, isGenderSub: false },
-        { label: 'Female:', entries: visitingFemale, isGenderSub: true },
+        { label: visitingMale.length > 0 ? 'Female:' : 'VISITING INSTRUCTORS: FEMALE', entries: visitingFemale, isGenderSub: visitingMale.length > 0 },
         { label: 'FACULTY: MALE', entries: facultyMale, isGenderSub: false },
-        { label: 'Female:', entries: facultyFemale, isGenderSub: true },
+        { label: facultyMale.length > 0 ? 'Female:' : 'FACULTY: FEMALE', entries: facultyFemale, isGenderSub: facultyMale.length > 0 },
         { label: 'STAFF: MALE', entries: staffMale, isGenderSub: false },
-        { label: 'Female:', entries: staffFemale, isGenderSub: true },
+        { label: staffMale.length > 0 ? 'Female:' : 'STAFF: FEMALE', entries: staffFemale, isGenderSub: staffMale.length > 0 },
         { label: 'OTHERS', entries: others, isGenderSub: false }
       ];
     }
@@ -3784,7 +3902,7 @@ const Payroll = () => {
                       onClick={() => {
                         setShowGsisFormula(!showGsisFormula);
                         if (!showGsisFormula) {
-                          toast.info("Formula view enabled: 12% of Salaries and Wages-2nd Tranch");
+                          toast.info(`Formula view enabled: 12% of ${salariesLabel}`);
                         }
                       }}
                       className={`sticky top-[34px] z-30 p-1.5 cursor-pointer select-none transition-all duration-200 ${showGsisFormula ? 'bg-blue-100 text-blue-950 min-w-[210px] text-center font-bold font-sans border-x border-blue-300' : 'p-1.5 text-right min-w-[70px] bg-blue-50 text-blue-950 hover:bg-blue-100'}`}
@@ -3795,7 +3913,7 @@ const Payroll = () => {
                       <div className={`flex items-center gap-1 ${showGsisFormula ? 'justify-center text-blue-900' : 'justify-end'}`}>
                         {showGsisFormula ? (
                           <span className="text-[10px] font-extrabold tracking-tight">
-                            12% of Salaries and Wages-2nd Tranch
+                            12% of {salariesLabel}
                           </span>
                         ) : (
                           <>
@@ -3815,7 +3933,7 @@ const Payroll = () => {
                       onClick={() => {
                         setShowPhilhealthFormula(!showPhilhealthFormula);
                         if (!showPhilhealthFormula) {
-                          toast.info("Formula view enabled: 5% of Salaries and Wages-2nd Tranch / 2");
+                          toast.info(`Formula view enabled: 5% of ${salariesLabel} / 2`);
                         }
                       }}
                       className={`sticky top-[34px] z-30 p-1.5 cursor-pointer select-none transition-all duration-200 ${showPhilhealthFormula ? 'bg-blue-100 text-blue-950 min-w-[210px] text-center font-bold font-sans border-x border-blue-300' : 'p-1.5 text-right min-w-[70px] bg-blue-50 text-blue-950 hover:bg-blue-100'}`}
@@ -3826,7 +3944,7 @@ const Payroll = () => {
                       <div className={`flex items-center gap-1 ${showPhilhealthFormula ? 'justify-center text-blue-900' : 'justify-end'}`}>
                         {showPhilhealthFormula ? (
                           <span className="text-[10px] font-extrabold tracking-tight">
-                            5% of Salaries and Wages-2nd Tranch / 2
+                            5% of {salariesLabel} / 2
                           </span>
                         ) : (
                           <>
@@ -3845,10 +3963,23 @@ const Payroll = () => {
 
                     {/* Compensations Sub-Headers (Emerald Accent) */}
                     <th 
-                      className="sticky top-[34px] z-30 p-1.5 text-right min-w-[95px] bg-emerald-50 text-emerald-950"
-                      style={{ height: '30px' }}
+                      onClick={() => {
+                        setTempSalariesLabel(salariesLabel);
+                        setIsEditingSalariesLabel(true);
+                      }}
+                      className="sticky top-[34px] z-30 p-1 text-center min-w-[125px] bg-emerald-50 text-emerald-950 group cursor-pointer hover:bg-emerald-100 transition-all select-none border-x border-emerald-200"
+                      style={{ height: '36px' }}
+                      id="salaries-wages-header-edit"
+                      title="Click to edit column title (e.g. Salaries and Wages-1st Tranch, Basic Salary, etc.)"
                     >
-                      Salaries and Wages-2nd Tranch
+                      <div className="flex items-center justify-center gap-1 h-full px-1 text-center">
+                        <div className="text-[10px] sm:text-[10.5px] leading-tight text-center font-bold text-emerald-950">
+                          {renderSalariesHeader(salariesLabel)}
+                        </div>
+                        <div className="p-0.5 rounded bg-emerald-100 group-hover:bg-emerald-200 text-emerald-800 transition-colors shrink-0 opacity-40 group-hover:opacity-100" title="Edit column header">
+                          <Edit3 className="w-3 h-3 inline" />
+                        </div>
+                      </div>
                     </th>
                     <th 
                       className="sticky top-[34px] z-30 p-1.5 text-right min-w-[70px] bg-emerald-50 text-emerald-950"
@@ -3860,7 +3991,7 @@ const Payroll = () => {
                       onClick={() => {
                         setShowGrossFormula(!showGrossFormula);
                         if (!showGrossFormula) {
-                          toast.info("Formula view enabled: Salaries and Wages-2nd Tranch + PERA - Abs.");
+                          toast.info(`Formula view enabled: ${salariesLabel} + PERA - Abs.`);
                         }
                       }}
                       className={`sticky top-[34px] z-30 p-1.5 cursor-pointer select-none transition-all duration-200 ${showGrossFormula ? 'bg-emerald-100 text-emerald-950 min-w-[310px] text-center font-bold font-sans border-x border-emerald-300' : 'p-1.5 text-right min-w-[90px] bg-emerald-100 text-emerald-950 hover:bg-emerald-200'}`}
@@ -3871,7 +4002,7 @@ const Payroll = () => {
                       <div className={`flex items-center gap-1 ${showGrossFormula ? 'justify-center text-emerald-900' : 'justify-end'}`}>
                         {showGrossFormula ? (
                           <span className="text-[10px] font-extrabold tracking-tight">
-                            Salaries and Wages-2nd Tranch + PERA - Abs.
+                            {salariesLabel} + PERA - Abs.
                           </span>
                         ) : (
                           <>
@@ -3956,7 +4087,7 @@ const Payroll = () => {
                       onClick={() => {
                         setShowGsisPersonalFormula(!showGsisPersonalFormula);
                         if (!showGsisPersonalFormula) {
-                          toast.info("Formula view enabled: 9% of Salaries and Wages-2nd Tranch");
+                          toast.info(`Formula view enabled: 9% of ${salariesLabel}`);
                         }
                       }}
                       className={`sticky top-[34px] z-30 p-1.5 cursor-pointer select-none transition-all duration-200 border border-zinc-300 ${showGsisPersonalFormula ? 'bg-rose-100 text-rose-950 min-w-[210px]' : 'bg-rose-50 text-rose-950 hover:bg-rose-100'}`}
@@ -3967,7 +4098,7 @@ const Payroll = () => {
                       <div className="flex flex-col items-center justify-center text-center leading-[1.1] min-h-[28px] px-1">
                         {showGsisPersonalFormula ? (
                           <span className="text-[10px] font-extrabold tracking-tight text-rose-900 leading-[1.2]">
-                            9% of Salaries and Wages-2nd Tranch
+                            9% of {salariesLabel}
                           </span>
                         ) : (
                           <>
@@ -3992,7 +4123,7 @@ const Payroll = () => {
                       onClick={() => {
                         setShowPagibigPersonalFormula(!showPagibigPersonalFormula);
                         if (!showPagibigPersonalFormula) {
-                          toast.info("Formula view enabled: 2% of Salaries and Wages-2nd Tranch");
+                          toast.info(`Formula view enabled: 2% of ${salariesLabel}`);
                         }
                       }}
                       className={`sticky top-[34px] z-30 p-1.5 cursor-pointer select-none transition-all duration-200 border border-zinc-300 ${showPagibigPersonalFormula ? 'bg-rose-100 text-rose-950 min-w-[210px]' : 'bg-rose-50 text-rose-950 hover:bg-rose-100'}`}
@@ -4003,7 +4134,7 @@ const Payroll = () => {
                       <div className="flex flex-col items-center justify-center text-center leading-[1.1] min-h-[28px] px-1">
                         {showPagibigPersonalFormula ? (
                           <span className="text-[10px] font-extrabold tracking-tight text-rose-900 leading-[1.2]">
-                            2% of Salaries and Wages-2nd Tranch
+                            2% of {salariesLabel}
                           </span>
                         ) : (
                           <>
@@ -4046,7 +4177,7 @@ const Payroll = () => {
                       onClick={() => {
                         setShowPhilhealthContFormula(!showPhilhealthContFormula);
                         if (!showPhilhealthContFormula) {
-                          toast.info("Formula view enabled: 2.5% of Salaries and Wages-2nd Tranch");
+                          toast.info(`Formula view enabled: 2.5% of ${salariesLabel}`);
                         }
                       }}
                       className={`sticky top-[34px] z-30 p-1.5 cursor-pointer select-none transition-all duration-200 border border-zinc-300 ${showPhilhealthContFormula ? 'bg-rose-100 text-rose-950 min-w-[210px]' : 'bg-rose-50 text-rose-950 hover:bg-rose-100'}`}
@@ -4057,7 +4188,7 @@ const Payroll = () => {
                       <div className="flex flex-col items-center justify-center text-center leading-[1.1] min-h-[28px] px-1">
                         {showPhilhealthContFormula ? (
                           <span className="text-[10px] font-extrabold tracking-tight text-rose-900 leading-[1.2]">
-                            2.5% of Salaries and Wages-2nd Tranch
+                            2.5% of {salariesLabel}
                           </span>
                         ) : (
                           <>
@@ -4171,23 +4302,23 @@ const Payroll = () => {
                     if (isVisitingOnly) {
                       rawSections = [
                         { label: 'VISITING INSTRUCTORS: MALE', entries: visitingMale, isGenderSub: false },
-                        { label: 'Female:', entries: visitingFemale, isGenderSub: true }
+                        { label: visitingMale.length > 0 ? 'Female:' : 'VISITING INSTRUCTORS: FEMALE', entries: visitingFemale, isGenderSub: visitingMale.length > 0 }
                       ];
                     } else if (isFacultyStaffOnly) {
                       rawSections = [
                         { label: 'FACULTY: MALE', entries: facultyMale, isGenderSub: false },
-                        { label: 'Female:', entries: facultyFemale, isGenderSub: true },
+                        { label: facultyMale.length > 0 ? 'Female:' : 'FACULTY: FEMALE', entries: facultyFemale, isGenderSub: facultyMale.length > 0 },
                         { label: 'STAFF: MALE', entries: staffMale, isGenderSub: false },
-                        { label: 'Female:', entries: staffFemale, isGenderSub: true }
+                        { label: staffMale.length > 0 ? 'Female:' : 'STAFF: FEMALE', entries: staffFemale, isGenderSub: staffMale.length > 0 }
                       ];
                     } else {
                       rawSections = [
                         { label: 'VISITING INSTRUCTORS: MALE', entries: visitingMale, isGenderSub: false },
-                        { label: 'Female:', entries: visitingFemale, isGenderSub: true },
+                        { label: visitingMale.length > 0 ? 'Female:' : 'VISITING INSTRUCTORS: FEMALE', entries: visitingFemale, isGenderSub: visitingMale.length > 0 },
                         { label: 'FACULTY: MALE', entries: facultyMale, isGenderSub: false },
-                        { label: 'Female:', entries: facultyFemale, isGenderSub: true },
+                        { label: facultyMale.length > 0 ? 'Female:' : 'FACULTY: FEMALE', entries: facultyFemale, isGenderSub: facultyMale.length > 0 },
                         { label: 'STAFF: MALE', entries: staffMale, isGenderSub: false },
-                        { label: 'Female:', entries: staffFemale, isGenderSub: true },
+                        { label: staffMale.length > 0 ? 'Female:' : 'STAFF: FEMALE', entries: staffFemale, isGenderSub: staffMale.length > 0 },
                         { label: 'OTHERS', entries: others, isGenderSub: false }
                       ];
                     }
@@ -5649,6 +5780,142 @@ const Payroll = () => {
                 </>
               )}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Compensation / Salaries & Wages Column Title Dialog */}
+      <Dialog open={isEditingSalariesLabel} onOpenChange={setIsEditingSalariesLabel}>
+        <DialogContent className="sm:max-w-[520px] p-0 overflow-hidden bg-white rounded-2xl shadow-2xl border border-neutral-200">
+          <DialogHeader className="p-6 pb-4 bg-gradient-to-r from-emerald-800 to-teal-900 text-white">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/20">
+                <Edit3 className="w-5 h-5 text-emerald-300" />
+              </div>
+              <div>
+                <DialogTitle className="text-lg font-bold text-white">
+                  Edit Compensation Column Title
+                </DialogTitle>
+                <DialogDescription className="text-emerald-100 text-xs mt-0.5">
+                  Customize the compensation column heading in the General Payroll sheet and Excel exports.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="p-6 space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-neutral-700 mb-1.5 uppercase tracking-wider">
+                Column Header Title
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={tempSalariesLabel}
+                  onChange={(e) => setTempSalariesLabel(e.target.value)}
+                  placeholder="e.g. Salaries and Wages-2nd Tranch"
+                  className="w-full px-3.5 py-2.5 bg-neutral-50 border border-neutral-300 rounded-xl text-sm font-semibold text-neutral-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all shadow-sm"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSaveSalariesLabel();
+                    }
+                  }}
+                />
+                {tempSalariesLabel && (
+                  <button
+                    type="button"
+                    onClick={() => setTempSalariesLabel('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 text-xs font-medium"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <span className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                Quick Preset Titles
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  'Salaries and Wages-2nd Tranch',
+                  'Salaries and Wages-1st Tranch',
+                  'Salaries and Wages-3rd Tranch',
+                  'Basic Salary',
+                  'Honorarium / Hourly Rate',
+                  'Monthly Basic Pay',
+                  'Regular Compensation',
+                ].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setTempSalariesLabel(preset)}
+                    className={`px-2.5 py-1 text-xs rounded-lg border transition-all font-medium ${
+                      tempSalariesLabel === preset
+                        ? 'bg-emerald-100 border-emerald-500 text-emerald-900 font-bold shadow-sm'
+                        : 'bg-neutral-50 border-neutral-200 text-neutral-700 hover:bg-neutral-100'
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl text-xs text-amber-900 flex items-start gap-2.5">
+              <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-[11px] leading-relaxed">
+                <strong>Live Synchronized:</strong> Changes update the General Payroll matrix, column summaries, and generated Excel sheets for this payroll cycle {selectedCycle?.name ? `("${selectedCycle.name}")` : ''}.
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="p-4 border-t border-neutral-100 bg-neutral-50 flex items-center justify-between sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setTempSalariesLabel('Salaries and Wages-2nd Tranch');
+              }}
+              className="text-xs text-neutral-600 hover:text-neutral-900"
+            >
+              Reset to Default
+            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsEditingSalariesLabel(false)}
+                disabled={isSavingSalariesLabel}
+                className="text-xs"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleSaveSalariesLabel}
+                disabled={isSavingSalariesLabel || !tempSalariesLabel.trim()}
+                className="bg-emerald-700 hover:bg-emerald-800 text-white gap-1.5 text-xs font-semibold px-4"
+              >
+                {isSavingSalariesLabel ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Save Title</span>
+                  </>
+                )}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
