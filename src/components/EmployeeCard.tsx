@@ -6,10 +6,11 @@ import {
   Trash2, 
   Check, 
   User,
-  Building2
+  Building2,
+  Eye
 } from 'lucide-react';
 import { Button } from './ui/button';
-import { formatCurrency } from '../lib/utils';
+import { formatCurrency, cn } from '../lib/utils';
 
 export interface Employee {
   id: string;
@@ -39,6 +40,8 @@ interface EmployeeCardProps {
   onDelete: (id: string) => void;
   onViewDetails: (emp: Employee) => void;
   departments?: any[];
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
 const capitalizeName = (str: string): string => {
@@ -63,7 +66,9 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
   onEdit,
   onDelete,
   onViewDetails,
-  departments = []
+  departments = [],
+  canEdit = true,
+  canDelete = true
 }) => {
   const empNoNum = (emp.employeeNo || emp.bpno || '').replace(/\D/g, '');
   const formattedEmpNo = empNoNum ? `Emp-${empNoNum.slice(-3).padStart(3, '0')}` : `Emp-${String(emp.id).slice(-3)}`;
@@ -177,26 +182,40 @@ export const EmployeeCard: React.FC<EmployeeCardProps> = ({
           </div>
         </div>
 
-        {/* Buttons section matching image footer */}
-        <div className="w-full grid grid-cols-2 gap-2 pt-3 border-t border-neutral-100">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="h-9 gap-1.5 text-xs font-semibold border-neutral-200 hover:bg-neutral-50 rounded-xl text-neutral-700 w-full"
-            onClick={() => onEdit(emp)}
-          >
-            <Edit2 className="w-3 h-3 text-neutral-400" />
-            Edit
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="h-9 gap-1.5 text-xs font-semibold border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 rounded-xl w-full"
-            onClick={() => onDelete(emp.id)}
-          >
-            <Trash2 className="w-3 h-3 text-red-400" />
-            Delete
-          </Button>
+        {/* Buttons section */}
+        <div className={cn("w-full pt-3 border-t border-neutral-100", (canEdit && canDelete) || (!canEdit && canDelete) ? "grid grid-cols-2 gap-2" : "grid grid-cols-1")}>
+          {canEdit ? (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-9 gap-1.5 text-xs font-semibold border-neutral-200 hover:bg-neutral-50 rounded-xl text-neutral-700 w-full"
+              onClick={() => onEdit(emp)}
+            >
+              <Edit2 className="w-3 h-3 text-neutral-400" />
+              Edit
+            </Button>
+          ) : (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-9 gap-1.5 text-xs font-semibold border-neutral-200 hover:bg-neutral-50 rounded-xl text-neutral-700 w-full"
+              onClick={() => onViewDetails(emp)}
+            >
+              <Eye className="w-3.5 h-3.5 text-neutral-400" />
+              View Details
+            </Button>
+          )}
+          {canDelete && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-9 gap-1.5 text-xs font-semibold border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 rounded-xl w-full"
+              onClick={() => onDelete(emp.id)}
+            >
+              <Trash2 className="w-3 h-3 text-red-400" />
+              Delete
+            </Button>
+          )}
         </div>
       </div>
     </div>

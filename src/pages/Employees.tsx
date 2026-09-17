@@ -322,6 +322,10 @@ const Employees = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (editingEmployee && role === 'department_head') {
+      toast.error('Department heads are not permitted to edit employee records.');
+      return;
+    }
     try {
       const data = {
         ...formData,
@@ -346,12 +350,21 @@ const Employees = () => {
   };
 
   const handleDelete = async (id: string) => {
+    if (role === 'department_head') {
+      toast.error('Department heads are not permitted to delete employee records.');
+      return;
+    }
     setItemToDelete({ id, type: 'employee' });
     setIsDeleteOpen(true);
   };
 
   const confirmDelete = async () => {
     if (!itemToDelete) return;
+    if (itemToDelete.type === 'employee' && role === 'department_head') {
+      toast.error('Department heads are not permitted to delete employee records.');
+      setIsDeleteOpen(false);
+      return;
+    }
     
     setIsDeleting(true);
     try {
@@ -392,6 +405,10 @@ const Employees = () => {
   };
 
   const handleEditEmployee = (emp: any) => {
+    if (role === 'department_head') {
+      toast.error('Department heads are not permitted to edit employee records.');
+      return;
+    }
     setEditingEmployee(emp);
     setFormData({
       employeeId: emp.employeeId,
@@ -2415,6 +2432,8 @@ const Employees = () => {
                       fetchEmployeeHistory(employee.id);
                     }}
                     departments={departments}
+                    canEdit={role !== 'department_head'}
+                    canDelete={role !== 'department_head'}
                   />
                 ))}
               </div>
@@ -2559,15 +2578,19 @@ const Employees = () => {
                             <FileText className="w-3.5 h-3.5 text-neutral-400" />
                             View Details
                           </DropdownMenuItem>
-                          <DropdownMenuItem className="gap-2 py-1.5 rounded-lg text-xs font-medium cursor-pointer text-neutral-700 hover:bg-neutral-50" onClick={() => handleEditEmployee(emp)}>
-                            <Edit2 className="w-3.5 h-3.5 text-neutral-400" />
-                            Edit Employee
-                          </DropdownMenuItem>
-                          <div className="h-px bg-neutral-100 my-1" />
-                          <DropdownMenuItem className="gap-2 py-1.5 rounded-lg text-xs font-medium cursor-pointer text-red-600 focus:text-red-600 focus:bg-red-50" onClick={() => handleDelete(emp.id)}>
-                            <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                            Delete Employee
-                          </DropdownMenuItem>
+                          {role !== 'department_head' && (
+                            <>
+                              <DropdownMenuItem className="gap-2 py-1.5 rounded-lg text-xs font-medium cursor-pointer text-neutral-700 hover:bg-neutral-50" onClick={() => handleEditEmployee(emp)}>
+                                <Edit2 className="w-3.5 h-3.5 text-neutral-400" />
+                                Edit Employee
+                              </DropdownMenuItem>
+                              <div className="h-px bg-neutral-100 my-1" />
+                              <DropdownMenuItem className="gap-2 py-1.5 rounded-lg text-xs font-medium cursor-pointer text-red-600 focus:text-red-600 focus:bg-red-50" onClick={() => handleDelete(emp.id)}>
+                                <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                                Delete Employee
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
