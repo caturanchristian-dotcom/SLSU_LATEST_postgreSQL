@@ -80,7 +80,7 @@ dtrRouter.get("/dtr/bootstrap", async (req: any, res: any) => {
     const resolvedEmpId = employeeId ? await resolveEmployeeId(employeeId) : null;
 
     // Execute queries in parallel
-    const [employees, holidays, logs, statusRecord, schedules] = await Promise.all([
+    const [employees, holidays, logs, statusRecord, schedules, approvedOvertime] = await Promise.all([
       db.prepare(`
         SELECT id, "employeeId", "firstName", "lastName", email, category, "basicSalary", "salaryType", "phoneNumber", status, campus
         FROM employees
@@ -137,6 +137,25 @@ dtrRouter.get("/dtr/bootstrap", async (req: any, res: any) => {
           WHERE "employeeId" = ? OR "employeeId" = ?
           ORDER BY "dayOfWeek" ASC, "startTime" ASC
         `).all(resolvedEmpId, employeeId).catch(() => []);
+      })(),
+
+      // Approved Overtime Requests for the period (Only status = 'approved')
+      (async () => {
+        let query = `
+          SELECT ot.*, 
+                 e."firstName", e."lastName", e."employeeId" as "employeeNo"
+          FROM overtime_requests ot
+          LEFT JOIN employees e ON ot."employeeId" = e.id
+          WHERE ot.status = 'approved'
+            AND ot."overtimeDate" >= ? AND ot."overtimeDate" <= ?
+        `;
+        const params: any[] = [startDay, endDay];
+        if (resolvedEmpId) {
+          query += ' AND (ot."employeeId" = ? OR ot."employeeId" = ? OR e."employeeId" = ?)';
+          params.push(resolvedEmpId, employeeId, employeeId);
+        }
+        query += ' ORDER BY ot."overtimeDate" ASC, ot."startTime" ASC';
+        return await db.prepare(query).all(...params).catch(() => []);
       })()
     ]);
 
@@ -146,6 +165,7 @@ dtrRouter.get("/dtr/bootstrap", async (req: any, res: any) => {
       logs,
       status: statusRecord,
       schedules,
+      approvedOvertime: Array.isArray(approvedOvertime) ? approvedOvertime : [],
       period: {
         year: targetYear,
         month: targetMonth,

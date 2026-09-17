@@ -37,6 +37,13 @@ import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { safeDateStr, safeDateOnly, safeSplit } from '../lib/utils';
+import { api } from '../lib/api';
+import { 
+  OvertimeRequestRecord, 
+  calculateDayOvertime, 
+  calculateMonthlyOvertimeTotals 
+} from '../lib/dtrOvertimeHelper';
+import { OvertimeDetailsDialog } from '../components/OvertimeDetailsDialog';
 
 interface DTRLog {
   id: string;
@@ -154,6 +161,11 @@ const DTRVisiting = () => {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
   const [employeeSchedules, setEmployeeSchedules] = useState<any[]>([]);
   const [holidays, setHolidays] = useState<any[]>([]);
+
+  // Overtime Integration State
+  const [approvedOvertimes, setApprovedOvertimes] = useState<OvertimeRequestRecord[]>([]);
+  const [selectedOvertimeData, setSelectedOvertimeData] = useState<{ dateStr: string; day: number; requests: OvertimeRequestRecord[] } | null>(null);
+  const [isOvertimeDetailsOpen, setIsOvertimeDetailsOpen] = useState(false);
 
   const fetchHolidays = useCallback(async () => {
     try {
@@ -673,6 +685,35 @@ const DTRVisiting = () => {
     }
   }, [isAdmin, user?.id, selectedMonth, selectedYear, selectedEmployeeId]);
 
+  // Efficiently fetch approved overtime for the selected employee & month in ONE single API call
+  const fetchOvertime = useCallback(async (month = selectedMonth, year = selectedYear, empId = selectedEmployeeId) => {
+    try {
+      const targetEmpId = (!isAdmin && user?.id) ? user.id : empId;
+      if (!targetEmpId || targetEmpId === 'all') {
+        setApprovedOvertimes([]);
+        return;
+      }
+      const startDay = `${year}-${String(month).padStart(2, '0')}-01`;
+      const lastDayNum = new Date(year, month, 0).getDate();
+      const endDay = `${year}-${String(month).padStart(2, '0')}-${String(lastDayNum).padStart(2, '0')}`;
+
+      const res = await api.overtime.list({
+        employeeId: targetEmpId,
+        status: 'approved',
+        startDate: startDay,
+        endDate: endDay
+      });
+      if (res && Array.isArray(res.data)) {
+        setApprovedOvertimes(res.data);
+      } else {
+        setApprovedOvertimes([]);
+      }
+    } catch (err) {
+      console.error('Failed to fetch approved overtime in DTRVisiting:', err);
+      setApprovedOvertimes([]);
+    }
+  }, [isAdmin, user?.id, selectedMonth, selectedYear, selectedEmployeeId]);
+
   const fetchEmployees = useCallback(async () => {
     try {
       const response = await fetch('/api/employees');
@@ -728,6 +769,11 @@ const DTRVisiting = () => {
         if (bootstrap.logs) setLogs(bootstrap.logs);
         if (bootstrap.status !== undefined) setCurrentStatus(bootstrap.status);
         if (bootstrap.schedules) setEmployeeSchedules(bootstrap.schedules);
+        if (bootstrap.approvedOvertime && Array.isArray(bootstrap.approvedOvertime)) {
+          setApprovedOvertimes(bootstrap.approvedOvertime);
+        } else if (empToLoad) {
+          fetchOvertime(selectedMonth, selectedYear, empToLoad);
+        }
       } catch (e) {
         console.error("Bootstrap loading error in DTRVisiting:", e);
       } finally {
@@ -736,7 +782,7 @@ const DTRVisiting = () => {
     };
     initData();
     return () => { isMounted = false; };
-  }, [user, isAdmin]);
+  }, [user, isAdmin, fetchOvertime]);
 
   // Fast query when month/year/employee changes
   useEffect(() => {
@@ -745,10 +791,11 @@ const DTRVisiting = () => {
     if (targetEmpId) {
       Promise.all([
         fetchLogs(selectedMonth, selectedYear, targetEmpId),
-        fetchSchedulesForEmployee(targetEmpId)
+        fetchSchedulesForEmployee(targetEmpId),
+        fetchOvertime(selectedMonth, selectedYear, targetEmpId)
       ]);
     }
-  }, [selectedMonth, selectedYear, selectedEmployeeId, fetchLogs]);
+  }, [selectedMonth, selectedYear, selectedEmployeeId, fetchLogs, fetchOvertime]);
 
   useRealtime('dtr_changed', () => {
     fetchLogs();
@@ -1299,17 +1346,28 @@ const DTRVisiting = () => {
   const calculateTotals = (entries: any[]) => {
     let totalHr = 0;
     let totalMin = 0;
+    let totalOtMin = 0;
+
     entries.forEach(e => {
       if (e.undertimeHours) totalHr += Number(e.undertimeHours);
       if (e.undertimeMin) totalMin += Number(e.undertimeMin);
+      if (typeof e.totalOvertimeMinutes === 'number') {
+        totalOtMin += e.totalOvertimeMinutes;
+      }
     });
 
     totalHr += Math.floor(totalMin / 60);
     totalMin = totalMin % 60;
 
+    const otHr = Math.floor(totalOtMin / 60);
+    const otMin = totalOtMin % 60;
+
     return {
       hoursStr: totalHr > 0 ? String(totalHr) : '',
-      minutesStr: totalMin > 0 ? String(totalMin) : ''
+      minutesStr: totalMin > 0 ? String(totalMin) : '',
+      overtimeHoursStr: totalOtMin > 0 ? String(otHr) : '0',
+      overtimeMinutesStr: totalOtMin > 0 ? String(otMin).padStart(2, '0') : '00',
+      totalOvertimeMinutes: totalOtMin
     };
   };
 
@@ -1330,19 +1388,38 @@ const DTRVisiting = () => {
       }
     });
 
+    // Map approved overtime by dateStr
+    const otByDate = new Map<string, OvertimeRequestRecord[]>();
+    approvedOvertimes.forEach(ot => {
+      const rawDate = ot.overtimeDate || (ot as any).date;
+      if (!rawDate) return;
+      const dStr = safeDateOnly(rawDate);
+      if (!otByDate.has(dStr)) {
+        otByDate.set(dStr, []);
+      }
+      otByDate.get(dStr)!.push(ot);
+    });
+
     days.forEach(day => {
       const dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const dayLogs = logsByDate.get(dateStr) || [];
+      const dayOvertimes = otByDate.get(dateStr) || [];
       const parsed = getDayPunches(dayLogs, dateStr);
+      const otCalc = calculateDayOvertime(dayOvertimes);
+
       sheetData.push({
         day,
         dateStr,
-        ...parsed
+        ...parsed,
+        overtimeHours: otCalc.hoursStr,
+        overtimeMin: otCalc.minutesStr,
+        totalOvertimeMinutes: otCalc.totalMinutes,
+        overtimeRequests: dayOvertimes
       });
     });
 
     return sheetData;
-  }, [logs, employeeSchedules, selectedYear, selectedMonth, selectedEmployeeId, holidays]);
+  }, [logs, approvedOvertimes, employeeSchedules, selectedYear, selectedMonth, selectedEmployeeId, holidays]);
 
   const { fullMonthRows, fullMonthTotals } = useMemo(() => {
     const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
@@ -1371,12 +1448,17 @@ const DTRVisiting = () => {
         if (found) {
           rows.push({
             day,
+            dateStr: found.dateStr,
             amIn: found.amIn !== '---' ? found.amIn : '',
             amOut: found.amOut !== '---' ? found.amOut : '',
             pmIn: found.pmIn !== '---' ? found.pmIn : '',
             pmOut: found.pmOut !== '---' ? found.pmOut : '',
             undertimeHours: found.undertimeHours || '',
             undertimeMin: found.undertimeMin || '',
+            overtimeHours: found.overtimeHours || '',
+            overtimeMin: found.overtimeMin || '',
+            totalOvertimeMinutes: found.totalOvertimeMinutes || 0,
+            overtimeRequests: found.overtimeRequests || [],
             holiday: matchedHoliday || null,
             dayOfWeek,
             schedules: daySchedules
@@ -1384,12 +1466,17 @@ const DTRVisiting = () => {
         } else {
           rows.push({
             day,
+            dateStr,
             amIn: '',
             amOut: '',
             pmIn: '',
             pmOut: '',
             undertimeHours: '',
             undertimeMin: '',
+            overtimeHours: '',
+            overtimeMin: '',
+            totalOvertimeMinutes: 0,
+            overtimeRequests: [],
             holiday: matchedHoliday || null,
             dayOfWeek,
             schedules: daySchedules
@@ -1398,12 +1485,17 @@ const DTRVisiting = () => {
       } else {
         rows.push({
           day,
+          dateStr: '',
           amIn: '',
           amOut: '',
           pmIn: '',
           pmOut: '',
           undertimeHours: '',
           undertimeMin: '',
+          overtimeHours: '',
+          overtimeMin: '',
+          totalOvertimeMinutes: 0,
+          overtimeRequests: [],
           holiday: null,
           dayOfWeek: -1,
           schedules: []
@@ -1505,22 +1597,25 @@ const DTRVisiting = () => {
           </div>
 
           {/* 1 to 31 Days Table */}
-          <div className="mt-3.5 border border-black select-none print-cell-border">
+          <div className="mt-3.5 border border-black select-none print-cell-border overflow-x-auto">
             <table className="w-full text-center border-collapse text-[10.5px] font-sans">
               <thead>
                 <tr className="bg-neutral-50 border-b border-black text-[9px] font-bold text-neutral-800 uppercase print-cell-border">
-                  <th rowSpan={2} className="border-r border-black py-1 w-8 print-cell-border font-extrabold">Day</th>
+                  <th rowSpan={2} className="border-r border-black py-1 w-7 print-cell-border font-extrabold">Day</th>
                   <th colSpan={2} className="border-r border-black border-b border-black py-1 print-cell-border font-extrabold">A.M.</th>
                   <th colSpan={2} className="border-r border-black border-b border-black py-1 print-cell-border font-extrabold">P.M.</th>
-                  <th colSpan={2} className="border-b border-black py-1 print-cell-border font-extrabold">TOTAL</th>
+                  <th colSpan={2} className="border-r border-black border-b border-black py-1 print-cell-border font-extrabold">TOTAL</th>
+                  <th colSpan={2} className="border-b border-black py-1 print-cell-border font-extrabold text-[#1d58d9]">OVERTIME</th>
                 </tr>
-                <tr className="bg-neutral-50/50 border-b border-black text-[7.5px] font-bold text-neutral-500 uppercase print-cell-border">
-                  <th className="border-r border-black py-1 print-cell-border w-[14%] font-extrabold">ARRIVAL</th>
-                  <th className="border-r border-black py-1 print-cell-border w-[14%] font-extrabold">DEPARTURE</th>
-                  <th className="border-r border-black py-1 print-cell-border w-[14%] font-extrabold">ARRIVAL</th>
-                  <th className="border-r border-black py-1 print-cell-border w-[14%] font-extrabold">DEPARTURE</th>
-                  <th className="border-r border-black py-1 print-cell-border w-[10%] font-extrabold">HOURS</th>
-                  <th className="py-1 print-cell-border w-[10%] font-extrabold">MINUTES</th>
+                <tr className="bg-neutral-50/50 border-b border-black text-[7px] font-bold text-neutral-500 uppercase print-cell-border">
+                  <th className="border-r border-black py-1 print-cell-border w-[12%] font-extrabold">ARRIVAL</th>
+                  <th className="border-r border-black py-1 print-cell-border w-[12%] font-extrabold">DEPARTURE</th>
+                  <th className="border-r border-black py-1 print-cell-border w-[12%] font-extrabold">ARRIVAL</th>
+                  <th className="border-r border-black py-1 print-cell-border w-[12%] font-extrabold">DEPARTURE</th>
+                  <th className="border-r border-black py-1 print-cell-border w-[8.5%] font-extrabold">HOURS</th>
+                  <th className="border-r border-black py-1 print-cell-border w-[8.5%] font-extrabold">MINUTES</th>
+                  <th className="border-r border-black py-1 print-cell-border w-[8.5%] font-extrabold text-[#1d58d9]">HOURS</th>
+                  <th className="py-1 print-cell-border w-[8.5%] font-extrabold text-[#1d58d9]">MINUTES</th>
                 </tr>
               </thead>
               <tbody className="font-mono text-[10px] text-neutral-900 leading-tight">
@@ -1534,7 +1629,7 @@ const DTRVisiting = () => {
                       onClick={() => handleOpenRowEdit(row.day)}
                       className={`border-b border-black hover:bg-neutral-50 transition-colors cursor-pointer print-cell-border ${row.holiday ? 'bg-rose-50/40 print:bg-rose-50/10' : isWeekend ? 'bg-amber-50/20 print:bg-neutral-50/5' : ''}`}
                     >
-                      <td className="border-r border-black font-extrabold py-0.5 w-8 bg-neutral-50/70 select-none text-[9.5px] print-cell-border text-center relative group">
+                      <td className="border-r border-black font-extrabold py-0.5 w-7 bg-neutral-50/70 select-none text-[9.5px] print-cell-border text-center relative group">
                         {row.day}
                         {row.holiday && (
                           <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-rose-500 rounded-full print:border print:border-rose-500" title={row.holiday.name}></span>
@@ -1552,11 +1647,11 @@ const DTRVisiting = () => {
                         )}
                       </td>
                       {row.holiday && !hasPunches ? (
-                        <td colSpan={6} className="py-0.5 text-center font-bold tracking-wider text-[9px] text-rose-700 uppercase italic print-cell-border bg-rose-50/30">
+                        <td colSpan={8} className="py-0.5 text-center font-bold tracking-wider text-[9px] text-rose-700 uppercase italic print-cell-border bg-rose-50/30">
                           ● HOLIDAY: {row.holiday.name}
                         </td>
                       ) : isWeekend && !hasPunches ? (
-                        <td colSpan={6} className="py-0.5 text-center font-bold tracking-widest text-[9px] text-amber-700 uppercase italic print-cell-border bg-amber-50/20">
+                        <td colSpan={8} className="py-0.5 text-center font-bold tracking-widest text-[9px] text-amber-700 uppercase italic print-cell-border bg-amber-50/20">
                           • {weekendLabel}
                         </td>
                       ) : (
@@ -1576,8 +1671,46 @@ const DTRVisiting = () => {
                           <td className="border-r border-black py-0.5 text-center print-cell-border text-neutral-900 font-bold">
                             {row.undertimeHours}
                           </td>
-                          <td className="py-0.5 text-center print-cell-border text-neutral-900 font-semibold font-mono">
+                          <td className="border-r border-black py-0.5 text-center print-cell-border text-neutral-900 font-semibold font-mono">
                             {row.undertimeMin}
+                          </td>
+                          <td 
+                            onClick={(e) => {
+                              if (row.overtimeRequests && row.overtimeRequests.length > 0) {
+                                e.stopPropagation();
+                                setSelectedOvertimeData({
+                                  dateStr: row.dateStr || `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(row.day).padStart(2, '0')}`,
+                                  day: row.day,
+                                  requests: row.overtimeRequests
+                                });
+                                setIsOvertimeDetailsOpen(true);
+                              }
+                            }}
+                            className={`border-r border-black py-0.5 text-center print-cell-border font-bold ${
+                              row.overtimeHours ? 'text-[#1d58d9] hover:bg-blue-50/80 cursor-pointer font-black' : 'text-neutral-400'
+                            }`}
+                            title={row.overtimeHours ? 'Click to view approved overtime details' : undefined}
+                          >
+                            {row.overtimeHours || ''}
+                          </td>
+                          <td 
+                            onClick={(e) => {
+                              if (row.overtimeRequests && row.overtimeRequests.length > 0) {
+                                e.stopPropagation();
+                                setSelectedOvertimeData({
+                                  dateStr: row.dateStr || `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(row.day).padStart(2, '0')}`,
+                                  day: row.day,
+                                  requests: row.overtimeRequests
+                                });
+                                setIsOvertimeDetailsOpen(true);
+                              }
+                            }}
+                            className={`py-0.5 text-center print-cell-border font-semibold ${
+                              row.overtimeMin ? 'text-[#1d58d9] hover:bg-blue-50/80 cursor-pointer font-bold' : 'text-neutral-400'
+                            }`}
+                            title={row.overtimeMin ? 'Click to view approved overtime details' : undefined}
+                          >
+                            {row.overtimeMin || ''}
                           </td>
                         </>
                       )}
@@ -1589,10 +1722,17 @@ const DTRVisiting = () => {
                   <td className="border-r border-black py-1 uppercase font-extrabold tracking-wider print-cell-border">Total</td>
                   <td colSpan={4} className="border-r border-black py-1 text-right pr-2 text-[8.5px] text-neutral-400 italic print-cell-border">Total Worked Time:</td>
                   <td className="border-r border-black py-1 text-neutral-900 text-center font-extrabold print-cell-border">{fullMonthTotals.hoursStr}</td>
-                  <td className="py-1 text-center text-neutral-900 font-extrabold print-cell-border">{fullMonthTotals.minutesStr}</td>
+                  <td className="border-r border-black py-1 text-center text-neutral-900 font-extrabold print-cell-border">{fullMonthTotals.minutesStr}</td>
+                  <td className="border-r border-black py-1 text-[#1d58d9] text-center font-extrabold print-cell-border">{fullMonthTotals.overtimeHoursStr}</td>
+                  <td className="py-1 text-center text-[#1d58d9] font-extrabold print-cell-border">{fullMonthTotals.overtimeMinutesStr}</td>
                 </tr>
               </tbody>
             </table>
+          </div>
+
+          <div className="mt-1 flex items-center justify-between text-[9px] font-bold px-1 text-neutral-700 select-none">
+            <span>TOTAL WORKED TIME: <span className="font-extrabold text-neutral-950">{fullMonthTotals.hoursStr || '0'} HRS {fullMonthTotals.minutesStr || '00'} MINS</span></span>
+            <span className="text-[#1d58d9]">TOTAL OVERTIME: <span className="font-black">{fullMonthTotals.overtimeHoursStr || '0'} HRS {fullMonthTotals.overtimeMinutesStr || '00'} MINS</span></span>
           </div>
         </div>
 
@@ -3078,6 +3218,17 @@ const DTRVisiting = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Overtime Details Dialog */}
+      {selectedOvertimeData && (
+        <OvertimeDetailsDialog
+          open={isOvertimeDetailsOpen}
+          onOpenChange={setIsOvertimeDetailsOpen}
+          dateStr={selectedOvertimeData.dateStr}
+          dayNumber={selectedOvertimeData.day}
+          requests={selectedOvertimeData.requests}
+        />
+      )}
     </div>
   );
 };

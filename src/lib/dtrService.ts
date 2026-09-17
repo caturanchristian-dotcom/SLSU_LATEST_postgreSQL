@@ -11,6 +11,7 @@ export interface DTRBootstrapData {
   logs: any[];
   status: any;
   schedules: any[];
+  approvedOvertime?: any[];
   period: {
     year: number;
     month: number;
