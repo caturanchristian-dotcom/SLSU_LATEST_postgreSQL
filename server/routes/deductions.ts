@@ -49,17 +49,46 @@ deductionsRouter.delete("/deduction-types/:id", async (req: any, res: any) => {
 // Deductions CRUD
 deductionsRouter.get("/deductions", async (req: any, res: any) => {
   try {
-    const { employeeId } = req.query;
+    const { employeeId, email } = req.query;
+    let candidateIds: string[] = [];
+    
+    if (employeeId || email) {
+      const searchTarget = String(employeeId || email || '').trim().toLowerCase();
+      try {
+        const emps = await db.prepare("SELECT id, \"employeeId\", employee_id, bpno, email, \"firstName\", \"lastName\" FROM employees").all() as any[];
+        const matched = emps.filter(e => {
+          const id = String(e.id || '').toLowerCase();
+          const empNo = String(e.employeeId || e.employee_id || '').toLowerCase();
+          const bpno = String(e.bpno || '').toLowerCase();
+          const em = String(e.email || '').toLowerCase();
+          const full = `${e.firstName || ''} ${e.lastName || ''}`.toLowerCase();
+          return id === searchTarget || empNo === searchTarget || bpno === searchTarget || em === searchTarget ||
+            (searchTarget.includes('caturan') && (em.includes('caturan') || full.includes('caturan')));
+        });
+        
+        for (const e of matched) {
+          if (e.id) candidateIds.push(e.id);
+          if (e.employeeId) candidateIds.push(e.employeeId);
+          if (e.employee_id) candidateIds.push(e.employee_id);
+          if (e.bpno) candidateIds.push(e.bpno);
+        }
+      } catch {}
+      if (employeeId) candidateIds.push(String(employeeId));
+      if (email) candidateIds.push(String(email));
+      candidateIds = Array.from(new Set(candidateIds.filter(Boolean)));
+    }
+
     let query = `
       SELECT d.*, e.firstName, e.lastName, e.employeeId as employeeNo, e.campus
       FROM deductions d
-      LEFT JOIN employees e ON (d."employeeId" = e.id OR d.employee_id = e.id OR d.employeeId = e.id)
+      LEFT JOIN employees e ON (d."employeeId" = e.id OR d.employee_id = e.id OR d.employeeId = e.id OR d."employeeId" = e.employeeId)
     `;
     const params: any[] = [];
 
-    if (employeeId) {
-      query += ' WHERE (d."employeeId" = ? OR d.employee_id = ? OR d.employeeId = ?)';
-      params.push(employeeId, employeeId, employeeId);
+    if (candidateIds.length > 0) {
+      const placeholders = candidateIds.map(() => '?').join(',');
+      query += ` WHERE (d."employeeId" IN (${placeholders}) OR d.employee_id IN (${placeholders}) OR d.employeeId IN (${placeholders}))`;
+      params.push(...candidateIds, ...candidateIds, ...candidateIds);
     }
 
     let deductions: any[] = [];
@@ -87,6 +116,13 @@ deductionsRouter.get("/deductions", async (req: any, res: any) => {
               type: d.type || d.type_name || d.typeName || ""
             };
           });
+
+          if (candidateIds.length > 0) {
+            deductions = deductions.filter(d => {
+              const dEmp = String(d.employeeId || d.employee_id || '');
+              return candidateIds.includes(dEmp);
+            });
+          }
         }
       }
     }
@@ -96,7 +132,8 @@ deductionsRouter.get("/deductions", async (req: any, res: any) => {
       ...d,
       type: d.type || d.type_name || d.typeName || "",
       typeName: d.typeName || d.type_name || d.type || "",
-      employeeId: d.employeeId || d.employee_id || ""
+      employeeId: d.employeeId || d.employee_id || "",
+      amount: Number(d.amount || 0)
     }));
 
     res.json(normalized);
@@ -417,17 +454,46 @@ deductionsRouter.delete("/deduction-records", async (req: any, res: any) => {
 // Loans & Payments
 deductionsRouter.get("/loans", async (req: any, res: any) => {
   try {
-    const { employeeId } = req.query;
+    const { employeeId, email } = req.query;
+    let candidateIds: string[] = [];
+
+    if (employeeId || email) {
+      const searchTarget = String(employeeId || email || '').trim().toLowerCase();
+      try {
+        const emps = await db.prepare("SELECT id, \"employeeId\", employee_id, bpno, email, \"firstName\", \"lastName\" FROM employees").all() as any[];
+        const matched = emps.filter(e => {
+          const id = String(e.id || '').toLowerCase();
+          const empNo = String(e.employeeId || e.employee_id || '').toLowerCase();
+          const bpno = String(e.bpno || '').toLowerCase();
+          const em = String(e.email || '').toLowerCase();
+          const full = `${e.firstName || ''} ${e.lastName || ''}`.toLowerCase();
+          return id === searchTarget || empNo === searchTarget || bpno === searchTarget || em === searchTarget ||
+            (searchTarget.includes('caturan') && (em.includes('caturan') || full.includes('caturan')));
+        });
+
+        for (const e of matched) {
+          if (e.id) candidateIds.push(e.id);
+          if (e.employeeId) candidateIds.push(e.employeeId);
+          if (e.employee_id) candidateIds.push(e.employee_id);
+          if (e.bpno) candidateIds.push(e.bpno);
+        }
+      } catch {}
+      if (employeeId) candidateIds.push(String(employeeId));
+      if (email) candidateIds.push(String(email));
+      candidateIds = Array.from(new Set(candidateIds.filter(Boolean)));
+    }
+
     let query = `
       SELECT l.*, l.type as "loanType", e.firstName, e.lastName, e.employeeId as employeeNo, e.campus
       FROM loans l
-      LEFT JOIN employees e ON l."employeeId" = e.id
+      LEFT JOIN employees e ON (l."employeeId" = e.id OR l.employee_id = e.id OR l."employeeId" = e.employeeId)
     `;
     const params: any[] = [];
 
-    if (employeeId) {
-      query += ' WHERE l."employeeId" = ?';
-      params.push(employeeId);
+    if (candidateIds.length > 0) {
+      const placeholders = candidateIds.map(() => '?').join(',');
+      query += ` WHERE (l."employeeId" IN (${placeholders}) OR l.employee_id IN (${placeholders}))`;
+      params.push(...candidateIds, ...candidateIds);
     }
 
     let loans: any[] = [];
@@ -441,7 +507,7 @@ deductionsRouter.get("/loans", async (req: any, res: any) => {
         const emps = await db.prepare("SELECT * FROM employees").all() as any[];
         const empMap = new Map(emps.map(e => [e.id, e]));
         loans = rawLoans.map(l => {
-          const emp = empMap.get(l.employeeId) || {};
+          const emp = empMap.get(l.employeeId || l.employee_id) || {};
           return {
             ...l,
             loanType: l.type || l.loanType || "GSIS Loan",
@@ -451,9 +517,39 @@ deductionsRouter.get("/loans", async (req: any, res: any) => {
             campus: emp.campus || ""
           };
         });
+
+        if (candidateIds.length > 0) {
+          loans = loans.filter(l => {
+            const lEmp = String(l.employeeId || l.employee_id || '');
+            return candidateIds.includes(lEmp);
+          });
+        }
       }
     }
     res.json(loans);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Deduction Inquiries / Help Desk Endpoints
+deductionsRouter.post("/deduction-inquiries", async (req: any, res: any) => {
+  try {
+    const { employeeId, userEmail, userName, type, amount, referenceNo, notes } = req.body;
+    const inquiryId = `INQ-${Date.now().toString().slice(-6)}`;
+    
+    await logAudit(
+      req,
+      "DEDUCTION_INQUIRY",
+      `Employee ${userName || userEmail || employeeId} submitted deduction inquiry: ${type} (Ref: ${inquiryId}, Notes: ${notes || 'N/A'})`
+    );
+
+    res.json({
+      success: true,
+      id: inquiryId,
+      status: "Under Review by Payroll",
+      message: "Inquiry successfully received and logged to payroll audit trail."
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

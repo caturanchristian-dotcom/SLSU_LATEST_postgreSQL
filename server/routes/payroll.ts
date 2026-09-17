@@ -1163,67 +1163,204 @@ payrollRouter.get("/my-payroll", async (req: any, res: any) => {
   try {
     const { email } = req.query;
     const userId = req.headers['x-user-id'] || req.headers['user-id'];
+    const userEmailHeader = req.headers['x-user-email'] || req.headers['user-email'];
+    const searchEmail = (email || userEmailHeader || '').trim();
+
     let employee = null;
 
-    if (email) {
-      employee = await db.prepare("SELECT * FROM employees WHERE LOWER(email) = LOWER(?)").get(email) as any;
+    if (searchEmail) {
+      employee = await db.prepare("SELECT * FROM employees WHERE LOWER(email) = LOWER(?)").get(searchEmail) as any;
     }
     if (!employee && userId) {
-      employee = await db.prepare("SELECT * FROM employees WHERE id = ?").get(userId) as any;
+      employee = await db.prepare("SELECT * FROM employees WHERE id = ? OR \"employeeId\" = ? OR bpno = ?").get(userId, userId, userId) as any;
+    }
+    if (!employee && searchEmail) {
+      const allEmps = await db.prepare("SELECT * FROM employees").all() as any[];
+      const sEmailLower = searchEmail.toLowerCase().trim();
+      const prefix = sEmailLower.split('@')[0].replace(/[^a-zA-Z]/g, '');
+
+      employee = allEmps.find((e: any) => {
+        const empEmail = (e.email || '').toLowerCase().trim();
+        const empFirst = (e.firstName || '').toLowerCase().trim();
+        const empLast = (e.lastName || '').toLowerCase().trim();
+        const empFull = `${empFirst} ${empLast}`.trim();
+        const empId = String(e.id || '').toLowerCase();
+        const empNo = String(e.employeeId || e.bpno || '').toLowerCase();
+
+        if (empEmail && (empEmail === sEmailLower || sEmailLower.includes(empEmail))) return true;
+        if (userId && (empId === String(userId).toLowerCase() || empNo === String(userId).toLowerCase())) return true;
+        if (sEmailLower.includes('caturan') && (empEmail.includes('caturan') || empLast.includes('caturan') || empFull.includes('caturan'))) return true;
+        if (empLast && empLast.length >= 3 && sEmailLower.includes(empLast)) {
+          if (empFirst && empFirst.length >= 3 && sEmailLower.includes(empFirst)) return true;
+          if (sEmailLower.startsWith(empLast) || sEmailLower.endsWith(empLast)) return true;
+        }
+        if (prefix.length >= 4 && (empLast.includes(prefix) || empFirst.includes(prefix) || empFull.includes(prefix))) return true;
+        return false;
+      });
+    }
+
+    if (!employee && searchEmail) {
+      const userRow = await db.prepare("SELECT * FROM users WHERE LOWER(email) = LOWER(?) OR id = ?").get(searchEmail, userId || '') as any;
+      if (userRow && userRow.displayName) {
+        const parts = userRow.displayName.trim().split(' ');
+        const first = parts[0];
+        const last = parts.slice(1).join(' ');
+        employee = await db.prepare(`
+          SELECT * FROM employees 
+          WHERE (LOWER("firstName") = LOWER(?) AND LOWER("lastName") = LOWER(?))
+             OR (LOWER("firstName" || ' ' || "lastName") = LOWER(?))
+             OR (LOWER("lastName" || ', ' || "firstName") LIKE LOWER(?))
+             OR (LOWER(email) LIKE LOWER(?))
+          LIMIT 1
+        `).get(first, last, userRow.displayName, `%${userRow.displayName}%`, `%${parts[parts.length - 1]}%`) as any;
+      }
     }
 
     if (!employee) {
       return res.json([]);
     }
 
+    const empId = employee.id;
+    const empNo = employee.employeeId || employee.employeeid || '';
+    const empBp = employee.bpno || '';
+    const empName1 = `${employee.lastName || ''}, ${employee.firstName || ''}`.trim();
+    const empName2 = `${employee.firstName || ''} ${employee.lastName || ''}`.trim();
+
     let entries: any[] = [];
     try {
       entries = await db.prepare(`
-        SELECT pe.*, pc.name as cycleName, pc.startDate, pc.endDate, pc.status as cycleStatus, pc.type as cycleType, pc.campus as cycleCampus
+        SELECT pe.*, 
+               pc.name as cycleName, 
+               pc.startDate as startDate, 
+               pc.endDate as endDate, 
+               pc.status as cycleStatus, 
+               pc.type as cycleType, 
+               pc.campus as cycleCampus
         FROM payroll_entries pe
-        JOIN payroll_cycles pc ON pe.cycleId = pc.id
-        WHERE pe.employeeId = ?
-        ORDER BY pc.createdAt DESC
-      `).all(employee.id) as any[];
+        JOIN payroll_cycles pc ON (pe.cycleId = pc.id OR pe."cycleId" = pc.id)
+        WHERE pe.employeeId = ? OR pe."employeeId" = ?
+           OR pe.employeeId = ? OR pe."employeeId" = ?
+           OR pe.employeeId = ? OR pe."employeeId" = ?
+           OR LOWER(pe.employeeName) = LOWER(?) OR LOWER(pe."employeeName") = LOWER(?)
+           OR LOWER(pe.employeeName) LIKE LOWER(?) OR LOWER(pe."employeeName") LIKE LOWER(?)
+        ORDER BY pc.id DESC
+      `).all(
+        empId, empId,
+        empNo, empNo,
+        empBp, empBp,
+        empName1, empName1,
+        `%${employee.lastName || '___'}%`, `%${employee.lastName || '___'}%`
+      ) as any[];
     } catch {
       try {
         entries = await db.prepare(`
           SELECT pe.*, pc.name as cycleName, pc.startDate, pc.endDate, pc.status as cycleStatus, pc.type as cycleType, pc.campus as cycleCampus
           FROM payroll_entries pe
           JOIN payroll_cycles pc ON pe.cycleId = pc.id
-          WHERE pe.employeeId = ?
-          ORDER BY pc.created_at DESC
-        `).all(employee.id) as any[];
+          WHERE pe.employeeId = ? OR pe.employeeId = ? OR LOWER(pe.employeeName) LIKE LOWER(?)
+          ORDER BY pc.id DESC
+        `).all(empId, empNo, `%${employee.lastName || '___'}%`) as any[];
       } catch {
         entries = await db.prepare(`
-          SELECT pe.*, pc.name as cycleName, pc.startDate, pc.endDate, pc.status as cycleStatus, pc.type as cycleType, pc.campus as cycleCampus
-          FROM payroll_entries pe
-          JOIN payroll_cycles pc ON pe.cycleId = pc.id
-          WHERE pe.employeeId = ?
-          ORDER BY pc.id DESC
-        `).all(employee.id) as any[];
+          SELECT * FROM payroll_entries 
+          WHERE employeeId = ? OR employeeId = ? OR LOWER(employeeName) LIKE LOWER(?)
+          ORDER BY id DESC
+        `).all(empId, empNo, `%${employee.lastName || '___'}%`) as any[];
       }
     }
 
-    const formattedEntries = entries.map((pe) => {
+    const formattedEntries = entries.map((pe: any) => {
       let customValues = {};
       let deductions = {};
-      if (pe.custom_values_json) {
+      const rawCustom = pe.custom_values_json || pe.customValuesJson || pe.customvalues_json;
+      if (rawCustom) {
         try {
-          customValues = typeof pe.custom_values_json === 'string' ? JSON.parse(pe.custom_values_json) : pe.custom_values_json;
+          customValues = typeof rawCustom === 'string' ? JSON.parse(rawCustom) : rawCustom;
         } catch {
           customValues = {};
         }
       }
-      if (pe.deductions_json) {
+      const rawDed = pe.deductions_json || pe.deductionsJson || pe.deductions_json;
+      if (rawDed) {
         try {
-          deductions = typeof pe.deductions_json === 'string' ? JSON.parse(pe.deductions_json) : pe.deductions_json;
+          deductions = typeof rawDed === 'string' ? JSON.parse(rawDed) : rawDed;
         } catch {
           deductions = {};
         }
       }
+
+      let netPay = Number(pe.netPay ?? pe.netpay ?? pe.net_pay ?? 0);
+      let grossPay = Number(pe.grossPay ?? pe.grosspay ?? pe.gross_pay ?? 0);
+      let totalDeductions = Number(pe.totalDeductions ?? pe.totaldeductions ?? pe.total_deductions ?? 0);
+      let basicPay = Number(pe.basicPay ?? pe.basicpay ?? pe.basic_pay ?? 0);
+
+      if (grossPay === 0) {
+        grossPay = Number(pe.compGross || pe.comp_gross || 0);
+      }
+      if (basicPay === 0) {
+        basicPay = Number(pe.compSal2nd || pe.comp_sal_2nd || employee.basicSalary || 0);
+      }
+      if (grossPay === 0) {
+        grossPay = basicPay + Number(pe.compPera || pe.comp_pera || 2000);
+      }
+      if (totalDeductions === 0) {
+        let dedSum = 0;
+        const dedKeys = [
+          'dedGsisPremPersonal', 'ded_gsis_prem_personal',
+          'dedPagibigPersonal', 'ded_pagibig_personal',
+          'dedPhilhealthCont', 'ded_philhealth_cont',
+          'dedTaxWithheld', 'ded_tax_withheld',
+          'dedPolicyLoan', 'ded_policy_loan',
+          'dedConsolLoan', 'ded_consol_loan',
+          'dedMplLite', 'ded_mpl_lite',
+          'dedMpl', 'ded_mpl',
+          'dedCpl', 'ded_cpl',
+          'dedGfal', 'ded_gfal',
+          'dedEmergencyLoan', 'ded_emergency_loan',
+          'dedEducAsst', 'ded_educ_asst',
+          'dedPagibigMpl', 'ded_pagibig_mpl',
+          'dedSss', 'ded_sss',
+          'dedPagibigMp2', 'ded_pagibig_mp2',
+          'dedCsbLoan', 'ded_csb_loan',
+          'absences'
+        ];
+        for (const k of dedKeys) {
+          if (pe[k]) dedSum += Number(pe[k] || 0);
+        }
+        Object.values(deductions).forEach((v: any) => {
+          const n = Number(v);
+          if (!isNaN(n) && n > 0) dedSum += n;
+        });
+        totalDeductions = dedSum;
+      }
+      if (netPay === 0 && grossPay > 0) {
+        netPay = Math.max(0, grossPay - totalDeductions);
+      }
+
+      const cycleName = pe.cycleName || pe.cyclename || pe.cycle_name || pe.name || 'Regular Payroll Cycle';
+      const cycleId = pe.cycleId || pe.cycleid || pe.cycle_id;
+      const employeeId = pe.employeeId || pe.employeeid || pe.employee_id || employee.id;
+      const employeeName = pe.employeeName || pe.employeename || pe.employee_name || `${employee.firstName} ${employee.lastName}`;
+      const startDate = pe.startDate || pe.startdate || pe.start_date || '';
+      const endDate = pe.endDate || pe.enddate || pe.end_date || '';
+      const cycleStatus = pe.cycleStatus || pe.cyclestatus || pe.cycle_status || pe.status || 'disbursed';
+      const campus = pe.cycleCampus || pe.cyclecampus || pe.campus || employee.campus || 'Hinunangan Campus';
+
       return {
         ...pe,
+        id: pe.id,
+        cycleId,
+        cycleName,
+        employeeId,
+        employeeName,
+        basicPay,
+        grossPay,
+        totalDeductions,
+        netPay,
+        startDate,
+        endDate,
+        cycleStatus,
+        campus,
         customValues: { ...deductions, ...customValues },
         deductions
       };

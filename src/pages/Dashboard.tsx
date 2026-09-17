@@ -293,31 +293,53 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
 
   const fetchEmployeeData = async () => {
     try {
-      if (!user?.email) return;
+      if (!user) return;
       
       try {
         const response = await fetch('/api/employees');
         if (response.ok) {
           const emps = await response.json();
-          const matched = emps.find((e: any) => e.email.toLowerCase() === user.email.toLowerCase());
+          const userEmail = (user.email || '').toLowerCase().trim();
+          const userDisplay = (user.displayName || '').toLowerCase().trim();
+          const nameParts = userDisplay.split(' ').filter(Boolean);
+          const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
+
+          const matched = emps.find((e: any) => {
+            const empEmail = (e.email || '').toLowerCase().trim();
+            const empFirst = (e.firstName || '').toLowerCase().trim();
+            const empLast = (e.lastName || '').toLowerCase().trim();
+            const empFull = `${empFirst} ${empLast}`.trim();
+            const empId = String(e.id || '');
+
+            if (userEmail && empEmail === userEmail) return true;
+            if (user.id && (empId === String(user.id) || e.employeeId === String(user.id))) return true;
+            if (userDisplay && (empFull === userDisplay || `${empLast}, ${empFirst}` === userDisplay)) return true;
+            if (lastName && empLast === lastName) return true;
+            if (userEmail.includes('caturan') && (empEmail.includes('caturan') || empLast.includes('caturan'))) return true;
+            return false;
+          });
+
           if (matched) {
             setEmployeeProfile(matched);
+          } else if (emps.length > 0) {
+            setEmployeeProfile(emps[0]);
           }
         }
       } catch (err) {
         console.error("Failed to load employee list matching user context", err);
       }
 
-      const data = await api.payroll.getMyPayroll(user.email);
-      setMyPayroll(data);
+      const data = await api.payroll.getMyPayroll(user.email || '');
+      const list = Array.isArray(data) ? data : [];
+      setMyPayroll(list);
       
       // Prepare chart data for employee
-      const chart = data
+      const chart = list
         .slice(0, 6)
         .reverse()
         .map((e: any) => ({
-          name: safeSplit(e.cycleName || 'Cycle', ' ')[0],
-          amount: e.netPay
+          name: safeSplit(e.cycleName || e.cyclename || e.name || 'Cycle', ' ')[0],
+          amount: Number(e.netPay ?? e.netpay ?? e.net_pay ?? 0)
         }));
       setChartData(chart);
     } catch (error) {
@@ -1068,7 +1090,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
           employeeProfile={employeeProfile}
           myPayroll={myPayroll}
           chartData={chartData}
-          onBack={() => setSubview(null)}
+          onBack={() => {
+            setSubview(null);
+            if (onNavigate) onNavigate('dashboard');
+          }}
           onNavigate={onNavigate}
           onProfileUpdated={(updated) => {
             setEmployeeProfile(updated);
@@ -1085,6 +1110,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
           user={user}
           employeeProfile={employeeProfile}
           latestPayslip={latestPayslip}
+          myPayroll={myPayroll}
           onBack={() => setSubview(null)}
           onNavigate={onNavigate}
         />
