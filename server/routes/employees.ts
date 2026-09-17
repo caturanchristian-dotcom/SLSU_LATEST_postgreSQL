@@ -796,6 +796,13 @@ employeesRouter.get("/schedules/employee/:employeeId", async (req: any, res: any
   try {
     const { employeeId } = req.params;
     const cleanId = (employeeId || "").trim();
+    if (!cleanId) return res.json([]);
+
+    const emp = await db.prepare(
+      `SELECT id FROM employees WHERE id = ? OR "employeeId" = ? OR LOWER(email) = LOWER(?) LIMIT 1`
+    ).get(cleanId, cleanId, cleanId) as any;
+    const targetId = emp?.id || cleanId;
+
     const scheds = await db.prepare(`
       SELECT s.*, 
              e."firstName", e."lastName", e.category, e.position, 
@@ -803,13 +810,9 @@ employeesRouter.get("/schedules/employee/:employeeId", async (req: any, res: any
              e."hireDate", e.status as "employeeStatus", e."teachingDepartmentId", e."teachingExperience"
       FROM schedules s
       LEFT JOIN employees e ON s."employeeId" = e.id
-      WHERE s."employeeId" = ? 
-         OR s."employeeId" IN (SELECT id FROM employees WHERE LOWER(email) = LOWER(?) OR "employeeId" = ? OR id = ?)
-         OR LOWER(e.email) = LOWER(?)
-         OR e."employeeId" = ?
-         OR e.id = ?
+      WHERE s."employeeId" = ? OR s."employeeId" = ?
       ORDER BY s."dayOfWeek" ASC, s."startTime" ASC
-    `).all(cleanId, cleanId, cleanId, cleanId, cleanId, cleanId, cleanId);
+    `).all(targetId, cleanId);
     res.json(scheds);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

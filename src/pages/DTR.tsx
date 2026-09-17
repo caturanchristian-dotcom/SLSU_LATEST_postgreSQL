@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../components/AuthProvider';
+import { LiveClockWidget, LiveDateWidget } from '../components/LiveClockWidget';
+import { fetchDTRBootstrap } from '../lib/dtrService';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -136,17 +138,31 @@ const DTR = () => {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
   const [employeeSchedules, setEmployeeSchedules] = useState<any[]>([]);
+  const [holidays, setHolidays] = useState<any[]>([]);
 
-  const fetchSchedulesForEmployee = (empId: string) => {
+  const fetchHolidays = useCallback(async () => {
+    try {
+      const res = await fetch('/api/holidays');
+      const data = await res.json();
+      setHolidays(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to fetch holidays:", err);
+    }
+  }, []);
+
+  const fetchSchedulesForEmployee = useCallback(async (empId: string) => {
     if (empId) {
-      fetch(`/api/schedules/employee/${empId}`)
-        .then(res => res.json())
-        .then(data => setEmployeeSchedules(data || []))
-        .catch(err => console.error("Failed to fetch schedules:", err));
+      try {
+        const res = await fetch(`/api/schedules/employee/${empId}`);
+        const data = await res.json();
+        setEmployeeSchedules(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error("Failed to fetch schedules:", err);
+      }
     } else {
       setEmployeeSchedules([]);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchSchedulesForEmployee(selectedEmployeeId);
@@ -400,15 +416,10 @@ const DTR = () => {
     }
   };
 
-  // Real-time time display
-  const [currentTime, setCurrentTime] = useState(new Date());
-
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const selectedEmployee = employees.find(emp => emp.id === selectedEmployeeId);
+  const selectedEmployee = useMemo(() => 
+    employees.find(emp => emp.id === selectedEmployeeId),
+    [employees, selectedEmployeeId]
+  );
 
   // Fallback metadata for print DTR
   const getEmployeeName = () => {
@@ -527,35 +538,64 @@ const DTR = () => {
     }
   }, [user]);
 
-  // Parallel initial data load
+  // Fast initial bootstrap data load
   useEffect(() => {
     let isMounted = true;
     const initData = async () => {
+      setLoading(true);
       try {
-        const promises: Promise<any>[] = [fetchStatus()];
-        if (isAdmin) {
-          promises.push(fetchEmployees());
-        } else if (user?.id) {
-          setSelectedEmployeeId(user.id);
+        const empToLoad = selectedEmployeeId || (isAdmin ? undefined : user?.id);
+        const bootstrap = await fetchDTRBootstrap({
+          employeeId: empToLoad,
+          month: selectedMonth,
+          year: selectedYear
+        });
+
+        if (!isMounted) return;
+
+        if (bootstrap.employees && bootstrap.employees.length > 0) {
+          setEmployees(bootstrap.employees);
+          if (!selectedEmployeeId) {
+            const self = bootstrap.employees.find((e: Employee) => e.email && user?.email && e.email.toLowerCase() === user.email.toLowerCase());
+            const targetId = self ? self.id : (isAdmin ? bootstrap.employees[0].id : (user?.id || bootstrap.employees[0].id));
+            setSelectedEmployeeId(targetId);
+          }
         }
-        await Promise.all(promises);
+        if (bootstrap.holidays) {
+          setHolidays(bootstrap.holidays);
+        }
+        if (bootstrap.logs) {
+          setLogs(bootstrap.logs);
+        }
+        if (bootstrap.status !== undefined) {
+          setCurrentStatus(bootstrap.status);
+        }
+        if (bootstrap.schedules) {
+          setEmployeeSchedules(bootstrap.schedules);
+        }
+      } catch (e) {
+        console.error("Bootstrap loading error:", e);
       } finally {
         if (isMounted) setLoading(false);
       }
     };
+
     initData();
     return () => { isMounted = false; };
   }, [user, isAdmin]);
 
   // Fast query when month/year/employee changes
   useEffect(() => {
-    if (selectedEmployeeId || !isAdmin) {
-      fetchLogs(selectedMonth, selectedYear, selectedEmployeeId);
-      if (selectedEmployeeId) {
-        fetchSchedulesForEmployee(selectedEmployeeId);
-      }
+    if (!selectedEmployeeId && isAdmin) return;
+    const targetEmpId = selectedEmployeeId || user?.id;
+    if (targetEmpId) {
+      // Parallel fetch logs and schedules
+      Promise.all([
+        fetchLogs(selectedMonth, selectedYear, targetEmpId),
+        fetchSchedulesForEmployee(targetEmpId)
+      ]);
     }
-  }, [selectedMonth, selectedYear, selectedEmployeeId, fetchLogs]);
+  }, [selectedMonth, selectedYear, selectedEmployeeId, fetchLogs, fetchSchedulesForEmployee]);
 
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1805,10 +1845,9 @@ const DTR = () => {
             <p className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold font-mono">Real-time Attendance Gate</p>
             <h2 className="text-2xl font-bold font-sans mt-1">DTR Terminal</h2>
             <div className="mt-4 flex items-baseline gap-2 font-mono">
-              <span className="text-3xl font-extrabold">{format(currentTime, 'hh:mm:ss')}</span>
-              <span className="text-xs uppercase text-neutral-400 font-bold">{format(currentTime, 'a')}</span>
+              <LiveClockWidget className="text-3xl font-extrabold text-white" />
             </div>
-            <p className="text-xs text-neutral-400 font-sans mt-0.5">{format(currentTime, 'EEEE, MMMM dd, yyyy')}</p>
+            <LiveDateWidget className="text-xs text-neutral-400 font-sans mt-0.5 block" />
           </div>
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center justify-between p-3.5 bg-neutral-50 rounded-2xl border border-neutral-100">

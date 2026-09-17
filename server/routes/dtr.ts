@@ -5,43 +5,158 @@ import { broadcastRealtime } from "../index.js";
 
 export const dtrRouter = Router();
 
-async function syncActivePayrollCycles() {
-  try {
-    const activeCycles = await db.prepare(
-      "SELECT id FROM payroll_cycles WHERE status NOT IN ('disbursed', 'completed', 'archived') OR status IS NULL"
-    ).all() as any[];
-    for (const cycle of activeCycles) {
-      await calculateNetSalary(cycle.id);
-    }
-    broadcastRealtime("payroll_changed", { source: "dtr" });
-    broadcastRealtime("dtr_changed", { source: "dtr" });
-  } catch (err) {
-    console.error("Error auto-syncing payroll cycles on DTR change:", err);
-  }
+// Fast in-memory cache for resolved employee IDs (invalidated on user/employee change)
+const employeeIdCache = new Map<string, { id: string; expires: number }>();
+
+export function clearEmployeeIdCache() {
+  employeeIdCache.clear();
 }
 
-// Helper to resolve employee ID from employee id, user id, or email
-async function resolveEmployeeId(idOrEmail: string): Promise<string> {
-  if (!idOrEmail) return idOrEmail;
-  try {
-    // 1. Exact match in employees.id
-    const empById = await db.prepare("SELECT id FROM employees WHERE id = ?").get(idOrEmail) as any;
-    if (empById) return empById.id;
-
-    // 2. Check if it's a user in users table
-    const user = await db.prepare("SELECT email FROM users WHERE id = ?").get(idOrEmail) as any;
-    if (user && user.email) {
-      const empByEmail = await db.prepare("SELECT id FROM employees WHERE LOWER(email) = LOWER(?)").get(user.email) as any;
-      if (empByEmail) return empByEmail.id;
+// Background debounced payroll sync so DTR responses return in <10ms
+let syncPayrollTimeout: NodeJS.Timeout | null = null;
+function triggerBackgroundPayrollSync() {
+  if (syncPayrollTimeout) clearTimeout(syncPayrollTimeout);
+  syncPayrollTimeout = setTimeout(async () => {
+    try {
+      const activeCycles = await db.prepare(
+        "SELECT id FROM payroll_cycles WHERE status NOT IN ('disbursed', 'completed', 'archived') OR status IS NULL"
+      ).all() as any[];
+      for (const cycle of activeCycles) {
+        await calculateNetSalary(cycle.id);
+      }
+      broadcastRealtime("payroll_changed", { source: "dtr" });
+      broadcastRealtime("dtr_changed", { source: "dtr" });
+    } catch (err) {
+      console.error("Error background syncing payroll cycles on DTR change:", err);
     }
+  }, 100);
+}
 
-    // 3. Direct email match
-    const empByDirectEmail = await db.prepare("SELECT id FROM employees WHERE LOWER(email) = LOWER(?)").get(idOrEmail) as any;
-    if (empByDirectEmail) return empByDirectEmail.id;
+// Helper to resolve employee ID from employee id, user id, or email (with fast memory caching)
+export async function resolveEmployeeId(idOrEmail: string): Promise<string> {
+  if (!idOrEmail) return idOrEmail;
+  const key = idOrEmail.trim().toLowerCase();
+  const cached = employeeIdCache.get(key);
+  if (cached && cached.expires > Date.now()) {
+    return cached.id;
+  }
+
+  let resolved = idOrEmail;
+  try {
+    // 1. Direct match on employees.id or employees.employeeId or employees.email
+    const emp = await db.prepare(
+      `SELECT id FROM employees 
+       WHERE id = ? OR "employeeId" = ? OR LOWER(email) = LOWER(?) 
+       LIMIT 1`
+    ).get(idOrEmail, idOrEmail, idOrEmail) as any;
+
+    if (emp && emp.id) {
+      resolved = emp.id;
+    } else {
+      // 2. Check users table
+      const user = await db.prepare("SELECT email FROM users WHERE id = ?").get(idOrEmail) as any;
+      if (user && user.email) {
+        const empByEmail = await db.prepare("SELECT id FROM employees WHERE LOWER(email) = LOWER(?) LIMIT 1").get(user.email) as any;
+        if (empByEmail) resolved = empByEmail.id;
+      }
+    }
   } catch (e) {}
 
-  return idOrEmail;
+  employeeIdCache.set(key, { id: resolved, expires: Date.now() + 60000 }); // 60s cache
+  return resolved;
 }
+
+// Single Roundtrip Bootstrap Endpoint for High-Performance DTR Page Loading
+dtrRouter.get("/dtr/bootstrap", async (req: any, res: any) => {
+  try {
+    const { employeeId, month, year, campus } = req.query;
+    const targetYear = Number(year) || new Date().getFullYear();
+    const targetMonth = Number(month) || (new Date().getMonth() + 1);
+    const startDay = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`;
+    const lastDayNum = new Date(targetYear, targetMonth, 0).getDate();
+    const endDay = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(lastDayNum).padStart(2, '0')}`;
+    const today = new Date().toISOString().split("T")[0];
+
+    const resolvedEmpId = employeeId ? await resolveEmployeeId(employeeId) : null;
+
+    // Execute queries in parallel
+    const [employees, holidays, logs, statusRecord, schedules] = await Promise.all([
+      db.prepare(`
+        SELECT id, "employeeId", "firstName", "lastName", email, category, "basicSalary", "salaryType", "phoneNumber", status, campus
+        FROM employees
+        ORDER BY "lastName" ASC, "firstName" ASC
+      `).all().catch(() => []),
+
+      db.prepare(`
+        SELECT id, name, date, type, description
+        FROM holidays
+        ORDER BY date ASC
+      `).all().catch(() => []),
+
+      // DTR Records for the selected employee/period
+      (async () => {
+        let query = `
+          SELECT d.*, e."firstName", e."lastName", e."employeeId" as "employeeNo", e.category, e.campus
+          FROM dtr_records d
+          LEFT JOIN employees e ON d."employeeId" = e.id
+          WHERE d.date >= ? AND d.date <= ?
+        `;
+        const params: any[] = [startDay, endDay];
+        if (resolvedEmpId) {
+          query += ' AND (d."employeeId" = ? OR d."employeeId" = ?)';
+          params.push(resolvedEmpId, employeeId);
+        }
+        if (campus && campus !== 'All Campuses') {
+          query += ' AND e.campus = ?';
+          params.push(campus);
+        }
+        query += ' ORDER BY d.date ASC';
+        return await db.prepare(query).all(...params).catch(() => []);
+      })(),
+
+      // Current Status
+      (async () => {
+        if (!resolvedEmpId) return null;
+        const rec = await db.prepare(`
+          SELECT * FROM dtr_records
+          WHERE ("employeeId" = ? OR "employeeId" = ?) AND (date = ? OR date LIKE ?)
+          ORDER BY date DESC LIMIT 1
+        `).get(resolvedEmpId, employeeId, today, `${today}%`).catch(() => null) as any;
+
+        if (rec && rec.timeIn && !rec.timeOut) {
+          return { clockedIn: true, timeIn: rec.timeIn, date: rec.date, recordId: rec.id };
+        }
+        return null;
+      })(),
+
+      // Schedules for the selected employee
+      (async () => {
+        if (!resolvedEmpId) return [];
+        return await db.prepare(`
+          SELECT * FROM schedules
+          WHERE "employeeId" = ? OR "employeeId" = ?
+          ORDER BY "dayOfWeek" ASC, "startTime" ASC
+        `).all(resolvedEmpId, employeeId).catch(() => []);
+      })()
+    ]);
+
+    res.json({
+      employees,
+      holidays,
+      logs,
+      status: statusRecord,
+      schedules,
+      period: {
+        year: targetYear,
+        month: targetMonth,
+        startDate: startDay,
+        endDate: endDay
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // DTR Daily Records
 dtrRouter.get("/dtr", async (req: any, res: any) => {
@@ -126,7 +241,7 @@ dtrRouter.post("/dtr/:id/approve", async (req: any, res: any) => {
     const { id } = req.params;
     await db.prepare("UPDATE dtr_records SET status = 'approved' WHERE id = ?").run(id);
     const updated = await db.prepare("SELECT * FROM dtr_records WHERE id = ?").get(id);
-    await syncActivePayrollCycles();
+    triggerBackgroundPayrollSync();
     res.json(updated || { success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -140,7 +255,7 @@ dtrRouter.post("/dtr/:id/reject", async (req: any, res: any) => {
     const { reason } = req.body;
     await db.prepare("UPDATE dtr_records SET status = 'rejected', notes = ? WHERE id = ?").run(reason || 'Rejected', id);
     const updated = await db.prepare("SELECT * FROM dtr_records WHERE id = ?").get(id);
-    await syncActivePayrollCycles();
+    triggerBackgroundPayrollSync();
     res.json(updated || { success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -187,7 +302,7 @@ dtrRouter.post("/dtr/punch", async (req: any, res: any) => {
     `).run(id, employeeId, timestamp, type, source || "manual", notes || "");
 
     await logAudit(req, "DTR_PUNCH", `Punch log recorded for employee ${employeeId} (${type})`);
-    await syncActivePayrollCycles();
+    triggerBackgroundPayrollSync();
     res.json({ success: true, id, timestamp });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -238,7 +353,7 @@ dtrRouter.post("/dtr/visiting/records", async (req: any, res: any) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'verified', ?)
     `).run(id, resolvedEmpId, date, teachingLoadId || null, subjectCode || "", timeIn || "", timeOut || "", hrs, rate, totalPay, notes || "");
 
-    await syncActivePayrollCycles();
+    triggerBackgroundPayrollSync();
     res.json({ success: true, id });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -249,7 +364,7 @@ dtrRouter.delete("/dtr/visiting/records/:id", async (req: any, res: any) => {
   try {
     const { id } = req.params;
     await db.prepare("DELETE FROM dtr_visiting_records WHERE id = ?").run(id);
-    await syncActivePayrollCycles();
+    triggerBackgroundPayrollSync();
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -369,7 +484,7 @@ dtrRouter.post("/dtr/clock-in", async (req: any, res: any) => {
     }
 
     await logAudit(req, "DTR_CLOCK_IN", `Employee ${resolvedEmpId} clocked in at ${timeStr}`);
-    await syncActivePayrollCycles();
+    triggerBackgroundPayrollSync();
     res.json({ success: true, message: "Clocked in successfully", timeIn: timeStr, date: dateStr });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -423,7 +538,7 @@ dtrRouter.post("/dtr/clock-out", async (req: any, res: any) => {
     }
 
     await logAudit(req, "DTR_CLOCK_OUT", `Employee ${resolvedEmpId} clocked out at ${timeStr}`);
-    await syncActivePayrollCycles();
+    triggerBackgroundPayrollSync();
     res.json({ success: true, message: "Clocked out successfully", timeOut: timeStr, date: dateStr });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -456,7 +571,7 @@ dtrRouter.post("/dtr/manual", async (req: any, res: any) => {
       VALUES (?, ?, ?, ?, ?, ?, 0, 'regular', ?)
     `).run(id, resolvedEmpId, dateClean, timeIn || null, timeOut || null, hrsWorked, notes || "");
 
-    await syncActivePayrollCycles();
+    triggerBackgroundPayrollSync();
     res.json({ success: true, id });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -516,7 +631,7 @@ dtrRouter.post("/dtr/save-day", async (req: any, res: any) => {
       );
     }
 
-    await syncActivePayrollCycles();
+    triggerBackgroundPayrollSync();
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -567,7 +682,7 @@ dtrRouter.post("/dtr/simulate", async (req: any, res: any) => {
       }
     }
 
-    await syncActivePayrollCycles();
+    triggerBackgroundPayrollSync();
     res.json({ success: true, count: insertCount });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -583,7 +698,7 @@ dtrRouter.delete("/dtr/clear/:employeeId/:yearMonth", async (req: any, res: any)
       DELETE FROM dtr_records
       WHERE (employeeId = ? OR employeeId = ?) AND date LIKE ?
     `).run(resolvedEmpId, employeeId, `${yearMonth}%`);
-    await syncActivePayrollCycles();
+    triggerBackgroundPayrollSync();
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -598,7 +713,7 @@ dtrRouter.put("/dtr/:id", async (req: any, res: any) => {
       UPDATE dtr_records SET timeIn = ?, timeOut = ?, hoursWorked = ?, overtimeHours = ?, status = ?, notes = ?
       WHERE id = ?
     `).run(timeIn, timeOut, hoursWorked, overtimeHours, status || 'regular', notes || '', id);
-    await syncActivePayrollCycles();
+    triggerBackgroundPayrollSync();
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -612,7 +727,7 @@ dtrRouter.delete("/dtr/:id", async (req: any, res: any) => {
     try {
       await db.prepare("DELETE FROM dtr_logs WHERE id = ?").run(id);
     } catch {}
-    await syncActivePayrollCycles();
+    triggerBackgroundPayrollSync();
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -623,7 +738,7 @@ dtrRouter.delete("/dtr/logs/:id", async (req: any, res: any) => {
   try {
     const { id } = req.params;
     await db.prepare("DELETE FROM dtr_logs WHERE id = ?").run(id);
-    await syncActivePayrollCycles();
+    triggerBackgroundPayrollSync();
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
