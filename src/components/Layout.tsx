@@ -16,6 +16,7 @@ import {
   ChevronRight,
   ChevronDown,
   ArrowRight,
+  ArrowLeft,
   CircleDot,
   HelpCircle,
   Expand,
@@ -241,200 +242,247 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
 
   return (
     <div className="min-h-screen bg-[#f4f6f9] flex flex-col md:flex-row w-full font-sans">
-      {/* Sidebar - Desktop */}
-      <aside className={cn(
-        "hidden md:flex flex-col bg-white border-r border-neutral-200/85 transition-all duration-300 ease-in-out shrink-0 select-none h-screen sticky top-0 shadow-sm",
-        isCollapsed ? "w-[76px]" : "w-64"
-      )}>
-        {/* Brand Header */}
-        <div className={cn(
-          "flex items-center border-b border-neutral-100 px-6 h-16 shrink-0",
-          isCollapsed ? "justify-center gap-0 px-2" : "justify-between gap-3"
+      {/* Sidebar - Desktop (Only shown for non-employee roles) */}
+      {role !== 'employee' && (
+        <aside className={cn(
+          "hidden md:flex flex-col bg-white border-r border-neutral-200/85 transition-all duration-300 ease-in-out shrink-0 select-none h-screen sticky top-0 shadow-sm",
+          isCollapsed ? "w-[76px]" : "w-64"
         )}>
-          <div className="flex items-center gap-2.5 overflow-hidden select-none">
-            <div className="w-[30px] h-[30px] shrink-0 bg-white text-[#1d58d9] rounded-full p-0.5 border border-[#1d58d9]/20 flex items-center justify-center">
-              <img 
-                src={SLSU_LOGO_URL} 
-                alt="SLSU Logo" 
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-contain" 
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  if (target.src !== window.location.origin + SLSU_LOGO_FALLBACK_URL) {
-                    target.src = SLSU_LOGO_FALLBACK_URL;
-                  }
-                }}
-              />
-            </div>
-            {!isCollapsed && (
-              <span className="font-extrabold text-xl text-[#1d58d9] tracking-tighter leading-none font-sans">
-                PAYROLL
-              </span>
-            )}
-          </div>
-          
-          <button 
-            onClick={toggleSidebar}
-            className="p-1 rounded-full text-[#1d58d9] hover:bg-neutral-50 transition-colors focus:outline-none shrink-0"
-            title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-          >
-            <CircleDot className="w-4 h-4 cursor-pointer" />
-          </button>
-        </div>
-
-        {/* Scrollable Navigation Items */}
-        <nav className="flex-1 overflow-y-auto px-4 py-6 space-y-6 scrollbar-none">
-          {filteredCategories.map((cat, catIdx) => (
-            <div key={catIdx} className="space-y-1.5">
+          {/* Brand Header */}
+          <div className={cn(
+            "flex items-center border-b border-neutral-100 px-6 h-16 shrink-0",
+            isCollapsed ? "justify-center gap-0 px-2" : "justify-between gap-3"
+          )}>
+            <div className="flex items-center gap-2.5 overflow-hidden select-none">
+              <div className="w-[30px] h-[30px] shrink-0 bg-white text-[#1d58d9] rounded-full p-0.5 border border-[#1d58d9]/20 flex items-center justify-center">
+                <img 
+                  src={SLSU_LOGO_URL} 
+                  alt="SLSU Logo" 
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-contain" 
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    if (target.src !== window.location.origin + SLSU_LOGO_FALLBACK_URL) {
+                      target.src = SLSU_LOGO_FALLBACK_URL;
+                    }
+                  }}
+                />
+              </div>
               {!isCollapsed && (
-                <h3 className="px-3 text-[10px] font-bold text-neutral-400 tracking-wider uppercase select-none mb-2">
-                  {cat.title}
-                </h3>
+                <span className="font-extrabold text-xl text-[#1d58d9] tracking-tighter leading-none font-sans">
+                  PAYROLL
+                </span>
               )}
-              
-              <div className="space-y-1">
-                {cat.items.map((item) => {
-                  if (item.isAccordion) {
-                    const hasActiveChild = item.children?.some(child => child.id === currentPage);
-                    const isOpen = !!openAccordions[item.name];
-                    const filteredChildren = item.children || [];
+            </div>
+            
+            <button 
+              onClick={toggleSidebar}
+              className="p-1 rounded-full text-[#1d58d9] hover:bg-neutral-50 transition-colors focus:outline-none shrink-0"
+              title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+            >
+              <CircleDot className="w-4 h-4 cursor-pointer" />
+            </button>
+          </div>
 
-                    if (isCollapsed) {
+          {/* Scrollable Navigation Items */}
+          <nav className="flex-1 overflow-y-auto px-4 py-6 space-y-6 scrollbar-none">
+            {filteredCategories.map((cat, catIdx) => (
+              <div key={catIdx} className="space-y-1.5">
+                {!isCollapsed && (
+                  <h3 className="px-3 text-[10px] font-bold text-neutral-400 tracking-wider uppercase select-none mb-2">
+                    {cat.title}
+                  </h3>
+                )}
+                
+                <div className="space-y-1">
+                  {cat.items.map((item) => {
+                    if (item.isAccordion) {
+                      const hasActiveChild = item.children?.some(child => child.id === currentPage);
+                      const isOpen = !!openAccordions[item.name];
+                      const filteredChildren = item.children || [];
+
+                      if (isCollapsed) {
+                        return (
+                          <button
+                            key={item.name}
+                            onClick={() => handleAccordionClick(item.name)}
+                            title={item.name}
+                            className={cn(
+                              "flex items-center transition-all duration-150 w-full rounded-xl select-none group font-medium text-sm font-sans justify-center p-2.5",
+                              hasActiveChild 
+                                ? "bg-[#e2ebf8] text-[#1d58d9] font-semibold shadow-[0_1px_2px_rgba(29,88,217,0.05)]" 
+                                : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
+                            )}
+                          >
+                            <item.icon className={cn(
+                              "w-[18px] h-[18px] shrink-0 transition-colors",
+                              hasActiveChild ? "text-[#1d58d9]" : "text-neutral-400 group-hover:text-neutral-600"
+                            )} />
+                          </button>
+                        );
+                      }
+
                       return (
-                        <button
-                          key={item.name}
-                          onClick={() => handleAccordionClick(item.name)}
-                          title={item.name}
+                        <div 
+                          key={item.name} 
                           className={cn(
-                            "flex items-center transition-all duration-150 w-full rounded-xl select-none group font-medium text-sm font-sans justify-center p-2.5",
-                            hasActiveChild 
-                              ? "bg-[#e2ebf8] text-[#1d58d9] font-semibold shadow-[0_1px_2px_rgba(29,88,217,0.05)]" 
-                              : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
+                            "transition-all duration-200 rounded-xl overflow-hidden",
+                            isOpen 
+                              ? "bg-white border border-[#e2ebf8] p-1.5 shadow-[0_2px_6px_rgba(29,88,217,0.03)]" 
+                              : "bg-transparent"
                           )}
                         >
-                          <item.icon className={cn(
-                            "w-[18px] h-[18px] shrink-0 transition-colors",
-                            hasActiveChild ? "text-[#1d58d9]" : "text-neutral-400 group-hover:text-neutral-600"
-                          )} />
-                        </button>
+                          <button
+                            onClick={() => toggleAccordion(item.name)}
+                            className={cn(
+                              "flex items-center justify-between transition-all duration-150 w-full rounded-lg select-none group font-medium text-sm font-sans text-left px-3 py-2.5",
+                              isOpen 
+                                ? "text-[#1d58d9] font-bold" 
+                                : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
+                            )}
+                          >
+                            <div className="flex items-center gap-3">
+                              <item.icon className={cn(
+                                "w-[18px] h-[18px] shrink-0 transition-colors",
+                                isOpen ? "text-[#1d58d9]" : "text-neutral-400 group-hover:text-neutral-600"
+                              )} />
+                              <span className="truncate whitespace-nowrap text-[13.5px]">{item.name}</span>
+                            </div>
+                            
+                            <ChevronDown className={cn(
+                              "w-4 h-4 text-neutral-400 transition-transform duration-200 shrink-0",
+                              isOpen && "transform rotate-180 text-[#1d58d9]"
+                            )} />
+                          </button>
+
+                          {isOpen && (
+                            <div className="mt-1 flex flex-col">
+                              <div className="border-t border-neutral-100 my-1 mx-2" />
+                              <div className="space-y-0.5">
+                                {filteredChildren.map((child) => {
+                                  const isChildActive = currentPage === child.id;
+                                  return (
+                                    <button
+                                      key={child.name}
+                                      onClick={() => onNavigate(child.id)}
+                                      className={cn(
+                                        "flex items-center gap-2.5 w-full rounded-lg select-none group font-medium text-[13px] font-sans text-left transition-all duration-150 py-2 px-3.5",
+                                        isChildActive
+                                          ? "bg-[#e2ebf8]/80 text-[#1d58d9] font-bold"
+                                          : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
+                                      )}
+                                    >
+                                      <ArrowRight className={cn(
+                                        "w-3.5 h-3.5 shrink-0 transition-transform duration-150",
+                                        isChildActive 
+                                          ? "text-[#1d58d9] transform translate-x-0.5" 
+                                          : "text-neutral-300 group-hover:text-neutral-600 group-hover:translate-x-0.5"
+                                      )} />
+                                      <span className="truncate whitespace-nowrap">{child.name}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       );
                     }
 
+                    const isActive = currentPage === item.id;
                     return (
-                      <div 
-                        key={item.name} 
+                      <button
+                        key={item.name}
+                        onClick={() => onNavigate(item.id)}
+                        title={item.name}
                         className={cn(
-                          "transition-all duration-200 rounded-xl overflow-hidden",
-                          isOpen 
-                            ? "bg-white border border-[#e2ebf8] p-1.5 shadow-[0_2px_6px_rgba(29,88,217,0.03)]" 
-                            : "bg-transparent"
+                          "flex items-center transition-all duration-150 w-full rounded-xl select-none group font-medium text-sm font-sans text-left",
+                          isCollapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5",
+                          isActive 
+                            ? "bg-[#e2ebf8] text-[#1d58d9] font-semibold shadow-[0_1px_2px_rgba(29,88,217,0.05)]" 
+                            : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
                         )}
                       >
-                        <button
-                          onClick={() => toggleAccordion(item.name)}
-                          className={cn(
-                            "flex items-center justify-between transition-all duration-150 w-full rounded-lg select-none group font-medium text-sm font-sans text-left px-3 py-2.5",
-                            isOpen 
-                              ? "text-[#1d58d9] font-bold" 
-                              : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
-                          )}
-                        >
-                          <div className="flex items-center gap-3">
-                            <item.icon className={cn(
-                              "w-[18px] h-[18px] shrink-0 transition-colors",
-                              isOpen ? "text-[#1d58d9]" : "text-neutral-400 group-hover:text-neutral-600"
-                            )} />
-                            <span className="truncate whitespace-nowrap text-[13.5px]">{item.name}</span>
-                          </div>
-                          
-                          <ChevronDown className={cn(
-                            "w-4 h-4 text-neutral-400 transition-transform duration-200 shrink-0",
-                            isOpen && "transform rotate-180 text-[#1d58d9]"
-                          )} />
-                        </button>
-
-                        {isOpen && (
-                          <div className="mt-1 flex flex-col">
-                            <div className="border-t border-neutral-100 my-1 mx-2" />
-                            <div className="space-y-0.5">
-                              {filteredChildren.map((child) => {
-                                const isChildActive = currentPage === child.id;
-                                return (
-                                  <button
-                                    key={child.name}
-                                    onClick={() => onNavigate(child.id)}
-                                    className={cn(
-                                      "flex items-center gap-2.5 w-full rounded-lg select-none group font-medium text-[13px] font-sans text-left transition-all duration-150 py-2 px-3.5",
-                                      isChildActive
-                                        ? "bg-[#e2ebf8]/80 text-[#1d58d9] font-bold"
-                                        : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
-                                    )}
-                                  >
-                                    <ArrowRight className={cn(
-                                      "w-3.5 h-3.5 shrink-0 transition-transform duration-150",
-                                      isChildActive 
-                                        ? "text-[#1d58d9] transform translate-x-0.5" 
-                                        : "text-neutral-300 group-hover:text-neutral-600 group-hover:translate-x-0.5"
-                                    )} />
-                                    <span className="truncate whitespace-nowrap">{child.name}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
+                        <item.icon className={cn(
+                          "w-[18px] h-[18px] shrink-0 transition-colors",
+                          isActive 
+                            ? "text-[#1d58d9]" 
+                            : "text-neutral-400 group-hover:text-neutral-600"
+                        )} />
+                        
+                        {!isCollapsed && (
+                          <span className="truncate whitespace-nowrap">
+                            {item.name}
+                          </span>
                         )}
-                      </div>
+                      </button>
                     );
-                  }
-
-                  const isActive = currentPage === item.id;
-                  return (
-                    <button
-                      key={item.name}
-                      onClick={() => onNavigate(item.id)}
-                      title={item.name}
-                      className={cn(
-                        "flex items-center transition-all duration-150 w-full rounded-xl select-none group font-medium text-sm font-sans text-left",
-                        isCollapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5",
-                        isActive 
-                          ? "bg-[#e2ebf8] text-[#1d58d9] font-semibold shadow-[0_1px_2px_rgba(29,88,217,0.05)]" 
-                          : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
-                      )}
-                    >
-                      <item.icon className={cn(
-                        "w-[18px] h-[18px] shrink-0 transition-colors",
-                        isActive 
-                          ? "text-[#1d58d9]" 
-                          : "text-neutral-400 group-hover:text-neutral-600"
-                      )} />
-                      
-                      {!isCollapsed && (
-                        <span className="truncate whitespace-nowrap">
-                          {item.name}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
-        </nav>
-      </aside>
+            ))}
+          </nav>
+        </aside>
+      )}
 
       {/* Right Side Container */}
       <div className="flex-1 flex flex-col min-w-0 min-h-screen">
         {/* Top Navbar */}
         <header className="hidden md:flex items-center justify-between bg-white border-b border-neutral-200/80 px-8 py-3.5 sticky top-0 z-40 select-none h-16 shadow-[0_1px_2px_rgba(0,0,0,0.01)]">
           {/* Left section */}
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-black uppercase tracking-widest text-[#8a99ad] font-sans">
-              Payroll Management System
-            </span>
+          <div className="flex items-center gap-4">
+            {role === 'employee' ? (
+              <div 
+                className="flex items-center gap-3 cursor-pointer select-none group"
+                onClick={() => onNavigate('dashboard')}
+                title="Go to Employee Portal Home"
+              >
+                <div className="w-[36px] h-[36px] shrink-0 bg-white text-[#1d58d9] rounded-full p-0.5 border border-[#1d58d9]/25 flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
+                  <img 
+                    src={SLSU_LOGO_URL} 
+                    alt="SLSU Logo" 
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-contain" 
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      if (target.src !== window.location.origin + SLSU_LOGO_FALLBACK_URL) {
+                        target.src = SLSU_LOGO_FALLBACK_URL;
+                      }
+                    }}
+                  />
+                </div>
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-sm text-[#1d58d9] tracking-tight font-sans">
+                      SOUTHERN LEYTE STATE UNIVERSITY
+                    </span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-[#e2ebf8] text-[#1d58d9] border border-[#1d58d9]/20">
+                      Employee Portal
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-neutral-400 font-medium">
+                    Hinunangan Campus • Faculty &amp; Staff Self-Service System
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <span className="text-[11px] font-black uppercase tracking-widest text-[#8a99ad] font-sans">
+                Payroll Management System
+              </span>
+            )}
           </div>
           
           {/* Right section */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {role === 'employee' && currentPage !== 'dashboard' && (
+              <Button
+                onClick={() => onNavigate('dashboard')}
+                className="bg-[#1d58d9] hover:bg-[#1444b0] text-white text-xs font-bold px-3.5 py-1.5 h-9 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all mr-1"
+              >
+                <ArrowLeft className="w-4 h-4" /> Back to Portal
+              </Button>
+            )}
+
             <PWAInstallButton variant="header" />
 
             <button 
@@ -563,16 +611,21 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
 
         {/* Mobile Header */}
         <header className="md:hidden bg-white border-b border-neutral-200/80 px-4 py-3 flex items-center justify-between sticky top-0 z-40 select-none shadow-sm h-16">
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={() => setIsMobileMenuOpen(true)}
-              className="p-2 -ml-1.5 rounded-xl text-neutral-700 hover:text-[#1d58d9] hover:bg-[#e2ebf8]/60 active:scale-95 transition-all focus:outline-none"
-              aria-label="Open Sidebar Menu"
-            >
-              <Menu className="w-6 h-6" />
-            </button>
+          <div className="flex items-center gap-2.5">
+            {role !== 'employee' && (
+              <button 
+                onClick={() => setIsMobileMenuOpen(true)}
+                className="p-2 -ml-1.5 rounded-xl text-neutral-700 hover:text-[#1d58d9] hover:bg-[#e2ebf8]/60 active:scale-95 transition-all focus:outline-none"
+                aria-label="Open Sidebar Menu"
+              >
+                <Menu className="w-6 h-6" />
+              </button>
+            )}
 
-            <div className="flex items-center gap-2.5">
+            <div 
+              className="flex items-center gap-2.5 cursor-pointer select-none"
+              onClick={() => onNavigate('dashboard')}
+            >
               <div className="w-[30px] h-[30px] shrink-0 bg-white text-[#1d58d9] rounded-full p-0.5 border border-[#1d58d9]/20 flex items-center justify-center">
                 <img 
                   src={SLSU_LOGO_URL} 
@@ -587,13 +640,28 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                   }}
                 />
               </div>
-              <span className="font-extrabold text-lg text-[#1d58d9] tracking-tight font-sans">
-                PAYROLL
-              </span>
+              <div className="flex flex-col">
+                <span className="font-extrabold text-sm text-[#1d58d9] tracking-tight font-sans">
+                  {role === 'employee' ? 'EMPLOYEE PORTAL' : 'PAYROLL'}
+                </span>
+                <span className="text-[10px] font-medium text-neutral-400">
+                  SLSU Hinunangan
+                </span>
+              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            {role === 'employee' && currentPage !== 'dashboard' && (
+              <Button 
+                size="sm"
+                onClick={() => onNavigate('dashboard')}
+                className="h-8 bg-[#1d58d9] hover:bg-[#1444b0] text-white text-[11px] font-bold px-2.5 rounded-lg flex items-center gap-1 shadow-xs cursor-pointer active:scale-95 transition-all"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Back to Portal
+              </Button>
+            )}
+
             <PWAInstallButton variant="icon" />
 
             <button 
@@ -620,9 +688,9 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
           </div>
         </header>
 
-        {/* Mobile Sidebar (Slide-over Drawer from Left) */}
+        {/* Mobile Sidebar (Slide-over Drawer from Left - Only for non-employee roles) */}
         <AnimatePresence>
-          {isMobileMenuOpen && (
+          {role !== 'employee' && isMobileMenuOpen && (
             <div className="md:hidden fixed inset-0 z-50 overflow-hidden">
               {/* Dimmed Backdrop Overlay */}
               <motion.div
@@ -874,8 +942,18 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
             className="max-w-7xl w-full mx-auto"
           >
             {/* Breadcrumbs / Page Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 select-none font-sans">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 select-none font-sans gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                {role === 'employee' && currentPage !== 'dashboard' && (
+                  <Button
+                    onClick={() => onNavigate('dashboard')}
+                    variant="outline"
+                    size="sm"
+                    className="mr-2 bg-white border-neutral-300 hover:bg-[#e2ebf8] text-[#1d58d9] hover:text-[#1444b0] text-xs font-bold px-3.5 py-1.5 h-9 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                  >
+                    <ArrowLeft className="w-4 h-4" /> Back to Portal
+                  </Button>
+                )}
                 <h2 className="text-xl font-extrabold text-neutral-800 tracking-tight capitalize">
                   {getPageTitle(currentPage)}
                 </h2>
@@ -891,6 +969,15 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                   </span>
                 </div>
               </div>
+
+              {role === 'employee' && currentPage !== 'dashboard' && (
+                <Button
+                  onClick={() => onNavigate('dashboard')}
+                  className="bg-[#1d58d9] hover:bg-[#1444b0] text-white text-xs font-bold px-4 py-2 h-9 rounded-xl shadow-xs flex items-center gap-2 cursor-pointer w-fit active:scale-95 transition-all"
+                >
+                  <ArrowLeft className="w-4 h-4" /> Back to Portal
+                </Button>
+              )}
             </div>
 
             {/* Rendered page children */}

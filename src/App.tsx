@@ -94,7 +94,7 @@ const AppContent = () => {
         return <DTR />;
       }
       case 'history': return <History />;
-      case 'profile': return <Profile />;
+      case 'profile': return <Profile onNavigate={handleNavigate} />;
       case 'users': return <UsersPage />;
       case 'docs': return <Documentation />;
       case 'reports': return <Reports />;

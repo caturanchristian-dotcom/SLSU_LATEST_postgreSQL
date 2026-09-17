@@ -27,7 +27,8 @@ import {
   FileText,
   Sliders,
   CheckCircle2,
-  Trash2
+  Trash2,
+  ArrowLeft
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
@@ -39,7 +40,11 @@ import { formatCurrency } from '../lib/utils';
 
 type TabType = 'information' | 'settings';
 
-const Profile = () => {
+interface ProfileProps {
+  onNavigate?: (page: string) => void;
+}
+
+const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
   const { user } = useAuth();
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -240,6 +245,24 @@ const Profile = () => {
   
   return (
     <div className="space-y-6">
+      {user?.role === 'employee' && (
+        <div className="flex items-center justify-between bg-white border border-neutral-200/80 rounded-2xl p-4 shadow-xs">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              onClick={() => onNavigate ? onNavigate('dashboard') : window.history.back()}
+              className="p-3 border-neutral-200 hover:bg-neutral-50 rounded-xl flex items-center gap-2 text-xs font-bold text-neutral-700 active:scale-95 transition-all shadow-xs cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4 text-neutral-500" /> Back to Portal
+            </Button>
+            <div>
+              <h2 className="text-base font-bold text-neutral-900 tracking-tight">Personnel Profile & Account Settings</h2>
+              <p className="text-xs text-neutral-500">View your employment records and manage login credentials</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tab Switcher Selector */}
       <div className="flex items-center border-b border-neutral-200 pb-2 gap-4">
         <button
