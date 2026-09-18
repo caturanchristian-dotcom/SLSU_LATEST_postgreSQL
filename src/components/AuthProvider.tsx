@@ -23,7 +23,7 @@ interface AuthContextType {
   logout: (isAutoLogout?: boolean | React.SyntheticEvent) => void;
 }
 
-const TEN_MINUTES_MS = 10 * 60 * 1000; // 10 minutes inactivity limit
+const INACTIVITY_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours (1 day) inactivity limit
 
 const AuthContext = createContext<AuthContextType>({ 
   user: null, 
@@ -55,7 +55,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error("Failed to clear session storage on logout", e);
     }
     if (isAuto) {
-      toast.warning("You have been automatically logged out due to 10 minutes of inactivity.");
+      toast.warning("You have been automatically logged out due to 24 hours of inactivity.");
     }
   };
 
@@ -68,7 +68,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (savedUser && isSessionActive === 'true') {
         const lastActiveTime = lastActiveStr ? Number(lastActiveStr) : now;
-        if (now - lastActiveTime >= TEN_MINUTES_MS) {
+        if (now - lastActiveTime >= INACTIVITY_TIMEOUT_MS) {
           logout(true);
         } else {
           try {
@@ -209,22 +209,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const activityEvents = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart', 'focus'];
     activityEvents.forEach(evt => window.addEventListener(evt, recordUserActivity));
 
-    // Check inactivity every 3 seconds
+    // Check inactivity periodically
     const interval = setInterval(() => {
       const now = Date.now();
       const lastActiveStored = Number(localStorage.getItem('payroll_last_active') || lastActiveRef.current);
       const effectiveLastActive = Math.max(lastActiveRef.current, lastActiveStored);
 
-      if (now - effectiveLastActive >= TEN_MINUTES_MS) {
+      if (now - effectiveLastActive >= INACTIVITY_TIMEOUT_MS) {
         logout(true);
       }
-    }, 3000);
+    }, 15000);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         const now = Date.now();
         const lastActiveStored = Number(localStorage.getItem('payroll_last_active') || lastActiveRef.current);
-        if (now - lastActiveStored >= TEN_MINUTES_MS) {
+        if (now - lastActiveStored >= INACTIVITY_TIMEOUT_MS) {
           logout(true);
         } else {
           lastActiveRef.current = now;
