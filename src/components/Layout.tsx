@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   LayoutDashboard, 
   Users, 
@@ -36,6 +36,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { PWAInstallModal } from './PWAInstallModal';
 import { OfflineIndicator } from './OfflineIndicator';
+import { api } from '@/lib/api';
+import { useRealtime } from '@/hooks/useRealtime';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -57,6 +59,37 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
 
   const [openAccordions, setOpenAccordions] = useState<Record<string, boolean>>({
     'DTR': false
+  });
+
+  const [pendingOvertimeCount, setPendingOvertimeCount] = useState<number>(0);
+
+  const fetchPendingOvertime = useCallback(async () => {
+    try {
+      if (!user) return;
+      const isEmp = role === 'employee';
+      // For employees: their submitted pending requests; For management/admin: all pending overtime requests requiring approval/authorization
+      const summary = await api.overtime.getSummary(isEmp ? (user.email || user.id) : undefined);
+      if (summary && typeof summary.pending === 'number') {
+        setPendingOvertimeCount(summary.pending);
+      }
+    } catch (err) {
+      // Non-blocking
+    }
+  }, [user, role]);
+
+  useEffect(() => {
+    fetchPendingOvertime();
+    const interval = setInterval(fetchPendingOvertime, 20000);
+    const handleFocus = () => fetchPendingOvertime();
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [fetchPendingOvertime]);
+
+  useRealtime(['overtime_changed', 'overtime', 'overtime_created', 'overtime_updated', 'payroll_changed'], () => {
+    fetchPendingOvertime();
   });
 
   const toggleAccordion = (name: string) => {
@@ -213,7 +246,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
             { name: 'DTR Logs', id: 'dtr', roles: ['employee'] },
           ]
         },
-        { name: 'Overtime Approvals', id: 'overtime', icon: CheckCircle2, roles: ['admin', 'payroll_officer', 'department_head'] },
+        { name: 'Overtime Management', id: 'overtime', icon: Clock, roles: ['admin', 'payroll_officer', 'department_head', 'accountant'] },
         { name: 'Departments', id: 'departments', icon: BookOpen, roles: ['admin', 'department_head'] },
         { name: 'Holidays', id: 'holidays', icon: Calendar, roles: ['admin', 'payroll_officer', 'employee', 'accountant', 'department_head'] },
         { name: 'Documentation', id: 'docs', icon: FileText, roles: ['admin', 'payroll_officer', 'employee', 'accountant'] },
@@ -223,7 +256,6 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
       title: "PAYROLL",
       items: [
         { name: 'Payroll', id: 'payroll', icon: CreditCard, roles: ['admin', 'payroll_officer', 'accountant'] },
-        { name: 'Overtime Management', id: 'overtime', icon: Clock, roles: ['admin', 'payroll_officer', 'accountant'] },
         { name: 'Deductions', id: 'deductions', icon: PieChart, roles: ['admin', 'payroll_officer'] },
         { name: 'Financial Reports', id: 'reports', icon: PieChart, roles: ['admin', 'accountant'] },
         { name: 'Compliance Logs', id: 'audit', icon: Shield, roles: ['admin', 'accountant'] },
@@ -399,29 +431,55 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                     }
 
                     const isActive = currentPage === item.id;
+                    const isOvertimeItem = item.id === 'overtime';
+                    const showBadge = isOvertimeItem && pendingOvertimeCount > 0;
+
                     return (
                       <button
                         key={item.name}
                         onClick={() => onNavigate(item.id)}
-                        title={item.name}
+                        title={showBadge ? `${item.name} (${pendingOvertimeCount} Pending Authorization${pendingOvertimeCount > 1 ? 's' : ''})` : item.name}
                         className={cn(
                           "flex items-center transition-all duration-150 w-full rounded-xl select-none group font-medium text-sm font-sans text-left",
-                          isCollapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5",
+                          isCollapsed ? "justify-center p-2.5 relative" : "justify-between px-3 py-2.5",
                           isActive 
                             ? "bg-[#e2ebf8] text-[#1d58d9] font-semibold shadow-[0_1px_2px_rgba(29,88,217,0.05)]" 
                             : "text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
                         )}
                       >
-                        <item.icon className={cn(
-                          "w-[18px] h-[18px] shrink-0 transition-colors",
-                          isActive 
-                            ? "text-[#1d58d9]" 
-                            : "text-neutral-400 group-hover:text-neutral-600"
-                        )} />
-                        
-                        {!isCollapsed && (
-                          <span className="truncate whitespace-nowrap">
-                            {item.name}
+                        <div className={cn("flex items-center", isCollapsed ? "justify-center" : "gap-3 min-w-0")}>
+                          <div className="relative shrink-0 flex items-center justify-center">
+                            <item.icon className={cn(
+                              "w-[18px] h-[18px] shrink-0 transition-colors",
+                              isActive 
+                                ? "text-[#1d58d9]" 
+                                : "text-neutral-400 group-hover:text-neutral-600"
+                            )} />
+                            {isCollapsed && showBadge && (
+                              <span className="absolute -top-1.5 -right-2 min-w-[17px] h-[17px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-extrabold flex items-center justify-center ring-2 ring-white shadow-xs">
+                                {pendingOvertimeCount > 99 ? '99+' : pendingOvertimeCount}
+                              </span>
+                            )}
+                          </div>
+                          
+                          {!isCollapsed && (
+                            <span className="truncate whitespace-nowrap">
+                              {item.name}
+                            </span>
+                          )}
+                        </div>
+
+                        {!isCollapsed && showBadge && (
+                          <span 
+                            title={`${pendingOvertimeCount} Pending Authorization${pendingOvertimeCount > 1 ? 's' : ''}`}
+                            className={cn(
+                              "ml-2 shrink-0 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-extrabold shadow-xs transition-colors",
+                              isActive 
+                                ? "bg-[#1d58d9] text-white" 
+                                : "bg-amber-500 text-white"
+                            )}
+                          >
+                            {pendingOvertimeCount > 99 ? '99+' : pendingOvertimeCount}
                           </span>
                         )}
                       </button>
@@ -872,6 +930,9 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                           }
 
                           const isActive = currentPage === item.id;
+                          const isOvertimeItem = item.id === 'overtime';
+                          const showBadge = isOvertimeItem && pendingOvertimeCount > 0;
+
                           return (
                             <button
                               key={item.name}
@@ -880,19 +941,35 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                                 setIsMobileMenuOpen(false);
                               }}
                               className={cn(
-                                "flex items-center gap-3 w-full px-3 py-2.5 rounded-xl font-medium text-sm font-sans text-left transition-all duration-150",
+                                "flex items-center justify-between w-full px-3 py-2.5 rounded-xl font-medium text-sm font-sans text-left transition-all duration-150",
                                 isActive 
                                   ? "bg-[#e2ebf8] text-[#1d58d9] font-bold shadow-[0_1px_2px_rgba(29,88,217,0.05)]" 
                                   : "text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900"
                               )}
                             >
-                              <item.icon className={cn(
-                                "w-[18px] h-[18px] shrink-0 transition-colors",
-                                isActive 
-                                  ? "text-[#1d58d9]" 
-                                  : "text-neutral-400 group-hover:text-neutral-600"
-                              )} />
-                              <span className="text-[13.5px]">{item.name}</span>
+                              <div className="flex items-center gap-3 min-w-0">
+                                <item.icon className={cn(
+                                  "w-[18px] h-[18px] shrink-0 transition-colors",
+                                  isActive 
+                                    ? "text-[#1d58d9]" 
+                                    : "text-neutral-400 group-hover:text-neutral-600"
+                                )} />
+                                <span className="text-[13.5px] truncate">{item.name}</span>
+                              </div>
+
+                              {showBadge && (
+                                <span 
+                                  title={`${pendingOvertimeCount} Pending Authorization${pendingOvertimeCount > 1 ? 's' : ''}`}
+                                  className={cn(
+                                    "shrink-0 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-extrabold shadow-xs",
+                                    isActive 
+                                      ? "bg-[#1d58d9] text-white" 
+                                      : "bg-amber-500 text-white"
+                                  )}
+                                >
+                                  {pendingOvertimeCount > 99 ? '99+' : pendingOvertimeCount}
+                                </span>
+                              )}
                             </button>
                           );
                         })}

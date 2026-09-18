@@ -32,10 +32,10 @@ function getAuthHeaders(): Record<string, string> {
 }
 
 // ============================================================================
-// Helper Function: Authenticated Fetch Wrapper
+// Helper Function: Authenticated Fetch Wrapper with Automatic Retry
 // Automatically injects authentication headers and custom options to fetch calls
 // ============================================================================
-async function fetchWithAuth(url: string, options: RequestInit = {}) {
+async function fetchWithAuth(url: string, options: RequestInit = {}, retries = 1): Promise<Response> {
   // Obtain session headers from localStorage
   const authHeaders = getAuthHeaders();
   // Merge user-specified headers with auto-injected auth headers
@@ -43,8 +43,19 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
     ...options.headers,
     ...authHeaders,
   };
-  // Execute native HTTP fetch call with combined options
-  return fetch(url, { ...options, headers });
+
+  try {
+    // Execute native HTTP fetch call with combined options
+    return await fetch(url, { ...options, headers });
+  } catch (error: any) {
+    // If request failed due to network hiccup or temporary server sleep, retry once for GET requests
+    const isGet = !options.method || options.method.toUpperCase() === 'GET';
+    if (retries > 0 && isGet) {
+      await new Promise(resolve => setTimeout(resolve, 350));
+      return fetchWithAuth(url, options, retries - 1);
+    }
+    throw error;
+  }
 }
 
 // ============================================================================

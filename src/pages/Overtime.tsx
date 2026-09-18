@@ -322,14 +322,14 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
 
       const employeesPromise = cachedEmployeesList 
         ? Promise.resolve(cachedEmployeesList)
-        : fetch('/api/employees')
-            .then(res => res.ok ? res.json() : [])
-            .catch(() => []);
+        : api.employees.list()
+            .then(res => (Array.isArray(res) ? res : (res?.data || [])))
+            .catch(() => cachedEmployeesList || []);
 
       const overtimePromise = api.overtime.list(overtimeParams)
         .catch(err => {
-          console.error("Overtime list error:", err);
-          return { data: [] };
+          console.warn("Overtime list fetch notice:", err?.message || err);
+          return { data: cachedOvertimeList || [] };
         });
 
       const [empsList, otResult] = await Promise.all([employeesPromise, overtimePromise]);
