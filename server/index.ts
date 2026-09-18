@@ -5,8 +5,9 @@
 import express from "express";
 // Import Vite development server factory for hot module integration
 import { createServer as createViteServer } from "vite";
-// Import Node.js built-in path module for filesystem path resolutions
+// Import Node.js built-in path and fs modules for filesystem resolutions
 import path from "path";
+import fs from "fs";
 // Import Cross-Origin Resource Sharing middleware
 import cors from "cors";
 // Import Dotenv to load environment variables from .env file
@@ -213,6 +214,33 @@ export async function startServer() {
       server: { middlewareMode: true },
       appType: "spa",
     });
+    // Fallback handler for Vite chunk hash mismatches (e.g. flowDiagram-*.js) in development
+    app.use("/node_modules/.vite/deps", (req, res, next) => {
+      try {
+        const reqFile = req.path.replace(/^\//, "");
+        const depsDir = path.join(process.cwd(), "node_modules", ".vite", "deps");
+        const exactPath = path.join(depsDir, reqFile);
+        
+        if (fs.existsSync(exactPath)) {
+          return res.type("application/javascript").sendFile(exactPath);
+        }
+        
+        // Match chunk prefix e.g. "flowDiagram-DWJPFMVM" or other dynamic chunks
+        const parts = reqFile.split("-");
+        const prefix = parts.length >= 2 ? `${parts[0]}-${parts[1]}` : parts[0];
+        if (prefix && fs.existsSync(depsDir)) {
+          const files = fs.readdirSync(depsDir);
+          const matched = files.find(f => f.startsWith(prefix) && f.endsWith(".js"));
+          if (matched) {
+            return res.type("application/javascript").sendFile(path.join(depsDir, matched));
+          }
+        }
+      } catch (err) {
+        // Continue to vite middleware if error
+      }
+      next();
+    });
+
     // Mount Vite middlewares into Express pipeline
     app.use(vite.middlewares);
   } else {

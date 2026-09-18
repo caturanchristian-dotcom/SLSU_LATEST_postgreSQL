@@ -26,7 +26,8 @@ import {
   BookOpen,
   User,
   Download,
-  CheckCircle2
+  CheckCircle2,
+  GitFork
 } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { Button } from './ui/button';
@@ -169,6 +170,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
       case 'holidays': return 'Holidays Registry';
       case 'profile': return 'My Profile';
       case 'docs': return 'Knowledge Base';
+      case 'flowchart': return 'System Flowchart';
       case 'departments': return 'Departments & Subjects';
       case 'overtime': return role === 'employee' ? 'Overtime Request' : 'Overtime Management';
       case 'overtime-admin': return 'Overtime Approval Center';
@@ -202,6 +204,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
       case 'holidays': return 'Public Holidays';
       case 'profile': return 'Information';
       case 'docs': return 'Product Manuals';
+      case 'flowchart': return 'Interactive End-to-End System Workflow';
       case 'departments': return 'Academic Management';
       case 'overtime': return 'Submit and Monitor Overtime Applications';
       case 'overtime-admin': return 'Review, Verify DTR & Approve Overtime';
@@ -215,6 +218,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
       items: [
         { name: 'Home', id: 'dashboard', icon: Home, roles: ['admin', 'payroll_officer', 'employee', 'accountant'] },
         { name: 'Dashboard', id: 'dashboard', icon: LayoutDashboard, roles: ['admin', 'payroll_officer', 'accountant', 'department_head'] },
+        { name: 'System Flowchart', id: 'flowchart', icon: GitFork, roles: ['admin', 'payroll_officer', 'employee', 'accountant', 'department_head'] },
         { name: 'Overtime Request', id: 'overtime', icon: Clock, roles: ['employee'] },
         { name: 'Information', id: 'profile', icon: Users, roles: ['admin', 'payroll_officer', 'employee', 'accountant', 'department_head'] },
         { name: 'Schedules', id: 'schedules', icon: Calendar, roles: ['admin', 'payroll_officer', 'employee', 'department_head'] },
@@ -224,6 +228,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
       title: "EMPLOYEE ACCOUNT",
       items: [
         { name: 'My Account', id: 'account', icon: User, roles: ['employee'] },
+        { name: 'System Flowchart', id: 'flowchart', icon: GitFork, roles: ['employee'] },
         { name: 'Overtime Request', id: 'overtime', icon: Clock, roles: ['employee'] },
         { name: 'Deductions', id: 'deductions', icon: PieChart, roles: ['employee'] },
       ]
@@ -249,6 +254,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
         { name: 'Overtime Management', id: 'overtime', icon: Clock, roles: ['admin', 'payroll_officer', 'department_head', 'accountant'] },
         { name: 'Departments', id: 'departments', icon: BookOpen, roles: ['admin', 'department_head'] },
         { name: 'Holidays', id: 'holidays', icon: Calendar, roles: ['admin', 'payroll_officer', 'employee', 'accountant', 'department_head'] },
+        { name: 'System Flowchart', id: 'flowchart', icon: GitFork, roles: ['admin', 'payroll_officer', 'department_head', 'accountant', 'employee'] },
         { name: 'Documentation', id: 'docs', icon: FileText, roles: ['admin', 'payroll_officer', 'employee', 'accountant'] },
       ]
     },
@@ -637,6 +643,17 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                       >
                         <Download className="w-4 h-4 text-neutral-400 shrink-0" />
                         <span>Install Desktop App</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          onNavigate('flowchart');
+                          setIsProfileMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] font-bold text-neutral-600 hover:bg-[#e2ebf8] hover:text-[#1d58d9] rounded-lg text-left tracking-wide uppercase transition-colors"
+                      >
+                        <GitFork className="w-4 h-4 text-[#1d58d9] shrink-0" />
+                        <span>System Flowchart</span>
                       </button>
                       
                       <div className="border-t border-neutral-100 my-1" />

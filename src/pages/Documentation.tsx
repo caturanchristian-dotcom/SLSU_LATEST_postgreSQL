@@ -1,36 +1,21 @@
-import React, { useEffect, useRef, useState } from 'react';
-import mermaid from 'mermaid';
+import React, { useEffect, useState } from 'react';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { FileText, GitBranch, Shield, Zap, Database, Download, CheckCircle, RefreshCw, Server, AlertCircle, Radio, Link2, Sparkles } from 'lucide-react';
 import { SchoolApiSyncModal } from '../components/SchoolApiSyncModal';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { Laptop, Smartphone, Wifi, Check, Monitor } from 'lucide-react';
-
-mermaid.initialize({
-  startOnLoad: true,
-  theme: 'neutral',
-  securityLevel: 'loose',
-  fontFamily: 'Inter, sans-serif',
-});
+import { MermaidViewer } from '../components/MermaidViewer';
 
 const Mermaid = ({ chart }: { chart: string }) => {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (ref.current) {
-      mermaid.contentLoaded();
-    }
-  }, [chart]);
-
-  return (
-    <div className="mermaid flex justify-center bg-white p-8 rounded-2xl border border-neutral-100 shadow-sm overflow-x-auto" ref={ref}>
-      {chart}
-    </div>
-  );
+  return <MermaidViewer chart={chart} />;
 };
 
-const Documentation = () => {
+interface DocumentationProps {
+  onNavigate?: (page: string) => void;
+}
+
+const Documentation: React.FC<DocumentationProps> = ({ onNavigate }) => {
   const [dbStatus, setDbStatus] = useState<any>(null);
   const [loadingDb, setLoadingDb] = useState(false);
   const [testHost, setTestHost] = useState('localhost');
@@ -394,6 +379,30 @@ MYSQL_DATABASE=payroll`}
           <p className="text-sm text-neutral-500">Strict security boundaries between Admins, Payroll Officers, and regular Employees.</p>
         </Card>
       </div>
+
+      {/* Spotlight: Complete Interactive System Flowchart */}
+      {onNavigate && (
+        <div className="bg-gradient-to-r from-[#17386d] to-[#1d58d9] rounded-3xl p-6 md:p-8 text-white shadow-md flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="space-y-2 max-w-2xl">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 text-white text-xs font-bold uppercase tracking-wider">
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              <span>Full System Architecture</span>
+            </div>
+            <h3 className="text-xl md:text-2xl font-black tracking-tight text-white">
+              End-to-End System Flowchart &amp; Multi-Role Diagrams
+            </h3>
+            <p className="text-sm text-white/85 leading-relaxed">
+              Explore the master multi-role swimlane flowchart detailing all operations from login to disbursement across Administrators, Department Heads, Accountants, and Employees.
+            </p>
+          </div>
+          <Button
+            onClick={() => onNavigate('flowchart')}
+            className="bg-white text-[#17386d] hover:bg-neutral-100 font-bold text-xs px-5 py-3 rounded-2xl shrink-0 cursor-pointer shadow-sm hover:scale-102 transition-transform"
+          >
+            Launch System Flowchart &rarr;
+          </Button>
+        </div>
+      )}
 
       <section className="space-y-6">
         <div className="flex items-center gap-3">

@@ -48,7 +48,8 @@ import {
   Layers,
   Sparkles,
   LogIn,
-  LogOut
+  LogOut,
+  GitFork
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -1050,6 +1051,14 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
                   action: () => onNavigate && onNavigate('profile'),
                 },
                 {
+                  id: 'flowchart',
+                  title: 'System Flowchart',
+                  description: 'Interactive end-to-end workflow diagrams & architecture from login to payroll release',
+                  icon: <GitFork className="w-10 h-10 text-indigo-600 stroke-[1.25]" />,
+                  badge: 'Workflow',
+                  action: () => onNavigate && onNavigate('flowchart'),
+                },
+                {
                   id: 'announcements',
                   title: 'Announcements',
                   description: 'Latest institutional announcements and system reports will be posted here',
@@ -1623,6 +1632,18 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
             </div>
 
             <div className="flex items-center gap-2">
+              {onNavigate && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onNavigate('flowchart')}
+                  className="h-10 px-3.5 rounded-xl border-neutral-200 hover:bg-[#e2ebf8] text-[#1d58d9] hover:text-[#17386d] font-bold text-xs gap-1.5 shadow-2xs"
+                >
+                  <GitFork className="w-3.5 h-3.5" />
+                  <span>System Flowchart</span>
+                </Button>
+              )}
+
               <Button
                 variant="outline"
                 size="sm"

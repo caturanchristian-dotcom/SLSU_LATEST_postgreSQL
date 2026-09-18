@@ -20,6 +20,7 @@ import AuditLogs from './pages/AuditLogs';
 import HolidaysPage from './pages/Holidays';
 import Departments from './pages/Departments';
 import OvertimePage from './pages/Overtime';
+import Flowchart from './pages/flowchart';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
 
@@ -97,11 +98,12 @@ const AppContent = () => {
       case 'history': return <History />;
       case 'profile': return <Profile onNavigate={handleNavigate} />;
       case 'users': return <UsersPage />;
-      case 'docs': return <Documentation />;
+      case 'docs': return <Documentation onNavigate={handleNavigate} />;
       case 'reports': return <Reports />;
       case 'audit': return <AuditLogs />;
       case 'holidays': return <HolidaysPage />;
       case 'departments': return <Departments />;
+      case 'flowchart': return <Flowchart onNavigate={handleNavigate} />;
       case 'overtime':
       case 'overtime-admin': return <OvertimePage onNavigate={handleNavigate} />;
       default: return <Dashboard onNavigate={handleNavigate} key={`dashboard-default-${dashboardKey}`} initialSubview={null} />;
