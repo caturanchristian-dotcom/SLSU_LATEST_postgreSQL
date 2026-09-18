@@ -3,8 +3,6 @@ import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { FileText, GitBranch, Shield, Zap, Database, Download, CheckCircle, RefreshCw, Server, AlertCircle, Radio, Link2, Sparkles } from 'lucide-react';
 import { SchoolApiSyncModal } from '../components/SchoolApiSyncModal';
-import { PWAInstallButton } from '../components/PWAInstallButton';
-import { Laptop, Smartphone, Wifi, Check, Monitor } from 'lucide-react';
 import { MermaidViewer } from '../components/MermaidViewer';
 
 const Mermaid = ({ chart }: { chart: string }) => {
@@ -438,69 +436,6 @@ MYSQL_DATABASE=payroll`}
             <div className="p-4 bg-white rounded-xl border border-neutral-100">
               <h5 className="font-bold text-xs uppercase tracking-wider text-neutral-400 mb-1">Clock-Out</h5>
               <p className="text-sm">Updates the existing log for the day or creates a completion entry.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Progressive Web App (PWA) Desktop Installation Section */}
-      <section className="space-y-6">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-3">
-            <Monitor className="w-6 h-6 text-[#1d58d9]" />
-            <h2 className="text-2xl font-bold text-neutral-900">Desktop & Mobile Application (PWA)</h2>
-          </div>
-          <PWAInstallButton variant="header" />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="p-6 bg-white border-neutral-100 rounded-3xl shadow-sm space-y-3">
-            <div className="w-10 h-10 rounded-2xl bg-[#e2ebf8] flex items-center justify-center text-[#1d58d9]">
-              <Laptop className="w-5 h-5" />
-            </div>
-            <h3 className="font-bold text-base text-neutral-900">Native Desktop Window</h3>
-            <p className="text-xs text-neutral-500 leading-relaxed">
-              Installs directly to your Windows, macOS, or Linux desktop. Runs in a dedicated, frameless standalone window without browser address bars or distraction.
-            </p>
-          </Card>
-
-          <Card className="p-6 bg-white border-neutral-100 rounded-3xl shadow-sm space-y-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center text-amber-600">
-              <Smartphone className="w-5 h-5" />
-            </div>
-            <h3 className="font-bold text-base text-neutral-900">Mobile & Tablet Ready</h3>
-            <p className="text-xs text-neutral-500 leading-relaxed">
-              Add to Home Screen on iOS (Safari Share &gt; Add to Home Screen) and Android (Chrome Install prompt). Matches native touch responsiveness.
-            </p>
-          </Card>
-
-          <Card className="p-6 bg-white border-neutral-100 rounded-3xl shadow-sm space-y-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600">
-              <Wifi className="w-5 h-5" />
-            </div>
-            <h3 className="font-bold text-base text-neutral-900">Offline Resilient</h3>
-            <p className="text-xs text-neutral-500 leading-relaxed">
-              Equipped with an intelligent Service Worker cache that preserves application shell, assets, and informs you seamlessly if connection drops.
-            </p>
-          </Card>
-        </div>
-
-        <div className="bg-[#f8fafc] p-6 rounded-2xl border border-neutral-200/80 space-y-3">
-          <h4 className="font-bold text-sm text-neutral-800">Quick Installation Steps:</h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-neutral-600">
-            <div className="p-3 bg-white rounded-xl border border-neutral-100 flex items-start gap-2.5">
-              <span className="w-5 h-5 rounded-full bg-[#1d58d9] text-white flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">1</span>
-              <div>
-                <p className="font-bold text-neutral-800">Chrome, Edge & Brave (Desktop)</p>
-                <p className="text-neutral-500 mt-0.5">Click the <strong>Install Desktop App</strong> button in the top navigation or address bar icon (⊕).</p>
-              </div>
-            </div>
-            <div className="p-3 bg-white rounded-xl border border-neutral-100 flex items-start gap-2.5">
-              <span className="w-5 h-5 rounded-full bg-[#1d58d9] text-white flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">2</span>
-              <div>
-                <p className="font-bold text-neutral-800">Safari on iPhone / iPad</p>
-                <p className="text-neutral-500 mt-0.5">Tap the <strong>Share</strong> button, scroll down, and select <strong>Add to Home Screen</strong>.</p>
-              </div>
             </div>
           </div>
         </div>

@@ -2,7 +2,6 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
-import { registerServiceWorker } from './registerSW';
 import { SLSU_LOGO_URL } from './lib/constants';
 
 // Set browser tab icon directly to the SLSU URL
@@ -19,8 +18,14 @@ try {
   console.warn('Could not set favicon dynamically:', e);
 }
 
-// Register PWA service worker
-registerServiceWorker();
+// Unregister any legacy service workers
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    for (const registration of registrations) {
+      registration.unregister();
+    }
+  });
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -3,7 +3,6 @@ import { useAuth } from '../components/AuthProvider';
 import { LogIn, Eye, EyeOff, AlertCircle, Building2, ShieldCheck, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { SLSU_CAMPUSES, SLSU_LOGO_URL, SLSU_LOGO_FALLBACK_URL } from '../lib/constants';
-import { PWAInstallButton } from '../components/PWAInstallButton';
 import { OfflineIndicator } from '../components/OfflineIndicator';
 import { cn } from '../lib/utils';
 
@@ -123,11 +122,6 @@ const Login = () => {
 
   return (
     <div className="min-h-screen bg-[#f3f6f9] flex flex-col items-center justify-center p-4 relative">
-      {/* Top Bar PWA Install Action */}
-      <div className="absolute top-4 right-4 z-20">
-        <PWAInstallButton variant="header" />
-      </div>
-
       {/* Outer Card with box shadow matching the style of the design */}
       <div className="w-full max-w-[950px] bg-white rounded-3xl overflow-hidden shadow-[0_12px_40px_rgba(0,0,0,0.06)] border border-neutral-100/80 flex flex-col md:flex-row min-h-[500px]">
         

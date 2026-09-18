@@ -34,8 +34,6 @@ import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
 import { SLSU_LOGO_URL, SLSU_LOGO_FALLBACK_URL } from '@/lib/constants';
 import { motion, AnimatePresence } from 'motion/react';
-import { PWAInstallButton } from './PWAInstallButton';
-import { PWAInstallModal } from './PWAInstallModal';
 import { OfflineIndicator } from './OfflineIndicator';
 import { api } from '@/lib/api';
 import { useRealtime } from '@/hooks/useRealtime';
@@ -50,7 +48,6 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
   const { user, role, logout } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('sidebar_collapsed') === 'true';
@@ -556,8 +553,6 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
               </Button>
             )}
 
-            <PWAInstallButton variant="header" />
-
             <button 
               title="Help Center"
               onClick={() => onNavigate('docs')}
@@ -632,17 +627,6 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                       >
                         <KeyRound className="w-4 h-4 text-neutral-400 shrink-0" />
                         <span>My Accounts</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setIsInstallModalOpen(true);
-                          setIsProfileMenuOpen(false);
-                        }}
-                        className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] font-bold text-neutral-600 hover:bg-[#e2ebf8] hover:text-[#1d58d9] rounded-lg text-left tracking-wide uppercase transition-colors"
-                      >
-                        <Download className="w-4 h-4 text-neutral-400 shrink-0" />
-                        <span>Install Desktop App</span>
                       </button>
 
                       <button
@@ -745,8 +729,6 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                 <ArrowLeft className="w-3.5 h-3.5" /> Back to Portal
               </Button>
             )}
-
-            <PWAInstallButton variant="icon" />
 
             <button 
               onClick={() => onNavigate('profile')}
@@ -999,17 +981,6 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                 <div className="p-3 border-t border-neutral-100 bg-neutral-50/70 space-y-1">
                   <button
                     onClick={() => {
-                      setIsInstallModalOpen(true);
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[#e2ebf8]/60 text-[#1d58d9] hover:bg-[#e2ebf8] text-xs font-bold text-left transition-colors"
-                  >
-                    <Download className="w-4 h-4 text-[#1d58d9]" />
-                    <span>Install Desktop App</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
                       onNavigate('docs');
                       setIsMobileMenuOpen(false);
                     }}
@@ -1091,9 +1062,6 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
 
       {/* Offline Status Toast Indicator */}
       <OfflineIndicator />
-
-      {/* Manual Desktop / Mobile Install Modal Guide */}
-      <PWAInstallModal isOpen={isInstallModalOpen} onClose={() => setIsInstallModalOpen(false)} />
     </div>
   );
 };
