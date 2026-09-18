@@ -20,7 +20,7 @@ import AuditLogs from './pages/AuditLogs';
 import HolidaysPage from './pages/Holidays';
 import Departments from './pages/Departments';
 import OvertimePage from './pages/Overtime';
-import Flowchart from './pages/flowchart';
+import Flowchart from './pages/Flowchart';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
 
