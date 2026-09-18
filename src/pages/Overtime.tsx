@@ -1850,16 +1850,14 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                             </>
                           )}
 
-                          {/* Delete Button for Authorized, Declined, or Cancelled Requests */}
-                          {!isPending && (
-                            <button
-                              onClick={() => setRequestToDelete(req)}
-                              title={`Delete ${req.status === 'approved' ? 'Authorized' : req.status === 'rejected' ? 'Declined' : 'Cancelled'} Overtime Record`}
-                              className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
+                          {/* Delete Button (Hides record from current actor's view; permanently purges only if both parties delete) */}
+                          <button
+                            onClick={() => setRequestToDelete(req)}
+                            title={isEmployeeRole ? "Delete request from your account" : "Delete record from administration view"}
+                            className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -2504,20 +2502,18 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
               )}
 
               <DialogFooter className="pt-2 gap-2 flex-wrap">
-                {selectedRequest.status !== 'pending' && (
-                  <Button
-                    onClick={() => {
-                      const toDel = selectedRequest;
-                      setIsDetailsModalOpen(false);
-                      setRequestToDelete(toDel);
-                    }}
-                    variant="outline"
-                    className="border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 font-bold rounded-xl text-xs h-10 px-3 flex items-center justify-center gap-1.5"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                    Delete Record
-                  </Button>
-                )}
+                <Button
+                  onClick={() => {
+                    const toDel = selectedRequest;
+                    setIsDetailsModalOpen(false);
+                    setRequestToDelete(toDel);
+                  }}
+                  variant="outline"
+                  className="border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 font-bold rounded-xl text-xs h-10 px-3 flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  Delete Record
+                </Button>
                 <Button
                   onClick={() => handlePrintSlip(selectedRequest)}
                   variant="outline"

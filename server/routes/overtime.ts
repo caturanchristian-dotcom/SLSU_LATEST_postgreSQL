@@ -65,10 +65,16 @@ function getActorRole(req: any): "employee" | "admin" {
   const queryRole = (req.query?.viewRole || req.query?.role || req.query?.actorRole || "").toString().toLowerCase().trim();
   const bodyRole = (req.body?.role || req.body?.deletedBy || req.body?.actorRole || "").toString().toLowerCase().trim();
 
-  const resolved = queryRole || bodyRole || roleHeader;
-  if (resolved === "employee") {
+  // If the authenticated session header is explicitly employee, cannot escalate to admin
+  if (roleHeader === "employee") {
     return "employee";
   }
+
+  // Admins can preview/switch to employee self-service view
+  if (queryRole === "employee" || bodyRole === "employee") {
+    return "employee";
+  }
+
   return "admin";
 }
 
@@ -108,7 +114,29 @@ overtimeRouter.get(["/overtime-requests", "/overtime"], async (req: any, res: an
     } = req.query;
 
     const actorRole = getActorRole(req);
+    const authUserKey = req.headers?.["x-user-id"] || req.headers?.["x-user-email"];
     let targetEmpId = employeeId ? await resolveEmployeeId(employeeId) : null;
+
+    if (actorRole === "employee") {
+      const resolvedAuthId = await resolveEmployeeId(authUserKey || employeeId);
+      targetEmpId = resolvedAuthId;
+      if (!targetEmpId) {
+        return res.json({
+          data: [],
+          stats: {
+            total: 0,
+            pending: 0,
+            approved: 0,
+            rejected: 0,
+            cancelled: 0,
+            totalRequestedHours: 0,
+            totalApprovedHours: 0,
+            totalPayableHours: 0,
+          },
+          pagination: { page: 1, limit: 50, total: 0, totalPages: 1 }
+        });
+      }
+    }
 
     let query = `
       SELECT ot.*, 
@@ -130,7 +158,7 @@ overtimeRouter.get(["/overtime-requests", "/overtime"], async (req: any, res: an
 
     if (targetEmpId) {
       query += ` AND (ot."employeeId" = ? OR e."employeeId" = ? OR LOWER(e.email) = LOWER(?))`;
-      params.push(targetEmpId, employeeId, employeeId);
+      params.push(targetEmpId, targetEmpId, targetEmpId);
     }
 
     if (status && status !== "all") {
@@ -225,6 +253,13 @@ overtimeRouter.get(["/overtime-requests/summary", "/overtime/summary"], async (r
   try {
     const { employeeId } = req.query;
     const actorRole = getActorRole(req);
+    const authUserKey = req.headers?.["x-user-id"] || req.headers?.["x-user-email"];
+    let targetEmpId = employeeId ? await resolveEmployeeId(employeeId) : null;
+
+    if (actorRole === "employee") {
+      const resolvedAuthId = await resolveEmployeeId(authUserKey || employeeId);
+      targetEmpId = resolvedAuthId;
+    }
 
     let query = `SELECT status, "requestedHours", "approvedHours", "payableHours" FROM overtime_requests WHERE 1=1`;
     const params: any[] = [];
@@ -235,10 +270,9 @@ overtimeRouter.get(["/overtime-requests/summary", "/overtime/summary"], async (r
       query += ` AND "adminDeletedAt" IS NULL AND admin_deleted_at IS NULL`;
     }
 
-    if (employeeId) {
-      const resolvedId = await resolveEmployeeId(employeeId);
+    if (targetEmpId) {
       query += ` AND "employeeId" = ?`;
-      params.push(resolvedId);
+      params.push(targetEmpId);
     }
 
     const rows = await db.prepare(query).all(...params) as any[];
@@ -289,6 +323,15 @@ overtimeRouter.get(["/overtime-requests/:id", "/overtime/:id"], async (req: any,
       return res.status(404).json({ error: "Overtime request not found" });
     }
 
+    // Security check: Employee can only view their own request
+    if (actorRole === "employee") {
+      const authUserKey = req.headers?.["x-user-id"] || req.headers?.["x-user-email"];
+      const resolvedAuthEmpId = await resolveEmployeeId(authUserKey);
+      if (resolvedAuthEmpId && item.employeeId !== resolvedAuthEmpId) {
+        return res.status(403).json({ error: "Access denied. You can only view your own overtime requests." });
+      }
+    }
+
     // Also fetch attendance record for that employee on that overtimeDate
     const dtrDate = normalizeDateStr(item.overtimeDate);
     const dtr = await db.prepare(`
@@ -337,7 +380,18 @@ overtimeRouter.post(["/overtime-requests", "/overtime"], async (req: any, res: a
       return res.status(400).json({ error: "Reason for overtime is required" });
     }
 
-    const resolvedEmpId = await resolveEmployeeId(employeeId);
+    const actorRole = getActorRole(req);
+    let resolvedEmpId = await resolveEmployeeId(employeeId);
+
+    // Security check: Employee can only submit request for themselves
+    if (actorRole === "employee") {
+      const authUserKey = req.headers?.["x-user-id"] || req.headers?.["x-user-email"];
+      const resolvedAuthEmpId = await resolveEmployeeId(authUserKey);
+      if (resolvedAuthEmpId) {
+        resolvedEmpId = resolvedAuthEmpId;
+      }
+    }
+
     const emp = await db.prepare(`SELECT * FROM employees WHERE id = ? LIMIT 1`).get(resolvedEmpId) as any;
     if (!emp) {
       return res.status(404).json({ error: "Employee not found" });
@@ -359,12 +413,20 @@ overtimeRouter.post(["/overtime-requests", "/overtime"], async (req: any, res: a
     const existing = await db.prepare(`
       SELECT id, status, "startTime", "endTime" FROM overtime_requests 
       WHERE "employeeId" = ? AND "overtimeDate" = ? AND status IN ('pending', 'approved')
+        AND "employeeDeletedAt" IS NULL AND employee_deleted_at IS NULL
     `).all(resolvedEmpId, cleanDate) as any[];
 
     if (existing && existing.length > 0) {
-      return res.status(400).json({ 
-        error: `An overtime request for ${cleanDate} already exists (${existing[0].status.toUpperCase()}). Please cancel or review the existing request.` 
-      });
+      const newDur = calculateHours(startTime, endTime);
+      for (const ex of existing) {
+        const exDur = calculateHours(ex.startTime, ex.endTime);
+        // Overlap detection
+        if (startTime === ex.startTime || endTime === ex.endTime || (newDur > 0 && exDur > 0 && ex.startTime === startTime)) {
+          return res.status(400).json({ 
+            error: `An overtime request for ${cleanDate} (${ex.startTime} - ${ex.endTime}) already exists (${ex.status.toUpperCase()}). Please cancel or review the existing request.` 
+          });
+        }
+      }
     }
 
     const id = `ot-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
@@ -422,6 +484,15 @@ overtimeRouter.put(["/overtime-requests/:id", "/overtime/:id"], async (req: any,
 
     if (existing.status !== "pending") {
       return res.status(400).json({ error: `Cannot edit request with status '${existing.status}'. Only pending requests can be modified.` });
+    }
+
+    const actorRole = getActorRole(req);
+    if (actorRole === "employee") {
+      const authUserKey = req.headers?.["x-user-id"] || req.headers?.["x-user-email"];
+      const resolvedAuthEmpId = await resolveEmployeeId(authUserKey);
+      if (resolvedAuthEmpId && existing.employeeId !== resolvedAuthEmpId) {
+        return res.status(403).json({ error: "Access denied. You can only modify your own overtime requests." });
+      }
     }
 
     const sTime = startTime || existing.startTime;
@@ -485,6 +556,11 @@ overtimeRouter.post(["/overtime-requests/:id/approve", "/overtime/:id/approve"],
       return res.status(404).json({ error: "Overtime request not found" });
     }
 
+    const actorRole = getActorRole(req);
+    if (actorRole === "employee") {
+      return res.status(403).json({ error: "Access denied. Only administrators and supervisors can authorize overtime requests." });
+    }
+
     if (existing.status === "approved") {
       return res.status(400).json({ error: "Overtime request is already approved" });
     }
@@ -541,6 +617,16 @@ overtimeRouter.post(["/overtime-requests/:id/approve", "/overtime/:id/approve"],
       id
     );
 
+    // Sync DTR attendance table if attendance record exists
+    if (dtr) {
+      await db.prepare(`
+        UPDATE dtr_records 
+        SET "overtimeHours" = ?, 
+            "updatedAt" = CURRENT_TIMESTAMP 
+        WHERE id = ?
+      `).run(payableH, dtr.id);
+    }
+
     await logAudit(
       req,
       "APPROVE_OVERTIME_REQUEST",
@@ -586,6 +672,11 @@ overtimeRouter.post(["/overtime-requests/:id/reject", "/overtime/:id/reject"], a
       return res.status(404).json({ error: "Overtime request not found" });
     }
 
+    const actorRole = getActorRole(req);
+    if (actorRole === "employee") {
+      return res.status(403).json({ error: "Access denied. Only administrators and supervisors can reject overtime requests." });
+    }
+
     const remarks = rejectionReason || approvalRemarks || "Declined based on departmental scheduling / budget allocation.";
     const activeApproverId = approverId || req.headers?.["x-user-id"] || "admin";
     const activeApproverName = approverName || req.headers?.["x-user-name"] || "Administrator / Supervisor";
@@ -607,6 +698,22 @@ overtimeRouter.post(["/overtime-requests/:id/reject", "/overtime/:id/reject"], a
       remarks,
       id
     );
+
+    // If DTR record existed, reset its overtimeHours to 0
+    const dtrDate = normalizeDateStr(existing.overtimeDate);
+    const dtr = await db.prepare(`
+      SELECT * FROM dtr_records 
+      WHERE "employeeId" = ? AND date = ? 
+      LIMIT 1
+    `).get(existing.employeeId, dtrDate) as any;
+    if (dtr && Number(dtr.overtimeHours || 0) > 0) {
+      await db.prepare(`
+        UPDATE dtr_records 
+        SET "overtimeHours" = 0, 
+            "updatedAt" = CURRENT_TIMESTAMP 
+        WHERE id = ?
+      `).run(dtr.id);
+    }
 
     await logAudit(
       req,
@@ -637,6 +744,11 @@ overtimeRouter.post(["/overtime-requests/batch-approve", "/overtime/batch-approv
       return res.status(400).json({ error: "Please provide a list of overtime request IDs to approve." });
     }
 
+    const actorRole = getActorRole(req);
+    if (actorRole === "employee") {
+      return res.status(403).json({ error: "Access denied. Only administrators and supervisors can perform batch approvals." });
+    }
+
     const activeApproverId = approverId || req.headers?.["x-user-id"] || "admin";
     const activeApproverName = approverName || req.headers?.["x-user-name"] || "Administrator / Supervisor";
     const remarks = approvalRemarks || "Batch approved for official duty.";
@@ -660,6 +772,17 @@ overtimeRouter.post(["/overtime-requests/batch-approve", "/overtime/batch-approv
           WHERE id = ?
         `).run(h, h, h, activeApproverId, activeApproverName, remarks, id);
         approvedCount++;
+
+        // Sync DTR attendance if record exists
+        const dtrDate = normalizeDateStr(existing.overtimeDate);
+        const dtr = await db.prepare(`
+          SELECT * FROM dtr_records WHERE "employeeId" = ? AND date = ? LIMIT 1
+        `).get(existing.employeeId, dtrDate) as any;
+        if (dtr) {
+          await db.prepare(`
+            UPDATE dtr_records SET "overtimeHours" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?
+          `).run(h, dtr.id);
+        }
       }
     }
 
@@ -692,6 +815,11 @@ overtimeRouter.post(["/overtime-requests/batch-reject", "/overtime/batch-reject"
       return res.status(400).json({ error: "Please provide a list of overtime request IDs to reject." });
     }
 
+    const actorRole = getActorRole(req);
+    if (actorRole === "employee") {
+      return res.status(403).json({ error: "Access denied. Only administrators and supervisors can perform batch rejections." });
+    }
+
     const activeApproverId = approverId || req.headers?.["x-user-id"] || "admin";
     const activeApproverName = approverName || req.headers?.["x-user-name"] || "Administrator / Supervisor";
     const remarks = rejectionReason || "Declined during departmental review.";
@@ -713,6 +841,17 @@ overtimeRouter.post(["/overtime-requests/batch-reject", "/overtime/batch-reject"
           WHERE id = ?
         `).run(activeApproverId, activeApproverName, remarks, id);
         rejectedCount++;
+
+        // Reset DTR if attendance record exists
+        const dtrDate = normalizeDateStr(existing.overtimeDate);
+        const dtr = await db.prepare(`
+          SELECT * FROM dtr_records WHERE "employeeId" = ? AND date = ? LIMIT 1
+        `).get(existing.employeeId, dtrDate) as any;
+        if (dtr && Number(dtr.overtimeHours || 0) > 0) {
+          await db.prepare(`
+            UPDATE dtr_records SET "overtimeHours" = 0, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?
+          `).run(dtr.id);
+        }
       }
     }
 
@@ -748,6 +887,15 @@ overtimeRouter.post(["/overtime-requests/:id/cancel", "/overtime/:id/cancel"], a
       return res.status(404).json({ error: "Overtime request not found" });
     }
 
+    const actorRole = getActorRole(req);
+    if (actorRole === "employee") {
+      const authUserKey = req.headers?.["x-user-id"] || req.headers?.["x-user-email"];
+      const resolvedAuthEmpId = await resolveEmployeeId(authUserKey);
+      if (resolvedAuthEmpId && existing.employeeId !== resolvedAuthEmpId) {
+        return res.status(403).json({ error: "Access denied. You can only cancel your own overtime requests." });
+      }
+    }
+
     if (existing.status !== "pending") {
       return res.status(400).json({ 
         error: `Cannot cancel a request that has already been ${existing.status}. Only pending requests can be cancelled.` 
@@ -762,6 +910,17 @@ overtimeRouter.post(["/overtime-requests/:id/cancel", "/overtime/:id/cancel"], a
           "updatedAt" = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(cancelReason || "Cancelled by employee.", id);
+
+    // Reset DTR if attendance record exists
+    const dtrDate = normalizeDateStr(existing.overtimeDate);
+    const dtr = await db.prepare(`
+      SELECT * FROM dtr_records WHERE "employeeId" = ? AND date = ? LIMIT 1
+    `).get(existing.employeeId, dtrDate) as any;
+    if (dtr && Number(dtr.overtimeHours || 0) > 0) {
+      await db.prepare(`
+        UPDATE dtr_records SET "overtimeHours" = 0, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?
+      `).run(dtr.id);
+    }
 
     await logAudit(
       req,
@@ -796,6 +955,12 @@ overtimeRouter.delete(["/overtime-requests/:id", "/overtime/:id"], async (req: a
     let permanentlyDeleted = false;
 
     if (actorRole === "employee") {
+      const authUserKey = req.headers?.["x-user-id"] || req.headers?.["x-user-email"];
+      const resolvedAuthEmpId = await resolveEmployeeId(authUserKey);
+      if (resolvedAuthEmpId && existing.employeeId !== resolvedAuthEmpId) {
+        return res.status(403).json({ error: "Access denied. You can only delete your own overtime requests." });
+      }
+
       const isAdminDeleted = !!(existing.adminDeletedAt || existing.admin_deleted_at);
       if (isAdminDeleted) {
         // Both employee and admin have deleted it -> permanently purge from database
@@ -850,6 +1015,18 @@ overtimeRouter.delete(["/overtime-requests/:id", "/overtime/:id"], async (req: a
       }
     }
 
+    if (permanentlyDeleted) {
+      const dtrDate = normalizeDateStr(existing.overtimeDate);
+      const dtr = await db.prepare(`
+        SELECT * FROM dtr_records WHERE "employeeId" = ? AND date = ? LIMIT 1
+      `).get(existing.employeeId, dtrDate) as any;
+      if (dtr && Number(dtr.overtimeHours || 0) > 0) {
+        await db.prepare(`
+          UPDATE dtr_records SET "overtimeHours" = 0, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?
+        `).run(dtr.id);
+      }
+    }
+
     triggerBackgroundPayrollSync();
 
     res.json({
@@ -876,12 +1053,19 @@ overtimeRouter.post(["/overtime-requests/batch-delete", "/overtime/batch-delete"
     }
 
     const actorRole = getActorRole(req);
+    const authUserKey = req.headers?.["x-user-id"] || req.headers?.["x-user-email"];
+    const resolvedAuthEmpId = actorRole === "employee" ? await resolveEmployeeId(authUserKey) : null;
+
     let deletedCount = 0;
     let permanentCount = 0;
 
     for (const id of ids) {
       const existing = await db.prepare("SELECT * FROM overtime_requests WHERE id = ?").get(id) as any;
       if (existing) {
+        if (actorRole === "employee" && resolvedAuthEmpId && existing.employeeId !== resolvedAuthEmpId) {
+          continue; // Cannot delete other employee's record
+        }
+
         deletedCount++;
         if (actorRole === "employee") {
           const isAdminDeleted = !!(existing.adminDeletedAt || existing.admin_deleted_at);
