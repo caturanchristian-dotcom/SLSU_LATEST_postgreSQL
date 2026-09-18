@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db, logAudit } from "../db/schema.js";
+import { hashPassword, verifyPassword } from "../utils/password.ts";
 import { 
   hasSupabaseConfig, 
   syncUserToSupabase, 
@@ -119,7 +120,8 @@ usersRouter.post("/users", async (req: any, res: any) => {
 
     const id = `user-${Date.now()}`;
     const cleanEmail = email.toLowerCase().trim();
-    const cleanPassword = password || "password123";
+    const rawPassword = password?.trim() || "password123";
+    const hashedPassword = await hashPassword(rawPassword);
     const cleanDisplayName = displayName || cleanEmail.split("@")[0];
     const cleanRole = role || "employee";
     const cleanCampus = campus || "Hinunangan Campus";
@@ -127,14 +129,14 @@ usersRouter.post("/users", async (req: any, res: any) => {
     await db.prepare(`
       INSERT INTO users (id, email, password, displayName, role, campus)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, cleanEmail, cleanPassword, cleanDisplayName, cleanRole, cleanCampus);
+    `).run(id, cleanEmail, hashedPassword, cleanDisplayName, cleanRole, cleanCampus);
 
-    // Sync to Supabase Auth
+    // Sync to Supabase Auth using plain password for initial auth provisioning
     if (hasSupabaseConfig) {
       await syncUserToSupabase({
         id,
         email: cleanEmail,
-        password: cleanPassword,
+        password: rawPassword,
         displayName: cleanDisplayName,
         role: cleanRole,
         campus: cleanCampus
@@ -159,8 +161,15 @@ usersRouter.put("/users/:id", async (req: any, res: any) => {
     let params: any[] = [cleanEmail, displayName, role, campus || "Hinunangan Campus"];
 
     if (password?.trim()) {
+      const rawPassword = password.trim();
+      const hashedPassword = await hashPassword(rawPassword);
       query += ", password = ?";
-      params.push(password.trim());
+      params.push(hashedPassword);
+
+      // Keep employee record password synchronized if one exists for this user
+      try {
+        await db.prepare("UPDATE employees SET password = ? WHERE id = ? OR LOWER(email) = ?").run(hashedPassword, id, cleanEmail);
+      } catch {}
     }
 
     query += " WHERE id = ?";
@@ -224,11 +233,15 @@ usersRouter.get("/profile", async (req: any, res: any) => {
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const employee = await db.prepare("SELECT * FROM employees WHERE id = ? OR LOWER(email) = ?").get(userId, user.email?.toLowerCase()) as any;
+    let safeEmployee = employee ? { ...employee } : null;
+    if (safeEmployee) {
+      delete safeEmployee.password;
+    }
 
     const { password: _, ...safeUser } = user;
     res.json({
       ...safeUser,
-      employeeDetails: employee || null
+      employeeDetails: safeEmployee
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -273,8 +286,15 @@ usersRouter.put("/profile", async (req: any, res: any) => {
       params.push(finalProfileImage);
     }
     if (password?.trim()) {
+      const rawPassword = password.trim();
+      const hashedPassword = await hashPassword(rawPassword);
       query += ", password = ?";
-      params.push(password.trim());
+      params.push(hashedPassword);
+
+      // Keep employee record password synchronized
+      try {
+        await db.prepare('UPDATE employees SET password = ? WHERE LOWER(email) = ? OR id = ?').run(hashedPassword, cleanEmail, user.id);
+      } catch {}
     }
 
     query += " WHERE id = ?";
@@ -311,15 +331,26 @@ usersRouter.put("/profile", async (req: any, res: any) => {
 usersRouter.post("/profile/change-password", async (req: any, res: any) => {
   try {
     const { email, currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: "Current and new password are required" });
+    }
+
     const cleanEmail = email?.toLowerCase().trim();
     const user = await db.prepare("SELECT * FROM users WHERE LOWER(email) = ?").get(cleanEmail) as any;
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    if (user.password !== currentPassword) {
+    // Verify current password against stored hash (with legacy plain text fallback)
+    const isMatch = await verifyPassword(currentPassword, user.password);
+    if (!isMatch) {
       return res.status(400).json({ error: "Current password does not match" });
     }
 
-    await db.prepare("UPDATE users SET password = ? WHERE id = ?").run(newPassword, user.id);
+    // Hash the new password securely
+    const hashedPassword = await hashPassword(newPassword);
+    await db.prepare("UPDATE users SET password = ? WHERE id = ?").run(hashedPassword, user.id);
+    try {
+      await db.prepare("UPDATE employees SET password = ? WHERE LOWER(email) = ? OR id = ?").run(hashedPassword, cleanEmail, user.id);
+    } catch {}
 
     // Update password in Supabase Auth
     if (hasSupabaseConfig && cleanEmail) {

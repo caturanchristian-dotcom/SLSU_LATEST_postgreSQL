@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db, logAudit } from "../db/schema.js";
+import { hashPassword } from "../utils/password.ts";
 import { 
   hasSupabaseConfig, 
   syncUserToSupabase, 
@@ -9,6 +10,13 @@ import {
 } from "../supabase.js";
 
 export const employeesRouter = Router();
+
+// Helper to strip sensitive password field before sending employee API responses
+function sanitizeEmployee(emp: any) {
+  if (!emp) return emp;
+  const { password: _, ...safeEmp } = emp;
+  return safeEmp;
+}
 
 // Employee list & filtering
 employeesRouter.get("/employees", async (req: any, res: any) => {
@@ -25,8 +33,8 @@ employeesRouter.get("/employees", async (req: any, res: any) => {
     }
 
     query += " ORDER BY lastName ASC, firstName ASC";
-    const employees = await db.prepare(query).all(...params);
-    res.json(employees);
+    const employees = await db.prepare(query).all(...params) as any[];
+    res.json(employees.map(sanitizeEmployee));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -37,7 +45,7 @@ employeesRouter.get("/employees/:id", async (req: any, res: any) => {
     const { id } = req.params;
     const employee = await db.prepare("SELECT * FROM employees WHERE id = ?").get(id);
     if (!employee) return res.status(404).json({ error: "Employee not found" });
-    res.json(employee);
+    res.json(sanitizeEmployee(employee));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -64,6 +72,9 @@ employeesRouter.post("/employees", async (req: any, res: any) => {
       }
     }
 
+    const rawPassword = emp.password?.trim() || "password123";
+    const hashedPassword = await hashPassword(rawPassword);
+
     await db.prepare(`
       INSERT INTO employees (
         id, employeeId, firstName, lastName, email, password, category, basicSalary,
@@ -77,7 +88,7 @@ employeesRouter.post("/employees", async (req: any, res: any) => {
         ?, ?, ?, ?, ?
       )
     `).run(
-      id, employeeId, emp.firstName || "", emp.lastName || "", emp.email || "", emp.password || "password123",
+      id, employeeId, emp.firstName || "", emp.lastName || "", emp.email || "", hashedPassword,
       emp.category || "STAFF", emp.basicSalary || 0,
       emp.salaryType || "monthly", emp.status || "active",
       emp.phoneNumber || "09171234567",
@@ -96,20 +107,19 @@ employeesRouter.post("/employees", async (req: any, res: any) => {
     // Also register user account
     if (emp.email) {
       const empEmail = emp.email.toLowerCase().trim();
-      const empPassword = emp.password || "password123";
       const empName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || empEmail.split('@')[0];
       const empCampus = emp.campus || "Hinunangan Campus";
 
       await db.prepare(`
         INSERT OR IGNORE INTO users (id, email, password, displayName, role, campus)
         VALUES (?, ?, ?, ?, 'employee', ?)
-      `).run(id, empEmail, empPassword, empName, empCampus);
+      `).run(id, empEmail, hashedPassword, empName, empCampus);
 
       if (hasSupabaseConfig) {
         syncUserToSupabase({
           id,
           email: empEmail,
-          password: empPassword,
+          password: rawPassword,
           displayName: empName,
           role: "employee",
           campus: empCampus,
@@ -245,7 +255,8 @@ employeesRouter.post("/employees/bulk", async (req: any, res: any) => {
         // Insert new record
         const newId = item.id || `emp-${Date.now()}-${i}`;
         const newEmpId = employeeId || `EMP-${Date.now().toString().slice(-4)}${i}`;
-        const password = item.password || `${cleanLast || 'employee'}123`;
+        const rawPassword = item.password?.trim() || `${cleanLast || 'employee'}123`;
+        const hashedPassword = await hashPassword(rawPassword);
 
         await db.prepare(`
           INSERT INTO employees (
@@ -260,7 +271,7 @@ employeesRouter.post("/employees/bulk", async (req: any, res: any) => {
             ?, ?, ?
           )
         `).run(
-          newId, newEmpId, firstName, lastName, email, password,
+          newId, newEmpId, firstName, lastName, email, hashedPassword,
           category, basicSalary, item.salaryType || "monthly", item.status || "active",
           phone, item.hireDate || new Date().toISOString().split('T')[0],
           hasSss, hasPhilhealth, hasPagibig,
@@ -277,13 +288,13 @@ employeesRouter.post("/employees/bulk", async (req: any, res: any) => {
           await db.prepare(`
             INSERT OR IGNORE INTO users (id, email, password, displayName, role, campus)
             VALUES (?, ?, ?, ?, 'employee', ?)
-          `).run(newId, empEmail, password, empDisplayName, campus);
+          `).run(newId, empEmail, hashedPassword, empDisplayName, campus);
 
           if (hasSupabaseConfig) {
             syncUserToSupabase({
               id: newId,
               email: empEmail,
-              password,
+              password: rawPassword,
               displayName: empDisplayName,
               role: "employee",
               campus,
@@ -367,7 +378,24 @@ employeesRouter.put("/employees/:id", async (req: any, res: any) => {
         UPDATE users SET email = ?, displayName = ?, campus = ? WHERE id = ?
       `).run(cleanEmpEmail, cleanDisplayName, emp.campus || 'Hinunangan Campus', id);
 
-      if (hasSupabaseConfig) {
+      // If a new password is provided, securely hash it and update both employees and users
+      if (emp.password && emp.password.trim()) {
+        const rawPassword = emp.password.trim();
+        const hashedPassword = await hashPassword(rawPassword);
+        await db.prepare("UPDATE employees SET password = ? WHERE id = ?").run(hashedPassword, id);
+        await db.prepare("UPDATE users SET password = ? WHERE id = ? OR LOWER(email) = ?").run(hashedPassword, id, cleanEmpEmail);
+
+        if (hasSupabaseConfig) {
+          syncUserToSupabase({
+            id,
+            email: cleanEmpEmail,
+            password: rawPassword,
+            displayName: cleanDisplayName,
+            campus: emp.campus || 'Hinunangan Campus',
+            profileImage: emp.profileImage || ""
+          }).catch(err => console.error("[Employees] Update sync with password error:", err));
+        }
+      } else if (hasSupabaseConfig) {
         syncUserToSupabase({
           id,
           email: cleanEmpEmail,

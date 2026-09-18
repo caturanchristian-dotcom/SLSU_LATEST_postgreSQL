@@ -5,6 +5,8 @@
 import { Router } from "express";
 // Import database instance and audit logger from schema
 import { db, logAudit } from "../db/schema.js";
+// Import password security functions
+import { hashPassword, verifyPassword, shouldRehash, isHashedPassword } from "../utils/password.ts";
 // Import Supabase Auth integration utilities
 import { 
   hasSupabaseConfig, 
@@ -102,8 +104,12 @@ authRouter.post("/login", async (req: any, res: any) => {
     // If user record doesn't exist but employee record exists, auto-provision local user account
     if (!user && employee) {
       const id = employee.id;
+      const userPasswordHash = employee.password && isHashedPassword(employee.password)
+        ? employee.password
+        : await hashPassword(employee.password || cleanPassword);
+
       await db.prepare("INSERT OR REPLACE INTO users (id, email, password, displayName, role, profileImage, campus) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-        id, employee.email, employee.password || cleanPassword, `${employee.firstName} ${employee.lastName}`.trim(), 'employee', employee.profileImage || '', employee.campus || 'Hinunangan Campus'
+        id, employee.email, userPasswordHash, `${employee.firstName} ${employee.lastName}`.trim(), 'employee', employee.profileImage || '', employee.campus || 'Hinunangan Campus'
       );
       user = await db.prepare("SELECT * FROM users WHERE id = ?").get(id) as any;
     }
@@ -119,12 +125,8 @@ authRouter.post("/login", async (req: any, res: any) => {
         supabaseAuthSession = supabaseAuth.session;
         supabaseAuthUser = supabaseAuth.user;
       } else {
-        // Evaluate password match against local record
-        const isMatch =
-          user &&
-          (user.password === cleanPassword ||
-            (cleanPassword.length < 6 && user.password === cleanPassword.padEnd(6, "0")) ||
-            (user.password && user.password.length < 6 && cleanPassword === user.password.padEnd(6, "0")));
+        // Evaluate password match against local record using secure password verification
+        const isMatch = user && user.password ? await verifyPassword(cleanPassword, user.password) : false;
 
         // If user matched in local DB but Supabase account was not yet synced, sync now
         if (user && isMatch) {
@@ -151,11 +153,8 @@ authRouter.post("/login", async (req: any, res: any) => {
 
     // 3. Verify user authentication status
     if (user) {
-      // Validate password equality with support for 6-char padded passwords
-      const isPasswordValid =
-        user.password === cleanPassword ||
-        (cleanPassword.length < 6 && user.password === cleanPassword.padEnd(6, "0")) ||
-        (user.password && user.password.length < 6 && cleanPassword === user.password.padEnd(6, "0"));
+      // Validate password equality securely using verifyPassword
+      const isPasswordValid = user.password ? await verifyPassword(cleanPassword, user.password) : false;
 
       // If password does not match local record AND supabase auth failed
       if (!isPasswordValid && !supabaseAuthSession) {
@@ -163,10 +162,21 @@ authRouter.post("/login", async (req: any, res: any) => {
         return res.status(401).json({ error: "Invalid password" });
       }
 
-      // If user logged in via Supabase Auth successfully but password in local DB was outdated, update DB
-      if (supabaseAuthSession && user.password !== cleanPassword) {
-        await db.prepare("UPDATE users SET password = ? WHERE id = ?").run(cleanPassword, user.id);
-        user.password = cleanPassword;
+      // Safe migration/rehashing strategy:
+      // If user logged in successfully and password in DB was plaintext or outdated, upgrade to bcrypt hash
+      if (shouldRehash(user.password)) {
+        const secureHash = await hashPassword(cleanPassword);
+        await db.prepare("UPDATE users SET password = ? WHERE id = ?").run(secureHash, user.id);
+        await db.prepare("UPDATE employees SET password = ? WHERE id = ? OR LOWER(email) = ?").run(secureHash, user.id, cleanEmail);
+        user.password = secureHash;
+      } else if (supabaseAuthSession) {
+        const matchesCurrentHash = await verifyPassword(cleanPassword, user.password);
+        if (!matchesCurrentHash) {
+          const secureHash = await hashPassword(cleanPassword);
+          await db.prepare("UPDATE users SET password = ? WHERE id = ?").run(secureHash, user.id);
+          await db.prepare("UPDATE employees SET password = ? WHERE id = ? OR LOWER(email) = ?").run(secureHash, user.id, cleanEmail);
+          user.password = secureHash;
+        }
       }
 
       // Resolve user's assigned campus
@@ -218,11 +228,12 @@ authRouter.post("/login", async (req: any, res: any) => {
       const newRole = meta.role || 'employee';
       const newCampus = meta.campus || 'Hinunangan Campus';
 
-      // Insert new user record
+      // Insert new user record with securely hashed password
+      const hashedPassword = await hashPassword(cleanPassword);
       await db.prepare(`
         INSERT INTO users (id, email, password, displayName, role, campus)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(newId, cleanEmail, cleanPassword, newDisplayName, newRole, newCampus);
+      `).run(newId, cleanEmail, hashedPassword, newDisplayName, newRole, newCampus);
 
       const createdUser = await db.prepare("SELECT * FROM users WHERE id = ?").get(newId) as any;
 
@@ -317,10 +328,11 @@ authRouter.post("/google-login", async (req: any, res: any) => {
     if (!user && employee) {
       const id = employee.id;
       const empName = `${employee.firstName || ''} ${employee.lastName || ''}`.trim();
+      const oauthPasswordHash = await hashPassword(`oauth_google_${Date.now()}_${Math.random()}`);
       await db.prepare("INSERT OR REPLACE INTO users (id, email, password, displayName, role, profileImage, campus) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
         id, 
         employee.email || cleanEmail, 
-        `oauth_google_${Date.now()}`, 
+        oauthPasswordHash, 
         empName || displayName || cleanEmail.split('@')[0], 
         'employee', 
         profileImage || employee.profileImage || '', 

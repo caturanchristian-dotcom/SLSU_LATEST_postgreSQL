@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, logAudit } from "../db/schema.js";
 import { broadcastRealtime } from "../index.js";
+import { hashPassword } from "../utils/password.ts";
 
 export const integrationsRouter = Router();
 
@@ -436,23 +437,25 @@ integrationsRouter.post("/integrations/sync/employees", async (req: any, res: an
           );
 
           // Ensure User record is in sync
+          const defaultHashedPassword = await hashPassword('employee123');
           await db.prepare(`
             INSERT OR REPLACE INTO users (id, email, password, displayName, role, campus)
-            VALUES (?, ?, COALESCE((SELECT password FROM users WHERE id = ?), 'employee123'), ?, 'employee', ?)
-          `).run(existing.id, email.toLowerCase(), existing.id, `${firstName} ${lastName}`, campus);
+            VALUES (?, ?, COALESCE((SELECT password FROM users WHERE id = ?), ?), ?, 'employee', ?)
+          `).run(existing.id, email.toLowerCase(), existing.id, defaultHashedPassword, `${firstName} ${lastName}`, campus);
 
           updatedCount++;
         } else {
           // Insert new employee
           const newId = `emp-${empNo.toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
+          const defaultHashedPassword = await hashPassword('employee123');
           await db.prepare(`
             INSERT INTO employees (
               id, employeeId, firstName, lastName, email, password, category,
               basicSalary, salaryType, status, phoneNumber, hireDate, hasSss,
               hasPhilhealth, hasPagibig, bpno, position, gender, campus
-            ) VALUES (?, ?, ?, ?, ?, 'employee123', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
-            newId, empNo, firstName, lastName, email, category, basicSalary, salaryType,
+            newId, empNo, firstName, lastName, email, defaultHashedPassword, category, basicSalary, salaryType,
             status, phoneNumber, hireDate, hasSss, hasPhilhealth, hasPagibig,
             bpno, position, gender, campus
           );
@@ -460,8 +463,8 @@ integrationsRouter.post("/integrations/sync/employees", async (req: any, res: an
           // Create matching User login
           await db.prepare(`
             INSERT OR REPLACE INTO users (id, email, password, displayName, role, campus)
-            VALUES (?, ?, 'employee123', ?, 'employee', ?)
-          `).run(newId, email.toLowerCase(), `${firstName} ${lastName}`, campus);
+            VALUES (?, ?, ?, ?, 'employee', ?)
+          `).run(newId, email.toLowerCase(), defaultHashedPassword, `${firstName} ${lastName}`, campus);
 
           // If visiting instructor, insert record into visiting_instructors
           if (category.toLowerCase().includes("visiting")) {

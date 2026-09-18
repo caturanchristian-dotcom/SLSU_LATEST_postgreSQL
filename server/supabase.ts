@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient, User as SupabaseUser } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import { db } from "./db/schema.js";
+import { isHashedPassword } from "./utils/password.ts";
 
 dotenv.config();
 
@@ -168,8 +169,11 @@ export async function syncUserToSupabase(user: SyncUserParams): Promise<Supabase
 
       if (user.password && user.password.trim()) {
         const trimmed = user.password.trim();
-        // Supabase Auth requires passwords to be at least 6 characters
-        updatePayload.password = trimmed.length < 6 ? trimmed.padEnd(6, "0") : trimmed;
+        // Supabase Auth requires plaintext passwords and hashes them internally.
+        // Never overwrite a Supabase password with an existing bcrypt hash string!
+        if (!isHashedPassword(trimmed)) {
+          updatePayload.password = trimmed.length < 6 ? trimmed.padEnd(6, "0") : trimmed;
+        }
       }
 
       const { data, error } = await client.auth.admin.updateUserById(existing.id, updatePayload);
@@ -180,7 +184,11 @@ export async function syncUserToSupabase(user: SyncUserParams): Promise<Supabase
 
       return { success: true, user: data.user, action: "updated" };
     } else {
-      const rawPassword = user.password && user.password.trim() ? user.password.trim() : "password123";
+      let rawPassword = user.password && user.password.trim() ? user.password.trim() : "password123";
+      // If the provided password is an existing bcrypt hash, fall back to default password for Supabase creation
+      if (isHashedPassword(rawPassword)) {
+        rawPassword = "password123";
+      }
       // Supabase Auth requires passwords to be at least 6 characters
       const password = rawPassword.length < 6 ? rawPassword.padEnd(6, "0") : rawPassword;
       const { data, error } = await client.auth.admin.createUser({
@@ -374,7 +382,10 @@ export async function syncAllUsersToSupabase(): Promise<{
           };
           if (userParams.password && userParams.password.trim()) {
             const trimmed = userParams.password.trim();
-            updatePayload.password = trimmed.length < 6 ? trimmed.padEnd(6, "0") : trimmed;
+            // Never overwrite existing Supabase password with a bcrypt hash string
+            if (!isHashedPassword(trimmed)) {
+              updatePayload.password = trimmed.length < 6 ? trimmed.padEnd(6, "0") : trimmed;
+            }
           }
 
           const { error } = await client.auth.admin.updateUserById(existing.id, updatePayload);
@@ -385,7 +396,10 @@ export async function syncAllUsersToSupabase(): Promise<{
             synced++;
           }
         } else {
-          const rawPassword = userParams.password && userParams.password.trim() ? userParams.password.trim() : "password123";
+          let rawPassword = userParams.password && userParams.password.trim() ? userParams.password.trim() : "password123";
+          if (isHashedPassword(rawPassword)) {
+            rawPassword = "password123";
+          }
           const password = rawPassword.length < 6 ? rawPassword.padEnd(6, "0") : rawPassword;
           const { error } = await client.auth.admin.createUser({
             email,

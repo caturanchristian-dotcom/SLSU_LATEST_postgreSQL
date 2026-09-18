@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "async_hooks";
 import dotenv from "dotenv";
 import pg from "pg";
+import { migratePlaintextPasswords } from "../utils/password.ts";
 
 dotenv.config();
 
@@ -1100,6 +1101,9 @@ export async function initDb() {
       }
 
     console.log(`[Database] All ${TABLE_NAMES.length} tables and indexes verified successfully.`);
+
+    // Perform secure automatic password hashing migration for legacy plaintext passwords
+    await migratePlaintextPasswords(db);
 
     // Trigger async background sync to Supabase Auth
     setTimeout(() => {
