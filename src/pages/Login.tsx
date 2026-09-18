@@ -5,13 +5,14 @@ import { toast } from 'sonner';
 import { SLSU_CAMPUSES, SLSU_LOGO_URL, SLSU_LOGO_FALLBACK_URL } from '../lib/constants';
 import { PWAInstallButton } from '../components/PWAInstallButton';
 import { OfflineIndicator } from '../components/OfflineIndicator';
+import { cn } from '../lib/utils';
 
 const Login = () => {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [email, setEmail] = useState('caturanchristian@gmail.com');
-  const [password, setPassword] = useState('admin123');
-  const [campus, setCampus] = useState<string>('Hinunangan Campus');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [campus, setCampus] = useState<string>('');
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [assignedCampusSuggestion, setAssignedCampusSuggestion] = useState<string | null>(null);
@@ -43,6 +44,20 @@ const Login = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!campus) {
+      toast.error("Please select campus");
+      setLoginError("Please select your designated SLSU campus before logging in.");
+      return;
+    }
+    if (!email.trim()) {
+      toast.error("Please enter your email address");
+      return;
+    }
+    if (!password) {
+      toast.error("Please enter your password");
+      return;
+    }
+
     setLoading(true);
     setLoginError(null);
     setAssignedCampusSuggestion(null);
@@ -74,6 +89,12 @@ const Login = () => {
     setLoginError(null);
     setAssignedCampusSuggestion(null);
 
+    if (!campus) {
+      toast.error("Please select campus");
+      setLoginError("Please select your designated SLSU campus before signing in with Google.");
+      return;
+    }
+
     if (!isSupabaseConfigured) {
       setShowSupabaseSetupModal(true);
       return;
@@ -93,12 +114,11 @@ const Login = () => {
   };
 
   const handleResetDefaults = () => {
-    setEmail('caturanchristian@gmail.com');
-    setPassword('admin123');
-    setCampus('Hinunangan Campus');
+    setEmail('');
+    setPassword('');
+    setCampus('');
     setLoginError(null);
     setAssignedCampusSuggestion(null);
-    toast.success('Default administrator credentials loaded!');
   };
 
   return (
@@ -114,6 +134,23 @@ const Login = () => {
         {/* Left Form Section */}
         <div className="w-full md:w-1/2 p-8 md:p-12 flex flex-col justify-center bg-white border-r border-neutral-50">
           <div className="text-center mb-8 select-none">
+            {/* Mobile SLSU University Seal Logo */}
+            <div className="flex md:hidden justify-center mb-4">
+              <div className="w-20 h-20 rounded-full bg-white p-1 shadow-md border border-neutral-200/80 flex items-center justify-center overflow-hidden">
+                <img 
+                  src={SLSU_LOGO_URL} 
+                  alt="Southern Leyte State University Seal" 
+                  className="w-full h-full rounded-full object-contain"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    if (target.src !== window.location.origin + SLSU_LOGO_FALLBACK_URL) {
+                      target.src = SLSU_LOGO_FALLBACK_URL;
+                    }
+                  }}
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+            </div>
             <h1 className="text-[#355275] font-extrabold text-2xl tracking-wider uppercase font-sans leading-tight">
               Southern Leyte State University
             </h1>
@@ -163,10 +200,17 @@ const Login = () => {
                     setLoginError(null);
                     setAssignedCampusSuggestion(null);
                   }}
-                  className="w-full h-11 px-3.5 bg-[#fbfcfd] border border-[#c9d4e4] rounded-lg text-neutral-800 text-[13.5px] font-medium font-sans focus:outline-none focus:ring-1 focus:ring-[#1d58d9] focus:border-[#1d58d9] transition-all cursor-pointer"
+                  required
+                  className={cn(
+                    "w-full h-11 px-3.5 bg-[#fbfcfd] border rounded-lg text-[13.5px] font-medium font-sans focus:outline-none focus:ring-1 focus:ring-[#1d58d9] focus:border-[#1d58d9] transition-all cursor-pointer",
+                    !campus ? "border-[#c9d4e4] text-neutral-400" : "border-[#c9d4e4] text-neutral-800"
+                  )}
                 >
+                  <option value="" disabled className="text-neutral-400">
+                    Please select campus
+                  </option>
                   {SLSU_CAMPUSES.map(c => (
-                    <option key={c} value={c}>{c}</option>
+                    <option key={c} value={c} className="text-neutral-800">{c}</option>
                   ))}
                 </select>
               </div>
