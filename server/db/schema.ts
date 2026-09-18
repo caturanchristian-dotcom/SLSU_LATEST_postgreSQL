@@ -295,6 +295,8 @@ export function normalizeRow(row: any): any {
     if (lower === "rejectedat" || lower === "rejected_at") setIfValOrEmpty("rejectedAt", val);
     if (lower === "cancelledat" || lower === "cancelled_at") setIfValOrEmpty("cancelledAt", val);
     if (lower === "documenturl" || lower === "document_url") setIfValOrEmpty("documentUrl", val);
+    if (lower === "employeedeletedat" || lower === "employee_deleted_at") setIfValOrEmpty("employeeDeletedAt", val);
+    if (lower === "admindeletedat" || lower === "admin_deleted_at") setIfValOrEmpty("adminDeletedAt", val);
     if (lower === "recipient") {
       setIfValOrEmpty("recipient", val);
       setIfValOrEmpty("phoneNumber", val);
@@ -875,6 +877,10 @@ export const SCHEMA_TABLES = [
     "rejectedAt" TIMESTAMPTZ,
     "cancelledAt" TIMESTAMPTZ,
     "documentUrl" TEXT,
+    "employeeDeletedAt" TIMESTAMPTZ,
+    "adminDeletedAt" TIMESTAMPTZ,
+    employee_deleted_at TIMESTAMPTZ,
+    admin_deleted_at TIMESTAMPTZ,
     "createdAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY("employeeId") REFERENCES employees(id) ON DELETE CASCADE ON UPDATE CASCADE
@@ -1055,6 +1061,10 @@ export async function initDb() {
         'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "rejectedAt" TIMESTAMPTZ',
         'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "cancelledAt" TIMESTAMPTZ',
         'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "documentUrl" TEXT',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "employeeDeletedAt" TIMESTAMPTZ',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS employee_deleted_at TIMESTAMPTZ',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "adminDeletedAt" TIMESTAMPTZ',
+        'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS admin_deleted_at TIMESTAMPTZ',
         'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP',
         'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP'
       ];

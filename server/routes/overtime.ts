@@ -59,6 +59,19 @@ function calculateHours(startTime: string, endTime: string): number {
   return Number(hours.toFixed(2));
 }
 
+// Helper to determine actor's role (employee vs admin/approver)
+function getActorRole(req: any): "employee" | "admin" {
+  const roleHeader = (req.headers?.["x-user-role"] || req.headers?.["role"] || "").toString().toLowerCase().trim();
+  const queryRole = (req.query?.viewRole || req.query?.role || req.query?.actorRole || "").toString().toLowerCase().trim();
+  const bodyRole = (req.body?.role || req.body?.deletedBy || req.body?.actorRole || "").toString().toLowerCase().trim();
+
+  const resolved = queryRole || bodyRole || roleHeader;
+  if (resolved === "employee") {
+    return "employee";
+  }
+  return "admin";
+}
+
 // Helper to normalize date string to YYYY-MM-DD
 function normalizeDateStr(d: any): string {
   if (!d) return "";
@@ -94,6 +107,7 @@ overtimeRouter.get(["/overtime-requests", "/overtime"], async (req: any, res: an
       limit 
     } = req.query;
 
+    const actorRole = getActorRole(req);
     let targetEmpId = employeeId ? await resolveEmployeeId(employeeId) : null;
 
     let query = `
@@ -106,6 +120,13 @@ overtimeRouter.get(["/overtime-requests", "/overtime"], async (req: any, res: an
       WHERE 1=1
     `;
     const params: any[] = [];
+
+    // Separate deletion filtering: hide from employee if employee deleted; hide from admin if admin deleted
+    if (actorRole === "employee") {
+      query += ` AND ot."employeeDeletedAt" IS NULL AND ot.employee_deleted_at IS NULL`;
+    } else {
+      query += ` AND ot."adminDeletedAt" IS NULL AND ot.admin_deleted_at IS NULL`;
+    }
 
     if (targetEmpId) {
       query += ` AND (ot."employeeId" = ? OR e."employeeId" = ? OR LOWER(e.email) = LOWER(?))`;
@@ -203,12 +224,20 @@ overtimeRouter.get(["/overtime-requests", "/overtime"], async (req: any, res: an
 overtimeRouter.get(["/overtime-requests/summary", "/overtime/summary"], async (req: any, res: any) => {
   try {
     const { employeeId } = req.query;
-    let query = `SELECT status, "requestedHours", "approvedHours", "payableHours" FROM overtime_requests`;
+    const actorRole = getActorRole(req);
+
+    let query = `SELECT status, "requestedHours", "approvedHours", "payableHours" FROM overtime_requests WHERE 1=1`;
     const params: any[] = [];
+
+    if (actorRole === "employee") {
+      query += ` AND "employeeDeletedAt" IS NULL AND employee_deleted_at IS NULL`;
+    } else {
+      query += ` AND "adminDeletedAt" IS NULL AND admin_deleted_at IS NULL`;
+    }
 
     if (employeeId) {
       const resolvedId = await resolveEmployeeId(employeeId);
-      query += ` WHERE "employeeId" = ?`;
+      query += ` AND "employeeId" = ?`;
       params.push(resolvedId);
     }
 
@@ -236,6 +265,8 @@ overtimeRouter.get(["/overtime-requests/summary", "/overtime/summary"], async (r
 overtimeRouter.get(["/overtime-requests/:id", "/overtime/:id"], async (req: any, res: any) => {
   try {
     const { id } = req.params;
+    const actorRole = getActorRole(req);
+
     const item = await db.prepare(`
       SELECT ot.*, 
              e."firstName", e."lastName", e."employeeId" as "employeeNo", 
@@ -247,6 +278,14 @@ overtimeRouter.get(["/overtime-requests/:id", "/overtime/:id"], async (req: any,
     `).get(id) as any;
 
     if (!item) {
+      return res.status(404).json({ error: "Overtime request not found" });
+    }
+
+    // Check if deleted for this role
+    if (actorRole === "employee" && (item.employeeDeletedAt || item.employee_deleted_at)) {
+      return res.status(404).json({ error: "Overtime request not found" });
+    }
+    if (actorRole === "admin" && (item.adminDeletedAt || item.admin_deleted_at)) {
       return res.status(404).json({ error: "Overtime request not found" });
     }
 
@@ -743,7 +782,7 @@ overtimeRouter.post(["/overtime-requests/:id/cancel", "/overtime/:id/cancel"], a
 });
 
 // ============================================================================
-// 9. DELETE /api/overtime-requests/:id - Delete Request (Admin / Cleanup)
+// 9. DELETE /api/overtime-requests/:id - Delete Request (Separate Employee/Admin State)
 // ============================================================================
 overtimeRouter.delete(["/overtime-requests/:id", "/overtime/:id"], async (req: any, res: any) => {
   try {
@@ -753,18 +792,145 @@ overtimeRouter.delete(["/overtime-requests/:id", "/overtime/:id"], async (req: a
       return res.status(404).json({ error: "Overtime request not found" });
     }
 
-    await db.prepare("DELETE FROM overtime_requests WHERE id = ?").run(id);
+    const actorRole = getActorRole(req);
+    let permanentlyDeleted = false;
+
+    if (actorRole === "employee") {
+      const isAdminDeleted = !!(existing.adminDeletedAt || existing.admin_deleted_at);
+      if (isAdminDeleted) {
+        // Both employee and admin have deleted it -> permanently purge from database
+        await db.prepare("DELETE FROM overtime_requests WHERE id = ?").run(id);
+        permanentlyDeleted = true;
+        await logAudit(
+          req,
+          "PERMANENT_DELETE_OVERTIME_REQUEST",
+          `Permanently deleted overtime request ${id} (both employee and admin removed record)`
+        );
+      } else {
+        // Mark employee_deleted_at timestamp, keeping it visible for admin
+        await db.prepare(`
+          UPDATE overtime_requests 
+          SET "employeeDeletedAt" = CURRENT_TIMESTAMP, 
+              employee_deleted_at = CURRENT_TIMESTAMP, 
+              "updatedAt" = CURRENT_TIMESTAMP 
+          WHERE id = ?
+        `).run(id);
+        await logAudit(
+          req,
+          "EMPLOYEE_DELETE_OVERTIME_REQUEST",
+          `Employee removed overtime record ${id} from employee portal`
+        );
+      }
+    } else {
+      // Admin / Supervisor role
+      const isEmployeeDeleted = !!(existing.employeeDeletedAt || existing.employee_deleted_at);
+      if (isEmployeeDeleted) {
+        // Both employee and admin have deleted it -> permanently purge from database
+        await db.prepare("DELETE FROM overtime_requests WHERE id = ?").run(id);
+        permanentlyDeleted = true;
+        await logAudit(
+          req,
+          "PERMANENT_DELETE_OVERTIME_REQUEST",
+          `Permanently deleted overtime request ${id} (both employee and admin removed record)`
+        );
+      } else {
+        // Mark admin_deleted_at timestamp, keeping it visible for employee
+        await db.prepare(`
+          UPDATE overtime_requests 
+          SET "adminDeletedAt" = CURRENT_TIMESTAMP, 
+              admin_deleted_at = CURRENT_TIMESTAMP, 
+              "updatedAt" = CURRENT_TIMESTAMP 
+          WHERE id = ?
+        `).run(id);
+        await logAudit(
+          req,
+          "ADMIN_DELETE_OVERTIME_REQUEST",
+          `Admin removed overtime record ${id} from administration view`
+        );
+      }
+    }
+
+    triggerBackgroundPayrollSync();
+
+    res.json({
+      success: true,
+      message: permanentlyDeleted 
+        ? "Overtime record permanently removed from the system." 
+        : `Overtime record removed from ${actorRole === 'employee' ? 'employee' : 'admin'} view.`,
+      permanentlyDeleted
+    });
+  } catch (err: any) {
+    console.error("Error deleting overtime request:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================================
+// 10. POST /api/overtime-requests/batch-delete - Batch Delete Requests (Separate Employee/Admin State)
+// ============================================================================
+overtimeRouter.post(["/overtime-requests/batch-delete", "/overtime/batch-delete"], async (req: any, res: any) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "Please provide a list of overtime request IDs to delete." });
+    }
+
+    const actorRole = getActorRole(req);
+    let deletedCount = 0;
+    let permanentCount = 0;
+
+    for (const id of ids) {
+      const existing = await db.prepare("SELECT * FROM overtime_requests WHERE id = ?").get(id) as any;
+      if (existing) {
+        deletedCount++;
+        if (actorRole === "employee") {
+          const isAdminDeleted = !!(existing.adminDeletedAt || existing.admin_deleted_at);
+          if (isAdminDeleted) {
+            await db.prepare("DELETE FROM overtime_requests WHERE id = ?").run(id);
+            permanentCount++;
+          } else {
+            await db.prepare(`
+              UPDATE overtime_requests 
+              SET "employeeDeletedAt" = CURRENT_TIMESTAMP, 
+                  employee_deleted_at = CURRENT_TIMESTAMP, 
+                  "updatedAt" = CURRENT_TIMESTAMP 
+              WHERE id = ?
+            `).run(id);
+          }
+        } else {
+          const isEmployeeDeleted = !!(existing.employeeDeletedAt || existing.employee_deleted_at);
+          if (isEmployeeDeleted) {
+            await db.prepare("DELETE FROM overtime_requests WHERE id = ?").run(id);
+            permanentCount++;
+          } else {
+            await db.prepare(`
+              UPDATE overtime_requests 
+              SET "adminDeletedAt" = CURRENT_TIMESTAMP, 
+                  admin_deleted_at = CURRENT_TIMESTAMP, 
+                  "updatedAt" = CURRENT_TIMESTAMP 
+              WHERE id = ?
+            `).run(id);
+          }
+        }
+      }
+    }
 
     await logAudit(
       req,
-      "DELETE_OVERTIME_REQUEST",
-      `Deleted overtime record ${id}`
+      "BATCH_DELETE_OVERTIME",
+      `${actorRole === 'employee' ? 'Employee' : 'Admin'} batch deleted ${deletedCount} overtime records (${permanentCount} permanently purged).`
     );
 
     triggerBackgroundPayrollSync();
 
-    res.json({ success: true, message: "Overtime request record deleted." });
+    res.json({
+      success: true,
+      message: `Successfully processed deletion for ${deletedCount} overtime records (${permanentCount} permanently purged).`,
+      deletedCount,
+      permanentCount
+    });
   } catch (err: any) {
+    console.error("Error in batch delete:", err);
     res.status(500).json({ error: err.message });
   }
 });

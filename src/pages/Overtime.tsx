@@ -279,6 +279,12 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
   const [selectedRequest, setSelectedRequest] = useState<OvertimeRequestItem | null>(null);
   const [reviewAction, setReviewAction] = useState<'approve' | 'reject'>('approve');
 
+  // Delete Confirmation States
+  const [requestToDelete, setRequestToDelete] = useState<OvertimeRequestItem | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isBatchDeleteModalOpen, setIsBatchDeleteModalOpen] = useState(false);
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false);
+
   // Submit Form State
   const [targetEmployeeId, setTargetEmployeeId] = useState('');
   const [overtimeDate, setOvertimeDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -318,6 +324,9 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
       const overtimeParams: any = {};
       if (isEmployeeRole && user) {
         overtimeParams.employeeId = user.id || user.email;
+        overtimeParams.viewRole = 'employee';
+      } else {
+        overtimeParams.viewRole = 'admin';
       }
 
       const employeesPromise = cachedEmployeesList 
@@ -502,14 +511,14 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
 
   // Selection toggle handlers
   const handleToggleSelectAll = () => {
-    const pendingOnPage = paginatedRequests.filter(r => r.status === 'pending').map(r => r.id);
-    if (pendingOnPage.length === 0) return;
+    const allOnPage = paginatedRequests.map(r => r.id);
+    if (allOnPage.length === 0) return;
     
-    const allSelected = pendingOnPage.every(id => selectedIds.includes(id));
+    const allSelected = allOnPage.every(id => selectedIds.includes(id));
     if (allSelected) {
-      setSelectedIds(prev => prev.filter(id => !pendingOnPage.includes(id)));
+      setSelectedIds(prev => prev.filter(id => !allOnPage.includes(id)));
     } else {
-      setSelectedIds(prev => Array.from(new Set([...prev, ...pendingOnPage])));
+      setSelectedIds(prev => Array.from(new Set([...prev, ...allOnPage])));
     }
   };
 
@@ -611,10 +620,14 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
 
   // Batch Approve Action
   const handleBatchApprove = async () => {
-    if (selectedIds.length === 0) return;
-    const count = selectedIds.length;
+    const pendingSelected = selectedIds.filter(id => requests.find(r => r.id === id)?.status === 'pending');
+    if (pendingSelected.length === 0) {
+      toast.error("No pending requests selected for authorization.");
+      return;
+    }
+    const count = pendingSelected.length;
     const prevRequests = [...requests];
-    const idsToApprove = [...selectedIds];
+    const idsToApprove = [...pendingSelected];
 
     setRequests(prev => prev.map(item => 
       idsToApprove.includes(item.id)
@@ -628,7 +641,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
           }
         : item
     ));
-    setSelectedIds([]);
+    setSelectedIds(prev => prev.filter(id => !idsToApprove.includes(id)));
     toast.success(`Batch approved ${count} overtime requests successfully.`);
 
     setIsProcessingBatch(true);
@@ -649,10 +662,14 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
 
   // Batch Reject Action
   const handleBatchReject = async () => {
-    if (selectedIds.length === 0) return;
-    const count = selectedIds.length;
+    const pendingSelected = selectedIds.filter(id => requests.find(r => r.id === id)?.status === 'pending');
+    if (pendingSelected.length === 0) {
+      toast.error("No pending requests selected for rejection.");
+      return;
+    }
+    const count = pendingSelected.length;
     const prevRequests = [...requests];
-    const idsToReject = [...selectedIds];
+    const idsToReject = [...pendingSelected];
 
     setRequests(prev => prev.map(item => 
       idsToReject.includes(item.id)
@@ -666,7 +683,7 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
           }
         : item
     ));
-    setSelectedIds([]);
+    setSelectedIds(prev => prev.filter(id => !idsToReject.includes(id)));
     toast.info(`Declined ${count} overtime requests.`);
 
     setIsProcessingBatch(true);
@@ -682,6 +699,57 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
       toast.error("Batch rejection failed: " + err.message);
     } finally {
       setIsProcessingBatch(false);
+    }
+  };
+
+  // Delete Single Overtime Record (Authorized / Declined / Cancelled)
+  const handleConfirmDeleteSingle = async () => {
+    if (!requestToDelete) return;
+    const targetId = requestToDelete.id;
+    const prevRequests = [...requests];
+
+    setIsDeleting(true);
+    // Optimistic UI update
+    setRequests(prev => prev.filter(r => r.id !== targetId));
+    cachedOvertimeList = (cachedOvertimeList || []).filter(r => r.id !== targetId);
+    setSelectedIds(prev => prev.filter(id => id !== targetId));
+
+    try {
+      await api.overtime.delete(targetId);
+      toast.success(`Overtime record for ${requestToDelete.firstName || 'employee'} deleted successfully.`);
+      setRequestToDelete(null);
+    } catch (err: any) {
+      setRequests(prevRequests);
+      cachedOvertimeList = prevRequests;
+      toast.error("Failed to delete overtime record: " + err.message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Confirm Batch Delete
+  const handleConfirmBatchDelete = async () => {
+    if (selectedIds.length === 0) return;
+    const count = selectedIds.length;
+    const prevRequests = [...requests];
+    const idsToDelete = [...selectedIds];
+
+    setIsBatchDeleting(true);
+    // Optimistic UI update
+    setRequests(prev => prev.filter(r => !idsToDelete.includes(r.id)));
+    cachedOvertimeList = (cachedOvertimeList || []).filter(r => !idsToDelete.includes(r.id));
+    setSelectedIds([]);
+
+    try {
+      await api.overtime.batchDelete({ ids: idsToDelete });
+      toast.success(`Successfully deleted ${count} overtime records.`);
+      setIsBatchDeleteModalOpen(false);
+    } catch (err: any) {
+      setRequests(prevRequests);
+      cachedOvertimeList = prevRequests;
+      toast.error("Batch deletion failed: " + err.message);
+    } finally {
+      setIsBatchDeleting(false);
     }
   };
 
@@ -1445,36 +1513,54 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
         {/* ========================================================================= */}
         {/* 4. MULTI-SELECT BATCH ACTION FLOATING TOOLBAR */}
         {/* ========================================================================= */}
-        {!isEmployeeRole && selectedIds.length > 0 && (
+        {selectedIds.length > 0 && (
           <div className="bg-neutral-900 text-white px-5 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in duration-200">
             <div className="flex items-center gap-3">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#1d58d9] text-white text-xs font-black">
                 {selectedIds.length}
               </span>
               <span className="text-xs font-bold tracking-wide">
-                {selectedIds.length} pending {selectedIds.length === 1 ? 'request' : 'requests'} selected for batch action
+                {selectedIds.length} {selectedIds.length === 1 ? 'record' : 'records'} selected
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                onClick={handleBatchApprove}
-                disabled={isProcessingBatch}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold h-8.5 px-3.5 shadow-sm flex items-center gap-1.5"
-              >
-                <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-                Batch Authorize ({selectedIds.length})
-              </Button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* If supervisor/admin and any selected records are pending, show Batch Authorize / Decline */}
+              {!isEmployeeRole && selectedIds.some(id => requests.find(r => r.id === id)?.status === 'pending') && (
+                <>
+                  <Button
+                    size="sm"
+                    onClick={handleBatchApprove}
+                    disabled={isProcessingBatch || isBatchDeleting}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold h-8.5 px-3.5 shadow-sm flex items-center gap-1.5"
+                  >
+                    <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                    Batch Authorize ({selectedIds.filter(id => requests.find(r => r.id === id)?.status === 'pending').length})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleBatchReject}
+                    disabled={isProcessingBatch || isBatchDeleting}
+                    className="text-rose-400 border-rose-800/80 hover:bg-rose-950/60 rounded-xl text-xs font-bold h-8.5 px-3.5 flex items-center gap-1.5"
+                  >
+                    <X className="w-3.5 h-3.5 stroke-[2.5]" />
+                    Batch Decline ({selectedIds.filter(id => requests.find(r => r.id === id)?.status === 'pending').length})
+                  </Button>
+                </>
+              )}
+
+              {/* Batch Delete Button for Selected Records */}
               <Button
                 size="sm"
                 variant="outline"
-                onClick={handleBatchReject}
-                disabled={isProcessingBatch}
-                className="text-rose-400 border-rose-800/80 hover:bg-rose-950/60 rounded-xl text-xs font-bold h-8.5 px-3.5 flex items-center gap-1.5"
+                onClick={() => setIsBatchDeleteModalOpen(true)}
+                disabled={isProcessingBatch || isBatchDeleting}
+                className="text-rose-400 border-rose-700 hover:bg-rose-900/50 hover:text-white rounded-xl text-xs font-bold h-8.5 px-3.5 flex items-center gap-1.5"
               >
-                <X className="w-3.5 h-3.5 stroke-[2.5]" />
-                Batch Decline
+                <Trash2 className="w-3.5 h-3.5" />
+                Batch Delete ({selectedIds.length})
               </Button>
+
               <Button
                 size="sm"
                 variant="ghost"
@@ -1519,21 +1605,19 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
             <Table>
               <TableHeader className="bg-neutral-50/80">
                 <TableRow className="border-b border-neutral-200/90">
-                  {!isEmployeeRole && (
-                    <TableHead className="w-10 py-3.5 pl-4 pr-0">
-                      <input
-                        type="checkbox"
-                        aria-label="Select all pending requests on this page"
-                        checked={
-                          paginatedRequests.filter(r => r.status === 'pending').length > 0 &&
-                          paginatedRequests.filter(r => r.status === 'pending').every(r => selectedIds.includes(r.id))
-                        }
-                        onChange={handleToggleSelectAll}
-                        className="rounded border-neutral-300 text-[#1d58d9] focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                      />
-                    </TableHead>
-                  )}
-                  <TableHead className={cn("text-xs font-bold text-neutral-700 uppercase py-3.5 tracking-wider", isEmployeeRole ? "pl-6" : "pl-3")}>
+                  <TableHead className="w-10 py-3.5 pl-4 pr-0">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all requests on this page"
+                      checked={
+                        paginatedRequests.length > 0 &&
+                        paginatedRequests.every(r => selectedIds.includes(r.id))
+                      }
+                      onChange={handleToggleSelectAll}
+                      className="rounded border-neutral-300 text-[#1d58d9] focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                    />
+                  </TableHead>
+                  <TableHead className="text-xs font-bold text-neutral-700 uppercase py-3.5 tracking-wider pl-3">
                     Employee / Applicant
                   </TableHead>
                   <TableHead className="text-xs font-bold text-neutral-700 uppercase py-3.5 tracking-wider">
@@ -1578,24 +1662,18 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                       )}
                     >
                       {/* Checkbox Column */}
-                      {!isEmployeeRole && (
-                        <TableCell className="py-3.5 pl-4 pr-0">
-                          {isPending ? (
-                            <input
-                              type="checkbox"
-                              aria-label={`Select request ${req.id}`}
-                              checked={isSelected}
-                              onChange={() => handleToggleSelectRow(req.id)}
-                              className="rounded border-neutral-300 text-[#1d58d9] focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                            />
-                          ) : (
-                            <div className="w-4 h-4" />
-                          )}
-                        </TableCell>
-                      )}
+                      <TableCell className="py-3.5 pl-4 pr-0">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select request ${req.id}`}
+                          checked={isSelected}
+                          onChange={() => handleToggleSelectRow(req.id)}
+                          className="rounded border-neutral-300 text-[#1d58d9] focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                        />
+                      </TableCell>
 
                       {/* Employee Column */}
-                      <TableCell className={cn("py-3.5", isEmployeeRole ? "pl-6" : "pl-3")}>
+                      <TableCell className="py-3.5 pl-3">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-full bg-blue-50 border border-blue-200 overflow-hidden shrink-0 flex items-center justify-center text-xs font-black text-[#1d58d9]">
                             {req.profileImage ? (
@@ -1770,6 +1848,17 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                                 <X className="w-3.5 h-3.5 stroke-[2.5]" />
                               </Button>
                             </>
+                          )}
+
+                          {/* Delete Button for Authorized, Declined, or Cancelled Requests */}
+                          {!isPending && (
+                            <button
+                              onClick={() => setRequestToDelete(req)}
+                              title={`Delete ${req.status === 'approved' ? 'Authorized' : req.status === 'rejected' ? 'Declined' : 'Cancelled'} Overtime Record`}
+                              className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           )}
                         </div>
                       </TableCell>
@@ -2414,7 +2503,21 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                 </div>
               )}
 
-              <DialogFooter className="pt-2 gap-2">
+              <DialogFooter className="pt-2 gap-2 flex-wrap">
+                {selectedRequest.status !== 'pending' && (
+                  <Button
+                    onClick={() => {
+                      const toDel = selectedRequest;
+                      setIsDetailsModalOpen(false);
+                      setRequestToDelete(toDel);
+                    }}
+                    variant="outline"
+                    className="border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 font-bold rounded-xl text-xs h-10 px-3 flex items-center justify-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                    Delete Record
+                  </Button>
+                )}
                 <Button
                   onClick={() => handlePrintSlip(selectedRequest)}
                   variant="outline"
@@ -2425,13 +2528,172 @@ export default function OvertimePage({ onNavigate }: { onNavigate?: (page: strin
                 </Button>
                 <Button
                   onClick={() => setIsDetailsModalOpen(false)}
-                  className="flex-1 bg-neutral-900 hover:bg-neutral-800 text-white font-bold rounded-xl text-xs h-10"
+                  className="bg-neutral-900 hover:bg-neutral-800 text-white font-bold rounded-xl text-xs h-10 px-5"
                 >
                   Close
                 </Button>
               </DialogFooter>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ========================================================================= */}
+      {/* MODAL 4: CONFIRM SINGLE DELETE MODAL */}
+      {/* ========================================================================= */}
+      <Dialog open={!!requestToDelete} onOpenChange={(open) => !open && setRequestToDelete(null)}>
+        <DialogContent className="max-w-md bg-white rounded-3xl p-6 shadow-2xl border border-neutral-100 font-sans">
+          <DialogHeader className="pb-3 border-b border-neutral-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-100">
+                <Trash2 className="w-5 h-5 stroke-[2.2]" />
+              </div>
+              <div>
+                <DialogTitle className="text-lg font-black text-neutral-900 tracking-tight">
+                  Delete Overtime Record
+                </DialogTitle>
+                <DialogDescription className="text-xs text-neutral-500">
+                  {isEmployeeRole
+                    ? "Remove this overtime record from your employee account view."
+                    : "Remove this overtime record from the administration view."}
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {requestToDelete && (
+            <div className="space-y-4 pt-3 text-xs">
+              <p className="text-neutral-600 leading-relaxed">
+                Are you sure you want to delete the overtime application for{' '}
+                <strong className="text-neutral-900 font-bold">
+                  {requestToDelete.lastName ? `${requestToDelete.lastName}, ` : ''}{requestToDelete.firstName || 'Employee'}
+                </strong>{' '}
+                on <strong className="text-neutral-900 font-bold">{formatFullServiceDate(requestToDelete.overtimeDate)}</strong> ({requestToDelete.requestedHours} hrs)?
+              </p>
+
+              <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200/80 space-y-1.5">
+                <div className="flex items-center justify-between text-neutral-500 text-[11px]">
+                  <span>Status:</span>
+                  <span className="font-bold text-neutral-800 uppercase">{requestToDelete.status}</span>
+                </div>
+                <div className="flex items-center justify-between text-neutral-500 text-[11px]">
+                  <span>Time Span:</span>
+                  <span className="font-mono text-neutral-800">{formatTimeTo12H(requestToDelete.startTime)} – {formatTimeTo12H(requestToDelete.endTime)}</span>
+                </div>
+                <div className="flex items-center justify-between text-neutral-500 text-[11px]">
+                  <span>Control No:</span>
+                  <span className="font-mono text-neutral-800">{requestToDelete.id}</span>
+                </div>
+              </div>
+
+              <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-100 text-[#1d58d9] text-[11px] leading-relaxed">
+                {isEmployeeRole ? (
+                  <span>
+                    <strong>Employee Note:</strong> This record will be hidden from your account view immediately. It remains stored in the administrative archive for payroll & official records until also deleted by administration.
+                  </span>
+                ) : (
+                  <span>
+                    <strong>Administration Note:</strong> This record will be hidden from the admin list. If the employee has also deleted this record, it will be permanently purged from the database.
+                  </span>
+                )}
+              </div>
+
+              <DialogFooter className="pt-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isDeleting}
+                  onClick={() => setRequestToDelete(null)}
+                  className="flex-1 border-neutral-200 text-neutral-700 font-bold rounded-xl text-xs h-10"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={handleConfirmDeleteSingle}
+                  className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs h-10 shadow-sm flex items-center justify-center gap-1.5"
+                >
+                  {isDeleting ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Confirm Delete
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ========================================================================= */}
+      {/* MODAL 5: CONFIRM BATCH DELETE MODAL */}
+      {/* ========================================================================= */}
+      <Dialog open={isBatchDeleteModalOpen} onOpenChange={setIsBatchDeleteModalOpen}>
+        <DialogContent className="max-w-md bg-white rounded-3xl p-6 shadow-2xl border border-neutral-100 font-sans">
+          <DialogHeader className="pb-3 border-b border-neutral-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-100">
+                <Trash2 className="w-5 h-5 stroke-[2.2]" />
+              </div>
+              <div>
+                <DialogTitle className="text-lg font-black text-neutral-900 tracking-tight">
+                  Batch Delete Records
+                </DialogTitle>
+                <DialogDescription className="text-xs text-neutral-500">
+                  {isEmployeeRole
+                    ? "Delete multiple overtime applications from your employee account."
+                    : "Delete multiple overtime authorization records from administration."}
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-3 text-xs">
+            <p className="text-neutral-600 leading-relaxed">
+              Are you sure you want to delete{' '}
+              <strong className="text-rose-600 font-bold text-sm">{selectedIds.length}</strong> selected overtime records?
+            </p>
+
+            <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/80 text-amber-800 text-[11px] leading-relaxed flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+              <span>
+                {isEmployeeRole
+                  ? "Selected records will be hidden from your account view immediately. They remain accessible to administrators until both sides remove them."
+                  : "Selected records will be removed from your administration view. Any records that have also been deleted by employees will be permanently purged from the database."}
+              </span>
+            </div>
+
+            <DialogFooter className="pt-2 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isBatchDeleting}
+                onClick={() => setIsBatchDeleteModalOpen(false)}
+                className="flex-1 border-neutral-200 text-neutral-700 font-bold rounded-xl text-xs h-10"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={isBatchDeleting}
+                onClick={handleConfirmBatchDelete}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs h-10 shadow-sm flex items-center justify-center gap-1.5"
+              >
+                {isBatchDeleting ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete {selectedIds.length} Records
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

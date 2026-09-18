@@ -1048,6 +1048,15 @@ export const api = {
       });
       return handleResponse(res);
     },
+    // Batch delete multiple overtime request records
+    batchDelete: async (data: { ids: string[] }) => {
+      const res = await fetchWithAuth(`${API_BASE}/overtime-requests/batch-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      return handleResponse(res);
+    },
   },
 };
 
