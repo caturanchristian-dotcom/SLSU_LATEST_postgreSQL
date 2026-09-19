@@ -99,17 +99,17 @@ export default function AuditLogs() {
   return (
     <div className="space-y-6 pb-20">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-neutral-900 flex items-center gap-2">
-            <Lock className="w-8 h-8 text-neutral-700" />
-            Compliance Audit Logs
+          <h1 className="text-xl sm:text-3xl font-bold tracking-tight text-neutral-900 flex items-center gap-2">
+            <Lock className="w-6 h-6 sm:w-8 sm:h-8 text-neutral-700 shrink-0" />
+            <span>Compliance Audit Logs</span>
           </h1>
-          <p className="text-neutral-500">Water-tight event trail for all security, authentication, and financial transactions.</p>
+          <p className="text-xs sm:text-sm text-neutral-500 mt-0.5">Water-tight event trail for all security, authentication, and financial transactions.</p>
         </div>
-        <Button onClick={fetchLogs} variant="outline" size="sm" className="gap-2 shrink-0">
-          <RefreshCw className="w-4 h-4" />
-          Reload Audit Trail
+        <Button onClick={fetchLogs} variant="outline" size="sm" className="gap-1.5 shrink-0 self-start sm:self-auto text-xs h-8 sm:h-9">
+          <RefreshCw className="w-3.5 h-3.5" />
+          <span>Reload Audit Trail</span>
         </Button>
       </div>
 
@@ -173,58 +173,58 @@ export default function AuditLogs() {
               <p className="text-neutral-400 text-xs max-w-sm">No action logs exist with the given filters. Try modifying your search parameters.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm border-collapse text-left">
+            <div className="overflow-x-auto touch-scroll custom-scrollbar">
+              <table className="w-full text-xs sm:text-sm border-collapse text-left">
                 <thead>
-                  <tr className="bg-neutral-50 border-b border-neutral-100 text-neutral-400 text-xs font-bold uppercase tracking-wider">
-                    <th className="py-4 px-6">Timestamp & Date</th>
-                    <th className="py-4 px-6">Action / Event</th>
-                    <th className="py-4 px-6">Actor User</th>
-                    <th className="py-4 px-6">Compliance Context Details</th>
-                    <th className="py-4 px-6">IP Trace</th>
+                  <tr className="bg-neutral-50 border-b border-neutral-100 text-neutral-400 text-[10px] sm:text-xs font-bold uppercase tracking-wider">
+                    <th className="py-2.5 sm:py-4 px-3 sm:px-6">Timestamp & Date</th>
+                    <th className="py-2.5 sm:py-4 px-3 sm:px-6">Action / Event</th>
+                    <th className="py-2.5 sm:py-4 px-3 sm:px-6">Actor User</th>
+                    <th className="py-2.5 sm:py-4 px-3 sm:px-6">Compliance Context Details</th>
+                    <th className="py-2.5 sm:py-4 px-3 sm:px-6">IP Trace</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-50">
                   {filteredLogs.map((log) => (
                     <tr key={log.id} className="hover:bg-neutral-50/20 transition-colors">
                       {/* Timestamp */}
-                      <td className="py-4 px-6 whitespace-nowrap">
-                        <div className="flex items-center gap-2 text-neutral-900 font-medium">
-                          <Clock className="w-3.5 h-3.5 text-neutral-400" />
+                      <td className="py-2.5 sm:py-4 px-3 sm:px-6 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5 sm:gap-2 text-neutral-900 font-medium text-xs">
+                          <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-neutral-400 shrink-0" />
                           <span>{formatDate(log.createdAt)}</span>
                         </div>
                       </td>
                       
                       {/* Action Category */}
-                      <td className="py-4 px-6 whitespace-nowrap">
-                        <Badge className={`px-2.5 py-1 text-[11px] font-bold flex items-center gap-1.5 w-fit ${getActionBadgeStyle(log.action)}`}>
+                      <td className="py-2.5 sm:py-4 px-3 sm:px-6 whitespace-nowrap">
+                        <Badge className={`px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-[11px] font-bold flex items-center gap-1 sm:gap-1.5 w-fit ${getActionBadgeStyle(log.action)}`}>
                           {getActionIcon(log.action)}
                           <span className="font-mono tracking-tight uppercase">{log.action}</span>
                         </Badge>
                       </td>
 
                       {/* Actor Email/Role */}
-                      <td className="py-4 px-6">
+                      <td className="py-2.5 sm:py-4 px-3 sm:px-6">
                         <div className="flex flex-col">
-                          <span className="text-xs text-neutral-500 font-mono">ID: {log.userId}</span>
-                          <span className="font-bold text-neutral-800 text-xs flex items-center gap-1.5 mt-0.5">
-                            <User className="w-3 h-3 text-neutral-400" />
+                          <span className="text-[10px] sm:text-xs text-neutral-500 font-mono">ID: {log.userId}</span>
+                          <span className="font-bold text-neutral-800 text-[11px] sm:text-xs flex items-center gap-1 sm:gap-1.5 mt-0.5">
+                            <User className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-neutral-400 shrink-0" />
                             {log.userEmail}
                           </span>
                         </div>
                       </td>
 
                       {/* Detail audit notes */}
-                      <td className="py-4 px-6 max-w-md">
-                        <p className="text-neutral-700 text-xs leading-relaxed font-mono">
+                      <td className="py-2.5 sm:py-4 px-3 sm:px-6 max-w-xs sm:max-w-md">
+                        <p className="text-neutral-700 text-[11px] sm:text-xs leading-relaxed font-mono">
                           {log.detail}
                         </p>
                       </td>
 
                       {/* Trace Address */}
-                      <td className="py-4 px-6 font-mono text-neutral-400 text-xs">
+                      <td className="py-2.5 sm:py-4 px-3 sm:px-6 font-mono text-neutral-400 text-[10px] sm:text-xs whitespace-nowrap">
                         <span className="flex items-center gap-1">
-                          <Globe className="w-3 h-3 text-neutral-300" />
+                          <Globe className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-neutral-300" />
                           {log.ipAddress}
                         </span>
                       </td>

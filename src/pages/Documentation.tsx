@@ -129,22 +129,22 @@ const Documentation: React.FC<DocumentationProps> = ({ onNavigate }) => {
   `;
 
   return (
-    <div className="space-y-10 pb-20">
+    <div className="space-y-6 sm:space-y-10 pb-20">
       <div>
-        <h1 className="text-4xl font-bold tracking-tight text-neutral-900 mb-2">System Documentation & Database</h1>
-        <p className="text-neutral-500 text-lg">Understanding the logic, workflow, and relational MySQL architecture of the SLSU Payroll System.</p>
+        <h1 className="text-xl sm:text-4xl font-bold tracking-tight text-neutral-900 mb-1 sm:mb-2">System Documentation & Database</h1>
+        <p className="text-xs sm:text-base text-neutral-500">Understanding the logic, workflow, and relational MySQL architecture of the SLSU Payroll System.</p>
       </div>
 
       {/* Database & MySQL Architecture Section */}
-      <section className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
-              <Database className="w-6 h-6" />
+      <section className="space-y-4 sm:space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="p-2 sm:p-2.5 bg-emerald-50 text-emerald-600 rounded-xl shrink-0">
+              <Database className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div>
-              <h2 className="text-2xl font-bold text-neutral-900">Database Engine & MySQL Configuration</h2>
-              <p className="text-sm text-neutral-500">Native MySQL database support with automatic schema synchronization and fail-safe persistence.</p>
+              <h2 className="text-lg sm:text-2xl font-bold text-neutral-900">Database Engine & MySQL Configuration</h2>
+              <p className="text-xs sm:text-sm text-neutral-500">Native MySQL database support with automatic schema synchronization and fail-safe persistence.</p>
             </div>
           </div>
           <Button
@@ -152,26 +152,26 @@ const Documentation: React.FC<DocumentationProps> = ({ onNavigate }) => {
             size="sm"
             onClick={fetchDbStatus}
             disabled={loadingDb}
-            className="flex items-center gap-2"
+            className="flex items-center gap-1.5 self-start sm:self-auto text-xs h-8 sm:h-9"
           >
-            <RefreshCw className={`w-4 h-4 ${loadingDb ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${loadingDb ? 'animate-spin' : ''}`} />
             Refresh Status
           </Button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="p-6 bg-white border-neutral-200 rounded-2xl shadow-xs space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-6">
+          <Card className="p-4 sm:p-6 bg-white border-neutral-200 rounded-2xl shadow-xs space-y-3 sm:space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Active Engine</span>
-              <span className={`px-2.5 py-1 text-xs font-bold rounded-full uppercase ${
+              <span className="text-[10px] sm:text-xs font-semibold text-neutral-500 uppercase tracking-wider">Active Engine</span>
+              <span className={`px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-xs font-bold rounded-full uppercase ${
                 dbStatus?.engine === 'mysql' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
               }`}>
                 {dbStatus?.engine ? `${dbStatus.engine.toUpperCase()}` : 'Detecting...'}
               </span>
             </div>
             <div>
-              <p className="text-2xl font-black text-neutral-900">{dbStatus?.engine === 'mysql' ? 'MySQL Database' : 'SQLite Relational'}</p>
-              <p className="text-xs text-neutral-500 mt-1">
+              <p className="text-lg sm:text-2xl font-black text-neutral-900">{dbStatus?.engine === 'mysql' ? 'MySQL Database' : 'SQLite Relational'}</p>
+              <p className="text-xs text-neutral-500 mt-0.5 sm:mt-1">
                 {dbStatus?.engine === 'mysql'
                   ? `Connected to ${dbStatus.host}:${dbStatus.port || 3306} (${dbStatus.database})`
                   : 'Embedded high-performance relational storage'}
@@ -183,17 +183,17 @@ const Documentation: React.FC<DocumentationProps> = ({ onNavigate }) => {
             </div>
           </Card>
 
-          <Card className="p-6 bg-white border-neutral-200 rounded-2xl shadow-xs space-y-4">
-            <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">MySQL DDL & Dumps</span>
+          <Card className="p-4 sm:p-6 bg-white border-neutral-200 rounded-2xl shadow-xs space-y-3 sm:space-y-4">
+            <span className="text-[10px] sm:text-xs font-semibold text-neutral-500 uppercase tracking-wider">MySQL DDL & Dumps</span>
             <div>
               <p className="text-sm font-bold text-neutral-800">Export & Backup Schema</p>
-              <p className="text-xs text-neutral-500 mt-1">Download ready-to-run MySQL scripts with all tables, constraints, and current live data.</p>
+              <p className="text-xs text-neutral-500 mt-0.5 sm:mt-1">Download ready-to-run MySQL scripts with all tables, constraints, and current live data.</p>
             </div>
             <div className="pt-2 border-t border-neutral-100 flex flex-col gap-2">
               <a
                 href="/api/database/mysql-dump"
                 download
-                className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors"
+                className="w-full inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors"
               >
                 <Download className="w-3.5 h-3.5" />
                 Download Full MySQL Dump (.sql)
@@ -201,7 +201,7 @@ const Documentation: React.FC<DocumentationProps> = ({ onNavigate }) => {
               <a
                 href="/api/database/schema-sql"
                 download
-                className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-lg transition-colors"
+                className="w-full inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 text-xs font-semibold text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-lg transition-colors"
               >
                 <FileText className="w-3.5 h-3.5" />
                 Download Schema DDL Only (.sql)
@@ -209,10 +209,10 @@ const Documentation: React.FC<DocumentationProps> = ({ onNavigate }) => {
             </div>
           </Card>
 
-          <Card className="p-6 bg-white border-neutral-200 rounded-2xl shadow-xs space-y-3">
-            <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Configuration Variables</span>
+          <Card className="p-4 sm:p-6 bg-white border-neutral-200 rounded-2xl shadow-xs space-y-2.5 sm:space-y-3">
+            <span className="text-[10px] sm:text-xs font-semibold text-neutral-500 uppercase tracking-wider">Configuration Variables</span>
             <p className="text-xs text-neutral-600">Provide these standard variables in your environment to connect directly to any MySQL instance:</p>
-            <pre className="p-3 bg-neutral-900 text-neutral-100 rounded-xl text-[11px] font-mono overflow-x-auto leading-relaxed">
+            <pre className="p-2.5 sm:p-3 bg-neutral-900 text-neutral-100 rounded-xl text-[10px] sm:text-[11px] font-mono overflow-x-auto leading-relaxed custom-scrollbar">
 {`MYSQL_HOST=localhost
 MYSQL_PORT=3306
 MYSQL_USER=root
@@ -223,12 +223,12 @@ MYSQL_DATABASE=payroll`}
         </div>
 
         {/* Live MySQL Connection Tester */}
-        <Card className="p-6 bg-white border-neutral-200 rounded-2xl shadow-xs space-y-4">
-          <div className="flex items-center gap-2.5">
-            <Server className="w-5 h-5 text-emerald-600" />
-            <h3 className="font-bold text-neutral-900">Live MySQL Connection Diagnostics</h3>
+        <Card className="p-4 sm:p-6 bg-white border-neutral-200 rounded-2xl shadow-xs space-y-3 sm:space-y-4">
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            <Server className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" />
+            <h3 className="font-bold text-sm sm:text-base text-neutral-900">Live MySQL Connection Diagnostics</h3>
           </div>
-          <form onSubmit={handleTestConnection} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+          <form onSubmit={handleTestConnection} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5 sm:gap-3">
             <div>
               <label className="block text-xs font-semibold text-neutral-600 mb-1">Host</label>
               <input

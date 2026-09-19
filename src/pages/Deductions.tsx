@@ -944,12 +944,12 @@ const Deductions = () => {
   return (
     <div className="space-y-6">
       {/* Top Title Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-neutral-900">Deductions</h2>
-          <p className="text-neutral-500">Interactive matrix for active loans, insurance, and other payroll subtractions.</p>
+          <h2 className="text-xl sm:text-3xl font-bold tracking-tight text-neutral-900">Deductions</h2>
+          <p className="text-xs sm:text-sm text-neutral-500">Interactive matrix for active loans, insurance, and other payroll subtractions.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           {/* Add new Deduction Type button */}
           <Button 
             onClick={() => {
@@ -957,28 +957,31 @@ const Deductions = () => {
               setTypeFormData({ name: '', description: '' });
               setIsAddTypeOpen(true);
             }} 
-            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 font-semibold text-xs h-10 px-4 rounded-xl shadow-xs transition-colors cursor-pointer"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 font-semibold text-xs h-8 sm:h-9 px-3 rounded-lg sm:rounded-xl shadow-xs transition-colors cursor-pointer"
           >
-            <Plus className="w-4 h-4" />
-            Add new Deduction Type
+            <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span className="hidden sm:inline">Add new Deduction Type</span>
+            <span className="inline sm:hidden">Add Type</span>
           </Button>
 
           {/* Clear All Deductions */}
           <Button 
             variant="outline" 
-            className="border-red-200 hover:border-red-500 text-red-600 hover:text-red-700 bg-red-50/50 hover:bg-red-50 gap-2 font-medium"
+            className="border-red-200 hover:border-red-500 text-red-600 hover:text-red-700 bg-red-50/50 hover:bg-red-50 gap-1.5 font-medium text-xs h-8 sm:h-9 px-2.5 sm:px-3.5 rounded-lg sm:rounded-xl"
             onClick={handleClearAllDeductions}
           >
-            <Trash2 className="w-4 h-4" />
-            Clear All Deductions
+            <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span className="hidden sm:inline">Clear All Deductions</span>
+            <span className="inline sm:hidden">Clear</span>
           </Button>
 
           {/* Manage Types */}
           <Dialog open={isManageTypesOpen} onOpenChange={setIsManageTypesOpen}>
             <DialogTrigger render={(props) => (
-              <Button {...props} variant="outline" className="border-neutral-300 hover:border-neutral-500 gap-2">
-                <Settings className="w-4 h-4" />
-                Manage Types
+              <Button {...props} variant="outline" className="border-neutral-300 hover:border-neutral-500 gap-1.5 text-xs h-8 sm:h-9 px-2.5 sm:px-3.5 rounded-lg sm:rounded-xl">
+                <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">Manage Types</span>
+                <span className="inline sm:hidden">Types</span>
               </Button>
             )} />
             <DialogContent className="max-w-md bg-white">
@@ -1277,41 +1280,41 @@ const Deductions = () => {
       </Card>
 
       {/* Summary Info Cards (Compact Horizontal Row) */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white border border-neutral-200 rounded-xl p-4 flex items-center gap-4 shadow-sm">
-          <div className="w-10 h-10 rounded-lg bg-rose-50 flex items-center justify-center shrink-0">
-            <CreditCard className="w-5 h-5 text-rose-600" />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
+        <div className="bg-white border border-neutral-200 rounded-xl p-3 sm:p-4 flex items-center gap-2.5 sm:gap-4 shadow-sm">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-rose-50 flex items-center justify-center shrink-0">
+            <CreditCard className="w-4 h-4 sm:w-5 sm:h-5 text-rose-600" />
           </div>
-          <div>
-            <div className="text-xs font-medium text-neutral-500 uppercase tracking-wider font-sans">Total Deductions Active</div>
-            <div className="text-xl font-bold text-neutral-900">₱{formatCurrency(deductions.reduce((acc, curr) => acc + Number(curr.amount || 0), 0))}</div>
-          </div>
-        </div>
-
-        <div className="bg-white border border-neutral-200 rounded-xl p-4 flex items-center gap-4 shadow-sm">
-          <div className="w-10 h-10 rounded-lg bg-neutral-50 flex items-center justify-center shrink-0">
-            <User className="w-5 h-5 text-neutral-600" />
-          </div>
-          <div>
-            <div className="text-xs font-medium text-neutral-500 uppercase tracking-wider font-sans">Affected Staff</div>
-            <div className="text-xl font-bold text-neutral-900">{new Set(deductions.map(d => d.employeeId)).size} / {employees.length}</div>
+          <div className="min-w-0">
+            <div className="text-[10px] sm:text-xs font-medium text-neutral-500 uppercase tracking-wider font-sans truncate">Active Subtractions</div>
+            <div className="text-sm sm:text-xl font-bold text-neutral-900 truncate">₱{formatCurrency(deductions.reduce((acc, curr) => acc + Number(curr.amount || 0), 0))}</div>
           </div>
         </div>
 
-        <div className="bg-white border border-neutral-200 rounded-xl p-4 flex items-center gap-4 shadow-sm">
-          <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center shrink-0">
-            <Check className="w-5 h-5 text-green-600" />
+        <div className="bg-white border border-neutral-200 rounded-xl p-3 sm:p-4 flex items-center gap-2.5 sm:gap-4 shadow-sm">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-neutral-50 flex items-center justify-center shrink-0">
+            <User className="w-4 h-4 sm:w-5 sm:h-5 text-neutral-600" />
           </div>
-          <div>
-            <div className="text-xs font-medium text-neutral-500 uppercase tracking-wider font-sans">Available Types</div>
-            <div className="text-xl font-bold text-neutral-900">{deductionTypes.length} Classes</div>
+          <div className="min-w-0">
+            <div className="text-[10px] sm:text-xs font-medium text-neutral-500 uppercase tracking-wider font-sans truncate">Affected Staff</div>
+            <div className="text-sm sm:text-xl font-bold text-neutral-900 truncate">{new Set(deductions.map(d => d.employeeId)).size} / {employees.length}</div>
           </div>
         </div>
 
-        <div className="bg-[#fcf8f2] border border-amber-100 rounded-xl p-3 flex gap-3 shadow-none md:col-span-1">
-          <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-          <p className="text-[11px] text-amber-800 leading-normal font-sans">
-            <strong>Spreadsheet Mode:</strong> Click any cell in the table to add, modify, or delete that specific deduction for the employee.
+        <div className="bg-white border border-neutral-200 rounded-xl p-3 sm:p-4 flex items-center gap-2.5 sm:gap-4 shadow-sm">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-green-50 flex items-center justify-center shrink-0">
+            <Check className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-[10px] sm:text-xs font-medium text-neutral-500 uppercase tracking-wider font-sans truncate">Deduction Classes</div>
+            <div className="text-sm sm:text-xl font-bold text-neutral-900 truncate">{deductionTypes.length} Types</div>
+          </div>
+        </div>
+
+        <div className="bg-[#fcf8f2] border border-amber-100 rounded-xl p-2.5 sm:p-3 flex gap-2 sm:gap-3 shadow-none col-span-2 md:col-span-1 items-center">
+          <Info className="w-4 h-4 text-amber-600 shrink-0" />
+          <p className="text-[10px] sm:text-[11px] text-amber-800 leading-tight sm:leading-normal font-sans">
+            <strong>Spreadsheet Mode:</strong> Tap any cell to adjust employee loan or deduction balances.
           </p>
         </div>
       </div>

@@ -372,36 +372,36 @@ const Departments = () => {
   return (
     <div className="space-y-6 font-sans select-none">
       {/* Overview Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-5">
         <Card className="shadow-sm border-neutral-200/60 bg-white hover:shadow-md transition-all">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div className="space-y-1">
-              <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">
-                {isDeptHead ? 'Your Department' : 'Total Departments'}
+          <CardContent className="p-3 sm:p-5 flex items-center justify-between">
+            <div className="space-y-0.5 sm:space-y-1">
+              <span className="text-[10px] sm:text-xs font-bold text-neutral-400 uppercase tracking-wider">
+                {isDeptHead ? 'Your Dept' : 'Total Depts'}
               </span>
-              <h3 className="text-3xl font-extrabold text-neutral-800 tracking-tight">
+              <h3 className="text-xl sm:text-3xl font-extrabold text-neutral-800 tracking-tight">
                 {isDeptHead && user
                   ? departments.filter(d => d.departmentHeadId === user.id).length
                   : departments.length
                 }
               </h3>
-              <p className="text-[10px] text-neutral-400">
-                {isDeptHead ? 'Active academic division' : 'Colleges & academic offices'}
+              <p className="text-[9px] sm:text-[10px] text-neutral-400 hidden sm:block">
+                {isDeptHead ? 'Active division' : 'Academic offices'}
               </p>
             </div>
-            <div className="w-12 h-12 bg-blue-50 text-[#1d58d9] rounded-xl flex items-center justify-center">
-              <Building2 className="w-6 h-6" />
+            <div className="w-8 h-8 sm:w-12 sm:h-12 bg-blue-50 text-[#1d58d9] rounded-lg sm:rounded-xl flex items-center justify-center shrink-0">
+              <Building2 className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
           </CardContent>
         </Card>
 
         <Card className="shadow-sm border-neutral-200/60 bg-white hover:shadow-md transition-all">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div className="space-y-1">
-              <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">
-                {isDeptHead ? 'Department Subjects' : 'Total Subjects'}
+          <CardContent className="p-3 sm:p-5 flex items-center justify-between">
+            <div className="space-y-0.5 sm:space-y-1">
+              <span className="text-[10px] sm:text-xs font-bold text-neutral-400 uppercase tracking-wider">
+                {isDeptHead ? 'Subjects' : 'Subjects'}
               </span>
-              <h3 className="text-3xl font-extrabold text-neutral-800 tracking-tight">
+              <h3 className="text-xl sm:text-3xl font-extrabold text-neutral-800 tracking-tight">
                 {isDeptHead && user
                   ? subjects.filter(s => {
                       const dept = departments.find(d => d.id === s.departmentId);
@@ -410,39 +410,39 @@ const Departments = () => {
                   : subjects.length
                 }
               </h3>
-              <p className="text-[10px] text-neutral-400">
-                {isDeptHead ? 'Curriculum courses under your care' : 'Curriculum catalog records'}
+              <p className="text-[9px] sm:text-[10px] text-neutral-400 hidden sm:block">
+                {isDeptHead ? 'Curriculum courses' : 'Curriculum records'}
               </p>
             </div>
-            <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center">
-              <BookOpen className="w-6 h-6" />
+            <div className="w-8 h-8 sm:w-12 sm:h-12 bg-amber-50 text-amber-600 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0">
+              <BookOpen className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="shadow-sm border-neutral-200/60 bg-white hover:shadow-md transition-all">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div className="space-y-1">
+        <Card className="shadow-sm border-neutral-200/60 bg-white hover:shadow-md transition-all col-span-2 sm:col-span-1">
+          <CardContent className="p-3 sm:p-5 flex items-center justify-between">
+            <div className="space-y-0.5 sm:space-y-1">
               {isDeptHead ? (
                 <>
-                  <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Your Department</span>
-                  <h3 className="text-lg font-bold text-neutral-800 leading-tight mt-1 truncate max-w-[180px]">
-                    {departments.find(d => d.departmentHeadId === user?.id)?.code || 'No Department Assigned'}
+                  <span className="text-[10px] sm:text-xs font-bold text-neutral-400 uppercase tracking-wider">Your Dept</span>
+                  <h3 className="text-sm sm:text-lg font-bold text-neutral-800 leading-tight mt-0.5 sm:mt-1 truncate max-w-[140px] sm:max-w-[180px]">
+                    {departments.find(d => d.departmentHeadId === user?.id)?.code || 'Unassigned'}
                   </h3>
-                  <p className="text-[10px] text-emerald-600 font-semibold">Active Department Head</p>
+                  <p className="text-[9px] sm:text-[10px] text-emerald-600 font-semibold">Active Dept Head</p>
                 </>
               ) : (
                 <>
-                  <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Department Heads</span>
-                  <h3 className="text-3xl font-extrabold text-neutral-800 tracking-tight">
+                  <span className="text-[10px] sm:text-xs font-bold text-neutral-400 uppercase tracking-wider">Dept Heads</span>
+                  <h3 className="text-xl sm:text-3xl font-extrabold text-neutral-800 tracking-tight">
                     {departments.filter(d => d.departmentHeadId !== null).length}
                   </h3>
-                  <p className="text-[10px] text-neutral-400">Assigned coordinators</p>
+                  <p className="text-[9px] sm:text-[10px] text-neutral-400 hidden sm:block">Assigned heads</p>
                 </>
               )}
             </div>
-            <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-xl flex items-center justify-center">
-              <GraduationCap className="w-6 h-6" />
+            <div className="w-8 h-8 sm:w-12 sm:h-12 bg-purple-50 text-purple-600 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0">
+              <GraduationCap className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
           </CardContent>
         </Card>

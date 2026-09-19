@@ -264,70 +264,70 @@ const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
       )}
 
       {/* Tab Switcher Selector */}
-      <div className="flex items-center border-b border-neutral-200 pb-2 gap-4">
+      <div className="flex items-center border-b border-neutral-200 pb-1 sm:pb-2 gap-2 sm:gap-4 overflow-x-auto custom-scrollbar">
         <button
           onClick={() => setActiveTab('information')}
-          className={`flex items-center gap-2 py-2 px-4 text-sm font-bold border-b-2 transition-all ${
+          className={`flex items-center gap-1.5 sm:gap-2 py-1.5 sm:py-2 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition-all shrink-0 ${
             activeTab === 'information'
               ? 'border-blue-600 text-[#1a55cc]'
               : 'border-transparent text-neutral-400 hover:text-neutral-700'
           }`}
         >
-          <FileText className="w-4 h-4" />
+          <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           Information Sheet
         </button>
         <button
           onClick={() => setActiveTab('settings')}
-          className={`flex items-center gap-2 py-2 px-4 text-sm font-bold border-b-2 transition-all ${
+          className={`flex items-center gap-1.5 sm:gap-2 py-1.5 sm:py-2 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition-all shrink-0 ${
             activeTab === 'settings'
               ? 'border-blue-600 text-[#1a55cc]'
               : 'border-transparent text-neutral-400 hover:text-neutral-700'
           }`}
         >
-          <Sliders className="w-4 h-4" />
+          <Sliders className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           Settings & Security
         </button>
       </div>
 
       {activeTab === 'information' ? (
-        <div className="space-y-8 animate-fadeIn">
+        <div className="space-y-6 sm:space-y-8 animate-fadeIn">
           {/* Institutional Banner */}
-          <div className="relative bg-gradient-to-r from-[#213f70] via-[#355275] to-[#1c3052] rounded-3xl overflow-hidden shadow-md text-white min-h-[220px] md:min-h-[260px] p-8 flex flex-col justify-between">
+          <div className="relative bg-gradient-to-r from-[#213f70] via-[#355275] to-[#1c3052] rounded-2xl sm:rounded-3xl overflow-hidden shadow-md text-white min-h-[180px] md:min-h-[260px] p-4 sm:p-8 flex flex-col justify-between">
             {/* Campus overlay blueprint look */}
             <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.05)_1px,_transparent_1px),_linear-gradient(90deg,_rgba(255,255,255,0.05)_1px,_transparent_1px)] bg-[size:20px_20px] opacity-25" />
             
             {/* Big Kingfisher mascot representation on the right side */}
-            <div className="absolute right-0 bottom-0 top-0 w-1/3 opacity-40 md:opacity-90 flex pointer-events-none select-none z-10 items-center justify-end pr-6">
+            <div className="absolute right-0 bottom-0 top-0 w-1/3 opacity-30 md:opacity-90 flex pointer-events-none select-none z-10 items-center justify-end pr-2 sm:pr-6">
               <img 
                 src="https://sis.southernleytestateu.edu.ph/images/help_us_king_fisher.png" 
                 alt="SLSU Kingfisher Mascot" 
-                className="w-full h-full max-h-[160px] md:max-h-[220px] object-contain"
+                className="w-full h-full max-h-[120px] md:max-h-[220px] object-contain"
                 referrerPolicy="no-referrer"
               />
             </div>
 
             {/* University Title & SIS Logo Label */}
-            <div className="relative z-20 space-y-1">
-              <h1 className="text-xl md:text-3xl font-extrabold tracking-widest text-shadow-sm font-sans uppercase">
+            <div className="relative z-20 space-y-0.5 sm:space-y-1">
+              <h1 className="text-base sm:text-xl md:text-3xl font-extrabold tracking-wider sm:tracking-widest text-shadow-sm font-sans uppercase">
                 SOUTHERN LEYTE STATE UNIVERSITY
               </h1>
-              <p className="text-xs md:text-sm text-blue-200/80 font-mono tracking-wider font-semibold">
+              <p className="text-[10px] sm:text-xs md:text-sm text-blue-200/80 font-mono tracking-wider font-semibold">
                 {profile?.role === 'employee' ? 'Employee Information System (EIS)' : 'Student Information System (SIS)'}
               </p>
             </div>
 
             {/* Empty space for design */}
-            <div className="h-10 shrink-0" />
+            <div className="h-6 sm:h-10 shrink-0" />
 
             {/* Bottom Profile Header detail within Banner */}
             <div className="relative z-20 flex items-end">
               {/* Dummy spacing so we can clear the photo block that extends overlayed */}
               <div className="w-[150px] shrink-0 hidden md:block" />
-              <div className="ml-0 md:ml-6 pb-2">
-                <h2 className="text-xl md:text-2xl font-extrabold tracking-tight">
+              <div className="ml-0 md:ml-6 pb-1 sm:pb-2">
+                <h2 className="text-base sm:text-xl md:text-2xl font-extrabold tracking-tight">
                   {fullName}
                 </h2>
-                <p className="text-xs text-blue-200/70 font-mono font-medium">
+                <p className="text-[10px] sm:text-xs text-blue-200/70 font-mono font-medium">
                   {displayId}
                 </p>
               </div>
@@ -335,9 +335,9 @@ const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
           </div>
 
           {/* Profile Picture Overlay Positioned below / floating */}
-          <div className="relative -mt-24 md:-mt-28 px-8 flex flex-col md:flex-row items-center md:items-end gap-6 z-30 select-none">
+          <div className="relative -mt-16 sm:-mt-24 md:-mt-28 px-4 sm:px-8 flex flex-col md:flex-row items-center md:items-end gap-3 sm:gap-6 z-30 select-none">
             {/* White-bordered Image container exactly matching image */}
-            <div className="w-40 h-48 md:w-44 md:h-52 bg-white rounded-2xl p-1.5 shadow-md border border-neutral-200/80 overflow-hidden flex flex-col justify-between items-center relative group">
+            <div className="w-32 h-40 sm:w-40 sm:h-48 md:w-44 md:h-52 bg-white rounded-2xl p-1.5 shadow-md border border-neutral-200/80 overflow-hidden flex flex-col justify-between items-center relative group shrink-0">
               <div className="w-full h-[82%] bg-neutral-100 rounded-xl overflow-hidden flex items-center justify-center">
                 {profile?.profileImage ? (
                   <img 
@@ -348,22 +348,22 @@ const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
                   />
                 ) : (
                   <div className="w-full h-full bg-[#355275] text-white flex flex-col items-center justify-center p-2 text-center">
-                    <User className="w-12 h-12 text-blue-100/50 mb-1" />
-                    <span className="text-[10px] uppercase font-bold tracking-wider opacity-60">No Image Set</span>
+                    <User className="w-8 h-8 sm:w-12 sm:h-12 text-blue-100/50 mb-1" />
+                    <span className="text-[8px] sm:text-[10px] uppercase font-bold tracking-wider opacity-60">No Image Set</span>
                   </div>
                 )}
               </div>
               
               {/* Label banner at bottom inside container */}
               <div className="w-full text-center py-1 select-none">
-                <p className="text-[8.5px] md:text-[9.5px] font-black tracking-wide text-neutral-700 uppercase truncate">
+                <p className="text-[8px] sm:text-[9.5px] font-black tracking-wide text-neutral-700 uppercase truncate px-1">
                   {profile?.lastName ? `${profile.lastName}, ${profile.firstName?.[0]}.` : fullName}
                 </p>
               </div>
             </div>
 
             {/* Fully Functional Upload & Remove Photo triggers right next to profile box */}
-            <div className="pb-1 flex items-center gap-2">
+            <div className="pb-1 flex items-center gap-2 flex-wrap justify-center md:justify-start">
               <input 
                 type="file" 
                 ref={fileInputRef} 
@@ -373,9 +373,9 @@ const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
               />
               <Button
                 onClick={handleTriggerUpload}
-                className="bg-[#1a55cc] hover:bg-blue-700 text-white font-extrabold text-xs tracking-wider uppercase py-2 px-5 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500/20 active:scale-95 transition-all flex items-center gap-2 border border-blue-700 cursor-pointer"
+                className="bg-[#1a55cc] hover:bg-blue-700 text-white font-extrabold text-[10px] sm:text-xs tracking-wider uppercase py-1.5 sm:py-2 px-3 sm:px-5 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500/20 active:scale-95 transition-all flex items-center gap-1.5 sm:gap-2 border border-blue-700 cursor-pointer h-8 sm:h-9"
               >
-                <Upload className="w-3.5 h-3.5" />
+                <Upload className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                 Upload new photo
               </Button>
 
@@ -383,10 +383,10 @@ const Profile: React.FC<ProfileProps> = ({ onNavigate }) => {
                 <Button
                   onClick={handleRemovePhoto}
                   variant="outline"
-                  className="bg-white hover:bg-red-50 text-red-600 border-red-200 font-extrabold text-xs tracking-wider uppercase py-2 px-4 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                  className="bg-white hover:bg-red-50 text-red-600 border-red-200 font-extrabold text-[10px] sm:text-xs tracking-wider uppercase py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl shadow-xs transition-all flex items-center gap-1 sm:gap-1.5 cursor-pointer h-8 sm:h-9"
                   title="Delete current photo from Supabase Storage"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                   Remove
                 </Button>
               )}
