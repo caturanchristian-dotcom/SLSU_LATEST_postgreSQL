@@ -43,6 +43,7 @@ import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { ChartErrorBoundary } from './ChartErrorBoundary';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { formatCurrency, cn, safeSplit } from '../lib/utils';
@@ -1039,41 +1040,43 @@ export const EmployeeAccountView: React.FC<EmployeeAccountViewProps> = ({
 
               <div className="h-[280px] w-full pt-2">
                 {chartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="colorNet" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#355275" stopOpacity={0.2}/>
-                          <stop offset="95%" stopColor="#355275" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                      <XAxis 
-                        dataKey="name" 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{ fill: '#888', fontSize: 11 }}
-                      />
-                      <YAxis 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{ fill: '#888', fontSize: 11 }}
-                        tickFormatter={(v) => `₱${(v/1000).toFixed(0)}k`}
-                      />
-                      <Tooltip 
-                        contentStyle={{ borderRadius: '12px', border: '1px solid #e5e7eb', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}
-                        formatter={(val: any) => [`₱${formatCurrency(val)}`, 'Net Take-Home Pay']}
-                      />
-                      <Area 
-                        type="monotone" 
-                        dataKey="amount" 
-                        stroke="#355275" 
-                        strokeWidth={2.5} 
-                        fillOpacity={1} 
-                        fill="url(#colorNet)" 
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                  <ChartErrorBoundary fallbackMessage="Earnings History Chart" height={280}>
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                      <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="colorNet" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#355275" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="#355275" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                        <XAxis 
+                          dataKey="name" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: '#888', fontSize: 11 }}
+                        />
+                        <YAxis 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: '#888', fontSize: 11 }}
+                          tickFormatter={(v) => `₱${(v/1000).toFixed(0)}k`}
+                        />
+                        <Tooltip 
+                          contentStyle={{ borderRadius: '12px', border: '1px solid #e5e7eb', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}
+                          formatter={(val: any) => [`₱${formatCurrency(val)}`, 'Net Take-Home Pay']}
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="amount" 
+                          stroke="#355275" 
+                          strokeWidth={2.5} 
+                          fillOpacity={1} 
+                          fill="url(#colorNet)" 
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </ChartErrorBoundary>
                 ) : (
                   <div className="h-full flex items-center justify-center text-xs text-neutral-400">
                     No cycle history data available yet

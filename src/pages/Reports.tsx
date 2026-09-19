@@ -28,6 +28,7 @@ import {
   AreaChart,
   Area
 } from 'recharts';
+import { ChartErrorBoundary } from '../components/ChartErrorBoundary';
 import { 
   TrendingUp, 
   Percent, 
@@ -869,39 +870,41 @@ export default function Reports() {
                       <div className="py-24 text-center text-neutral-400 text-sm">No payroll data recorded for the selected filter scope.</div>
                     ) : (
                       <div className="h-[320px] w-full mt-2">
-                        <ResponsiveContainer width="100%" height="100%">
-                          {chartType === 'bar' ? (
-                            <BarChart data={monthlyExpenseData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                              <XAxis dataKey="name" fontSize={11} stroke="#94a3b8" tickLine={false} />
-                              <YAxis fontSize={11} stroke="#94a3b8" tickLine={false} tickFormatter={(val) => formatCompactCurrency(val, '₱')} />
-                              <Tooltip 
-                                formatter={(val: any) => [formatCurrency(val), '']} 
-                                contentStyle={{ backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                              />
-                              <Legend iconSize={8} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px' }} />
-                              <Bar dataKey="Gross" fill="#0f172a" name="Gross Pay" radius={[4, 4, 0, 0]} />
-                              <Bar dataKey="Net" fill="#059669" name="Net Disbursed" radius={[4, 4, 0, 0]} />
-                              <Bar dataKey="Deductions" fill="#e11d48" name="Deductions & Tax" radius={[4, 4, 0, 0]} />
-                              <Bar dataKey="GovShare" fill="#0284c7" name="Gov Counterpart" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                          ) : (
-                            <LineChart data={monthlyExpenseData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                              <XAxis dataKey="name" fontSize={11} stroke="#94a3b8" tickLine={false} />
-                              <YAxis fontSize={11} stroke="#94a3b8" tickLine={false} tickFormatter={(val) => formatCompactCurrency(val, '₱')} />
-                              <Tooltip 
-                                formatter={(val: any) => [formatCurrency(val), '']} 
-                                contentStyle={{ backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                              />
-                              <Legend iconSize={8} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px' }} />
-                              <Line type="monotone" dataKey="Gross" stroke="#0f172a" strokeWidth={2.5} name="Gross Pay" dot={{ r: 3 }} />
-                              <Line type="monotone" dataKey="Net" stroke="#059669" strokeWidth={2.5} name="Net Disbursed" dot={{ r: 3 }} />
-                              <Line type="monotone" dataKey="Deductions" stroke="#e11d48" strokeWidth={2} name="Deductions & Tax" strokeDasharray="4 4" dot={{ r: 3 }} />
-                              <Line type="monotone" dataKey="GovShare" stroke="#0284c7" strokeWidth={2} name="Gov Counterpart" dot={{ r: 3 }} />
-                            </LineChart>
-                          )}
-                        </ResponsiveContainer>
+                        <ChartErrorBoundary fallbackMessage="Payroll Expense Chart" height={320}>
+                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                            {chartType === 'bar' ? (
+                              <BarChart data={monthlyExpenseData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <XAxis dataKey="name" fontSize={11} stroke="#94a3b8" tickLine={false} />
+                                <YAxis fontSize={11} stroke="#94a3b8" tickLine={false} tickFormatter={(val) => formatCompactCurrency(val, '₱')} />
+                                <Tooltip 
+                                  formatter={(val: any) => [formatCurrency(val), '']} 
+                                  contentStyle={{ backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                />
+                                <Legend iconSize={8} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px' }} />
+                                <Bar dataKey="Gross" fill="#0f172a" name="Gross Pay" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="Net" fill="#059669" name="Net Disbursed" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="Deductions" fill="#e11d48" name="Deductions & Tax" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="GovShare" fill="#0284c7" name="Gov Counterpart" radius={[4, 4, 0, 0]} />
+                              </BarChart>
+                            ) : (
+                              <LineChart data={monthlyExpenseData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <XAxis dataKey="name" fontSize={11} stroke="#94a3b8" tickLine={false} />
+                                <YAxis fontSize={11} stroke="#94a3b8" tickLine={false} tickFormatter={(val) => formatCompactCurrency(val, '₱')} />
+                                <Tooltip 
+                                  formatter={(val: any) => [formatCurrency(val), '']} 
+                                  contentStyle={{ backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                                />
+                                <Legend iconSize={8} verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px' }} />
+                                <Line type="monotone" dataKey="Gross" stroke="#0f172a" strokeWidth={2.5} name="Gross Pay" dot={{ r: 3 }} />
+                                <Line type="monotone" dataKey="Net" stroke="#059669" strokeWidth={2.5} name="Net Disbursed" dot={{ r: 3 }} />
+                                <Line type="monotone" dataKey="Deductions" stroke="#e11d48" strokeWidth={2} name="Deductions & Tax" strokeDasharray="4 4" dot={{ r: 3 }} />
+                                <Line type="monotone" dataKey="GovShare" stroke="#0284c7" strokeWidth={2} name="Gov Counterpart" dot={{ r: 3 }} />
+                              </LineChart>
+                            )}
+                          </ResponsiveContainer>
+                        </ChartErrorBoundary>
                       </div>
                     )}
                   </CardContent>
@@ -910,8 +913,8 @@ export default function Reports() {
                 {/* Statutory Deductions Distribution Pie */}
                 <Card className="rounded-2xl border-neutral-100 shadow-sm flex flex-col justify-between">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-base font-bold text-neutral-900">Tax & Deduction Matrix</CardTitle>
-                    <CardDescription className="text-xs">Withholding tax, GSIS, HDMF, PhilHealth & amortizations</CardDescription>
+                    <CardTitle className="text-base font-bold text-neutral-900">Tax &amp; Deduction Matrix</CardTitle>
+                    <CardDescription className="text-xs">Withholding tax, GSIS, HDMF, PhilHealth &amp; amortizations</CardDescription>
                   </CardHeader>
                   <CardContent className="flex flex-col items-center justify-center flex-1">
                     {deductionData.length === 0 ? (
@@ -919,24 +922,26 @@ export default function Reports() {
                     ) : (
                       <>
                         <div className="h-[200px] w-full relative flex items-center justify-center">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={deductionData}
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={55}
-                                outerRadius={80}
-                                paddingAngle={3}
-                                dataKey="value"
-                              >
-                                {deductionData.map((entry, index) => (
-                                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                ))}
-                              </Pie>
-                              <Tooltip formatter={(val: any) => [formatCurrency(val), '']} />
-                            </PieChart>
-                          </ResponsiveContainer>
+                          <ChartErrorBoundary fallbackMessage="Tax &amp; Deduction Distribution" height={200}>
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                              <PieChart>
+                                <Pie
+                                  data={deductionData}
+                                  cx="50%"
+                                  cy="50%"
+                                  innerRadius={55}
+                                  outerRadius={80}
+                                  paddingAngle={3}
+                                  dataKey="value"
+                                >
+                                  {deductionData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip formatter={(val: any) => [formatCurrency(val), '']} />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          </ChartErrorBoundary>
                           <div className="absolute text-center pointer-events-none">
                             <p className="text-[10px] text-neutral-400 uppercase tracking-widest font-bold">Total Withheld</p>
                             <p className="text-sm font-bold text-neutral-900">

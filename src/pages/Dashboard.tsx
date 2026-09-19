@@ -76,6 +76,7 @@ import {
   Area,
   Legend
 } from 'recharts';
+import { ChartErrorBoundary } from '../components/ChartErrorBoundary';
 import { format, differenceInSeconds } from 'date-fns';
 import { toast } from 'sonner';
 import { formatCurrency, formatCompactCurrency, formatCompactNumber, safeDateStr, safeDateOnly, safeSplit, formatHolidayDisplayDate } from '../lib/utils';
@@ -1918,89 +1919,91 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
                       No completed cycles recorded yet for disbursement analytics.
                     </div>
                   ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="grossGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#1e3a5f" stopOpacity={0.25}/>
-                            <stop offset="95%" stopColor="#1e3a5f" stopOpacity={0}/>
-                          </linearGradient>
-                          <linearGradient id="netGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#059669" stopOpacity={0.35}/>
-                            <stop offset="95%" stopColor="#059669" stopOpacity={0}/>
-                          </linearGradient>
-                          <linearGradient id="dedGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#d97706" stopOpacity={0.2}/>
-                            <stop offset="95%" stopColor="#d97706" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis 
-                          dataKey="name" 
-                          axisLine={false} 
-                          tickLine={false} 
-                          tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
-                          dy={8}
-                        />
-                        <YAxis 
-                          axisLine={false} 
-                          tickLine={false} 
-                          tick={{ fill: '#64748b', fontSize: 11 }}
-                          tickFormatter={(val) => formatCompactCurrency(val, '₱')}
-                        />
-                        <Tooltip 
-                          contentStyle={{ 
-                            borderRadius: '12px', 
-                            border: '1px solid #e2e8f0', 
-                            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.08)',
-                            fontSize: '12px',
-                            fontWeight: 600
-                          }}
-                          formatter={((value: any, name: any) => {
-                            const label = name === 'gross' || name === 'Gross Pay' 
-                              ? 'Gross Pay' 
-                              : name === 'net' || name === 'Net Disbursed' 
-                              ? 'Net Disbursed' 
-                              : 'Deductions';
-                            return [`₱${formatCurrency(value || 0)}`, label];
-                          }) as any}
-                        />
-                        <Legend 
-                          verticalAlign="top" 
-                          align="right"
-                          iconType="circle"
-                          wrapperStyle={{ paddingBottom: '12px', fontSize: '11px', fontWeight: 700 }}
-                        />
-                        <Area 
-                          type="monotone" 
-                          dataKey="gross" 
-                          name="Gross Pay"
-                          stroke="#1e3a5f" 
-                          strokeWidth={2.5} 
-                          fillOpacity={1} 
-                          fill="url(#grossGrad)" 
-                        />
-                        <Area 
-                          type="monotone" 
-                          dataKey="net" 
-                          name="Net Disbursed"
-                          stroke="#059669" 
-                          strokeWidth={3} 
-                          fillOpacity={1} 
-                          fill="url(#netGrad)" 
-                        />
-                        <Area 
-                          type="monotone" 
-                          dataKey="deductions" 
-                          name="Deductions"
-                          stroke="#d97706" 
-                          strokeWidth={2} 
-                          strokeDasharray="4 4"
-                          fillOpacity={1} 
-                          fill="url(#dedGrad)" 
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <ChartErrorBoundary fallbackMessage="Payroll Trends Chart" height={320}>
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                        <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="grossGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#1e3a5f" stopOpacity={0.25}/>
+                              <stop offset="95%" stopColor="#1e3a5f" stopOpacity={0}/>
+                            </linearGradient>
+                            <linearGradient id="netGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#059669" stopOpacity={0.35}/>
+                              <stop offset="95%" stopColor="#059669" stopOpacity={0}/>
+                            </linearGradient>
+                            <linearGradient id="dedGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#d97706" stopOpacity={0.2}/>
+                              <stop offset="95%" stopColor="#d97706" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis 
+                            dataKey="name" 
+                            axisLine={false} 
+                            tickLine={false} 
+                            tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
+                            dy={8}
+                          />
+                          <YAxis 
+                            axisLine={false} 
+                            tickLine={false} 
+                            tick={{ fill: '#64748b', fontSize: 11 }}
+                            tickFormatter={(val) => formatCompactCurrency(val, '₱')}
+                          />
+                          <Tooltip 
+                            contentStyle={{ 
+                              borderRadius: '12px', 
+                              border: '1px solid #e2e8f0', 
+                              boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.08)',
+                              fontSize: '12px',
+                              fontWeight: 600
+                            }}
+                            formatter={((value: any, name: any) => {
+                              const label = name === 'gross' || name === 'Gross Pay' 
+                                ? 'Gross Pay' 
+                                : name === 'net' || name === 'Net Disbursed' 
+                                ? 'Net Disbursed' 
+                                : 'Deductions';
+                              return [`₱${formatCurrency(value || 0)}`, label];
+                            }) as any}
+                          />
+                          <Legend 
+                            verticalAlign="top" 
+                            align="right"
+                            iconType="circle"
+                            wrapperStyle={{ paddingBottom: '12px', fontSize: '11px', fontWeight: 700 }}
+                          />
+                          <Area 
+                            type="monotone" 
+                            dataKey="gross" 
+                            name="Gross Pay"
+                            stroke="#1e3a5f" 
+                            strokeWidth={2.5} 
+                            fillOpacity={1} 
+                            fill="url(#grossGrad)" 
+                          />
+                          <Area 
+                            type="monotone" 
+                            dataKey="net" 
+                            name="Net Disbursed"
+                            stroke="#059669" 
+                            strokeWidth={3} 
+                            fillOpacity={1} 
+                            fill="url(#netGrad)" 
+                          />
+                          <Area 
+                            type="monotone" 
+                            dataKey="deductions" 
+                            name="Deductions"
+                            stroke="#d97706" 
+                            strokeWidth={2} 
+                            strokeDasharray="4 4"
+                            fillOpacity={1} 
+                            fill="url(#dedGrad)" 
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </ChartErrorBoundary>
                   )}
                 </div>
               ) : (
@@ -2020,24 +2023,26 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
                   </div>
 
                   <div className="h-[180px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={categoryBreakdownData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis 
-                          dataKey="name" 
-                          axisLine={false} 
-                          tickLine={false} 
-                          tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
-                          dy={6}
-                        />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
-                        <Tooltip 
-                          formatter={(value: any) => [`${value} Personnel`, 'Count']}
-                          contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '12px' }}
-                        />
-                        <Bar dataKey="count" fill="#1e3a5f" radius={[8, 8, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
+                    <ChartErrorBoundary fallbackMessage="Category Breakdown Chart" height={180}>
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                        <BarChart data={categoryBreakdownData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis 
+                            dataKey="name" 
+                            axisLine={false} 
+                            tickLine={false} 
+                            tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
+                            dy={6}
+                          />
+                          <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
+                          <Tooltip 
+                            formatter={(value: any) => [`${value} Personnel`, 'Count']}
+                            contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '12px' }}
+                          />
+                          <Bar dataKey="count" fill="#1e3a5f" radius={[8, 8, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </ChartErrorBoundary>
                   </div>
                 </div>
               )}
