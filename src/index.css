@@ -124,24 +124,28 @@
   html {
     @apply font-sans;
     -webkit-text-size-adjust: 100%;
-    overflow-x: hidden;
-    max-width: 100vw;
+    width: 100%;
   }
   body {
     @apply bg-background text-foreground;
-    overflow-x: hidden;
-    max-width: 100vw;
+    width: 100%;
     min-height: 100vh;
     min-height: 100dvh;
   }
   #root {
-    overflow-x: hidden;
-    max-width: 100vw;
+    width: 100%;
     min-height: 100vh;
   }
 }
 
 @layer utilities {
+  /* Prevent horizontal blowout on mobile viewports while preserving standard desktop window scrolling and sticky positioning */
+  @media (max-width: 1023px) {
+    html, body {
+      overflow-x: clip;
+    }
+  }
+
   .touch-scroll {
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-x: contain;

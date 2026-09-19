@@ -311,11 +311,11 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
   })).filter(cat => cat.items.length > 0);
 
   return (
-    <div className="min-h-screen bg-[#f4f6f9] flex flex-col md:flex-row w-full font-sans">
+    <div className="min-h-screen bg-[#f4f6f9] flex flex-col lg:flex-row w-full font-sans">
       {/* Sidebar - Desktop (Only shown for non-employee roles) */}
       {role !== 'employee' && (
         <aside className={cn(
-          "hidden md:flex flex-col bg-white border-r border-neutral-200/85 transition-all duration-300 ease-in-out shrink-0 select-none h-screen sticky top-0 shadow-sm",
+          "hidden lg:flex flex-col bg-white border-r border-neutral-200/85 transition-all duration-300 ease-in-out shrink-0 select-none h-screen sticky top-0 shadow-sm",
           isCollapsed ? "w-[76px]" : "w-64"
         )}>
           {/* Brand Header */}
@@ -524,9 +524,9 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
       )}
 
       {/* Right Side Container */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-screen overflow-x-hidden">
+      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
         {/* Top Navbar */}
-        <header className="hidden md:flex items-center justify-between bg-white border-b border-neutral-200/80 px-8 py-3.5 sticky top-0 z-40 select-none h-16 shadow-[0_1px_2px_rgba(0,0,0,0.01)]">
+        <header className="hidden lg:flex items-center justify-between bg-white border-b border-neutral-200/80 px-8 py-3.5 sticky top-0 z-40 select-none h-16 shadow-[0_1px_2px_rgba(0,0,0,0.01)]">
           {/* Left section */}
           <div className="flex items-center gap-4">
             {role === 'employee' ? (
@@ -706,7 +706,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
         </header>
 
         {/* Mobile Header */}
-        <header className="md:hidden bg-white border-b border-neutral-200/80 px-2.5 sm:px-4 py-2 flex items-center justify-between sticky top-0 z-40 select-none shadow-xs h-14 sm:h-16">
+        <header className="lg:hidden bg-white border-b border-neutral-200/80 px-2.5 sm:px-4 py-2 flex items-center justify-between sticky top-0 z-40 select-none shadow-xs h-14 sm:h-16">
           <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
             {role !== 'employee' && (
               <button 
@@ -785,7 +785,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
         {/* Mobile Sidebar (Slide-over Drawer from Left - Only for non-employee roles) */}
         <AnimatePresence>
           {role !== 'employee' && isMobileMenuOpen && (
-            <div className="md:hidden fixed inset-0 z-50 overflow-hidden">
+            <div className="lg:hidden fixed inset-0 z-50 overflow-hidden">
               {/* Dimmed Backdrop Overlay */}
               <motion.div
                 initial={{ opacity: 0 }}
@@ -1037,13 +1037,13 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
         </AnimatePresence>
 
         {/* Main Content Area */}
-        <main className="flex-1 p-2.5 sm:p-4 md:p-8 overflow-y-auto overflow-x-hidden w-full min-h-0 bg-[#f4f6f9]">
+        <main className="flex-1 p-3 sm:p-4 md:p-6 lg:p-8 w-full min-h-0 bg-[#f4f6f9]">
           <motion.div
             key={currentPage}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25 }}
-            className="max-w-7xl w-full mx-auto"
+            className="max-w-[1600px] w-full mx-auto"
           >
             {/* Breadcrumbs / Page Header */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3.5 sm:mb-6 select-none font-sans gap-2">

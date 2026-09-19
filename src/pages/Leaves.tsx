@@ -560,7 +560,7 @@ export default function Leaves({ onNavigate }: LeavesProps) {
   };
 
   return (
-    <div className="w-full min-h-screen bg-slate-50 p-3 sm:p-5 md:p-6 lg:p-8">
+    <div className="w-full space-y-5">
       {/* Top Header & Context */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
         <div>
