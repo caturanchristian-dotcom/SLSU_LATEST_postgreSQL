@@ -71,6 +71,8 @@ const AppContent = () => {
     }
   };
 
+
+  
   const renderPage = () => {
     switch (currentPage) {
       case 'home':
