@@ -107,7 +107,19 @@ export async function calculateNetSalary(
     const allVisitingRates = await db.prepare("SELECT * FROM visiting_instructors").all() as any[];
     const allSchedules = await db.prepare("SELECT * FROM schedules").all() as any[];
     const allHolidays = await db.prepare("SELECT * FROM holidays").all() as any[];
-    const allLeaveApps = await db.prepare("SELECT * FROM leave_applications WHERE status = 'approved'").all() as any[];
+    let allLeaveApps: any[] = [];
+    try {
+      allLeaveApps = await db.prepare(`
+        SELECT l.*,
+               COALESCE(lt."isPaid", 1) as "isPaid",
+               COALESCE(lt.name, l."leaveType") as "leaveTypeName"
+        FROM leave_applications l
+        LEFT JOIN leave_types lt ON (l."leaveTypeId" = lt.id OR LOWER(l."leaveType") = LOWER(lt.name) OR LOWER(l."leaveType") = LOWER(lt.code))
+        WHERE l.status = 'approved'
+      `).all() as any[];
+    } catch {
+      allLeaveApps = await db.prepare("SELECT * FROM leave_applications WHERE status = 'approved'").all() as any[];
+    }
     const allDtrRecords = await db.prepare("SELECT * FROM dtr_records").all() as any[];
     const allDtrLogs = await db.prepare("SELECT * FROM dtr_logs").all() as any[];
     const allVisitingDtr = await db.prepare("SELECT * FROM dtr_visiting_records WHERE status != 'rejected'").all() as any[];
@@ -477,16 +489,31 @@ export async function calculateNetSalary(
                 return safeStr(h.date).split('T')[0] === dateStr;
               });
 
-              const isApprovedLeave = empLeaves.some((l: any) => {
+              const matchingApprovedLeave = empLeaves.find((l: any) => {
                 if (!l.startDate || !l.endDate) return false;
                 const lStart = safeStr(l.startDate).split('T')[0];
                 const lEnd = safeStr(l.endDate).split('T')[0];
                 return dateStr >= lStart && dateStr <= lEnd;
               });
 
-              // Scheduled working days (Mon to Fri = 1 to 5, not a holiday, not on approved leave)
-              if (dayOfWeek >= 1 && dayOfWeek <= 5 && !isHoliday && !isApprovedLeave) {
-                totalScheduledWorkdays += 1;
+              const isApprovedLeave = Boolean(matchingApprovedLeave);
+              const isUnpaidLeave = matchingApprovedLeave && (
+                matchingApprovedLeave.isPaid === 0 ||
+                matchingApprovedLeave.isPaid === '0' ||
+                matchingApprovedLeave.isPaid === false ||
+                String(matchingApprovedLeave.leaveType || '').toLowerCase().includes('without pay') ||
+                String(matchingApprovedLeave.leaveType || '').toLowerCase().includes('unpaid')
+              );
+
+              // Scheduled working days (Mon to Fri = 1 to 5, not a holiday)
+              if (dayOfWeek >= 1 && dayOfWeek <= 5 && !isHoliday) {
+                if (matchingApprovedLeave) {
+                  totalScheduledWorkdays += 1;
+                  if (isUnpaidLeave) {
+                    totalAbsenceDays += 1;
+                  }
+                } else {
+                  totalScheduledWorkdays += 1;
 
                 const dayDtr = empDtrs.find((d: any) => d.date && safeStr(d.date).split('T')[0] === dateStr);
                 const dayLogs = empLogs.filter((lg: any) => {
@@ -522,7 +549,8 @@ export async function calculateNetSalary(
                   // Present via logs
                 }
               }
-              currentDate.setDate(currentDate.getDate() + 1);
+            }
+            currentDate.setDate(currentDate.getDate() + 1);
             }
 
             const dailyRate = Number((monthlyRate / 22).toFixed(2));

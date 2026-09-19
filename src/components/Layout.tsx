@@ -60,6 +60,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
   });
 
   const [pendingOvertimeCount, setPendingOvertimeCount] = useState<number>(0);
+  const [pendingLeavesCount, setPendingLeavesCount] = useState<number>(0);
 
   const fetchPendingOvertime = useCallback(async () => {
     try {
@@ -75,19 +76,39 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
     }
   }, [user, role]);
 
+  const fetchPendingLeaves = useCallback(async () => {
+    try {
+      if (!user) return;
+      const summary = await api.leaves.getSummary();
+      if (summary && typeof summary.pending === 'number') {
+        setPendingLeavesCount(summary.pending);
+      }
+    } catch (err) {
+      // Non-blocking
+    }
+  }, [user]);
+
   useEffect(() => {
     fetchPendingOvertime();
-    const interval = setInterval(fetchPendingOvertime, 20000);
-    const handleFocus = () => fetchPendingOvertime();
+    fetchPendingLeaves();
+    const interval = setInterval(() => {
+      fetchPendingOvertime();
+      fetchPendingLeaves();
+    }, 20000);
+    const handleFocus = () => {
+      fetchPendingOvertime();
+      fetchPendingLeaves();
+    };
     window.addEventListener('focus', handleFocus);
     return () => {
       clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [fetchPendingOvertime]);
+  }, [fetchPendingOvertime, fetchPendingLeaves]);
 
-  useRealtime(['overtime_changed', 'overtime', 'overtime_created', 'overtime_updated', 'payroll_changed'], () => {
+  useRealtime(['overtime_changed', 'overtime', 'overtime_created', 'overtime_updated', 'payroll_changed', 'leave_requests_changed', 'leaves_changed', 'leaves'], () => {
     fetchPendingOvertime();
+    fetchPendingLeaves();
   });
 
   const toggleAccordion = (name: string) => {
@@ -171,6 +192,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
       case 'departments': return 'Departments & Subjects';
       case 'overtime': return role === 'employee' ? 'Overtime Request' : 'Overtime Management';
       case 'overtime-admin': return 'Overtime Approval Center';
+      case 'leaves': return role === 'employee' ? 'Leave Request' : 'Leave Management';
       default: return 'Payroll Management System';
     }
   };
@@ -205,6 +227,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
       case 'departments': return 'Academic Management';
       case 'overtime': return 'Submit and Monitor Overtime Applications';
       case 'overtime-admin': return 'Review, Verify DTR & Approve Overtime';
+      case 'leaves': return role === 'employee' ? 'Apply for leave and monitor balances' : 'Review, approve and manage employee leave records';
       default: return 'Active Page';
     }
   };
@@ -217,6 +240,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
         { name: 'Dashboard', id: 'dashboard', icon: LayoutDashboard, roles: ['admin', 'payroll_officer', 'accountant', 'department_head'] },
         { name: 'System Flowchart', id: 'flowchart', icon: GitFork, roles: ['admin', 'payroll_officer', 'employee', 'accountant', 'department_head'] },
         { name: 'Overtime Request', id: 'overtime', icon: Clock, roles: ['employee'] },
+        { name: 'Leave Request', id: 'leaves', icon: Calendar, roles: ['employee'] },
         { name: 'Information', id: 'profile', icon: Users, roles: ['admin', 'payroll_officer', 'employee', 'accountant', 'department_head'] },
         { name: 'Schedules', id: 'schedules', icon: Calendar, roles: ['admin', 'payroll_officer', 'employee', 'department_head'] },
       ]
@@ -227,6 +251,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
         { name: 'My Account', id: 'account', icon: User, roles: ['employee'] },
         { name: 'System Flowchart', id: 'flowchart', icon: GitFork, roles: ['employee'] },
         { name: 'Overtime Request', id: 'overtime', icon: Clock, roles: ['employee'] },
+        { name: 'Leave Request', id: 'leaves', icon: Calendar, roles: ['employee'] },
         { name: 'Deductions', id: 'deductions', icon: PieChart, roles: ['employee'] },
       ]
     },
@@ -249,6 +274,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
           ]
         },
         { name: 'Overtime Management', id: 'overtime', icon: Clock, roles: ['admin', 'payroll_officer', 'department_head', 'accountant'] },
+        { name: 'Leave Management', id: 'leaves', icon: Calendar, roles: ['admin', 'payroll_officer', 'department_head', 'accountant'] },
         { name: 'Departments', id: 'departments', icon: BookOpen, roles: ['admin', 'department_head'] },
         { name: 'Holidays', id: 'holidays', icon: Calendar, roles: ['admin', 'payroll_officer', 'employee', 'accountant', 'department_head'] },
         { name: 'System Flowchart', id: 'flowchart', icon: GitFork, roles: ['admin', 'payroll_officer', 'department_head', 'accountant', 'employee'] },
@@ -435,13 +461,15 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
 
                     const isActive = currentPage === item.id;
                     const isOvertimeItem = item.id === 'overtime';
-                    const showBadge = isOvertimeItem && pendingOvertimeCount > 0;
+                    const isLeavesItem = item.id === 'leaves';
+                    const badgeCount = isOvertimeItem ? pendingOvertimeCount : isLeavesItem ? pendingLeavesCount : 0;
+                    const showBadge = badgeCount > 0;
 
                     return (
                       <button
                         key={item.name}
                         onClick={() => onNavigate(item.id)}
-                        title={showBadge ? `${item.name} (${pendingOvertimeCount} Pending Authorization${pendingOvertimeCount > 1 ? 's' : ''})` : item.name}
+                        title={showBadge ? `${item.name} (${badgeCount} Pending)` : item.name}
                         className={cn(
                           "flex items-center transition-all duration-150 w-full rounded-xl select-none group font-medium text-sm font-sans text-left",
                           isCollapsed ? "justify-center p-2.5 relative" : "justify-between px-3 py-2.5",
@@ -460,7 +488,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                             )} />
                             {isCollapsed && showBadge && (
                               <span className="absolute -top-1.5 -right-2 min-w-[17px] h-[17px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-extrabold flex items-center justify-center ring-2 ring-white shadow-xs">
-                                {pendingOvertimeCount > 99 ? '99+' : pendingOvertimeCount}
+                                {badgeCount > 99 ? '99+' : badgeCount}
                               </span>
                             )}
                           </div>
@@ -474,7 +502,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
 
                         {!isCollapsed && showBadge && (
                           <span 
-                            title={`${pendingOvertimeCount} Pending Authorization${pendingOvertimeCount > 1 ? 's' : ''}`}
+                            title={`${badgeCount} Pending`}
                             className={cn(
                               "ml-2 shrink-0 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-extrabold shadow-xs transition-colors",
                               isActive 
@@ -482,7 +510,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                                 : "bg-amber-500 text-white"
                             )}
                           >
-                            {pendingOvertimeCount > 99 ? '99+' : pendingOvertimeCount}
+                            {badgeCount > 99 ? '99+' : badgeCount}
                           </span>
                         )}
                       </button>
@@ -496,7 +524,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
       )}
 
       {/* Right Side Container */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
+      <div className="flex-1 flex flex-col min-w-0 min-h-screen overflow-x-hidden">
         {/* Top Navbar */}
         <header className="hidden md:flex items-center justify-between bg-white border-b border-neutral-200/80 px-8 py-3.5 sticky top-0 z-40 select-none h-16 shadow-[0_1px_2px_rgba(0,0,0,0.01)]">
           {/* Left section */}
@@ -678,23 +706,23 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
         </header>
 
         {/* Mobile Header */}
-        <header className="md:hidden bg-white border-b border-neutral-200/80 px-4 py-3 flex items-center justify-between sticky top-0 z-40 select-none shadow-sm h-16">
-          <div className="flex items-center gap-2.5">
+        <header className="md:hidden bg-white border-b border-neutral-200/80 px-2.5 sm:px-4 py-2 flex items-center justify-between sticky top-0 z-40 select-none shadow-xs h-14 sm:h-16">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
             {role !== 'employee' && (
               <button 
                 onClick={() => setIsMobileMenuOpen(true)}
-                className="p-2 -ml-1.5 rounded-xl text-neutral-700 hover:text-[#1d58d9] hover:bg-[#e2ebf8]/60 active:scale-95 transition-all focus:outline-none"
+                className="p-1.5 sm:p-2 -ml-1 rounded-xl text-neutral-700 hover:text-[#1d58d9] hover:bg-[#e2ebf8]/60 active:scale-95 transition-all focus:outline-none shrink-0"
                 aria-label="Open Sidebar Menu"
               >
-                <Menu className="w-6 h-6" />
+                <Menu className="w-5 h-5 sm:w-6 sm:h-6" />
               </button>
             )}
 
             <div 
-              className="flex items-center gap-2.5 cursor-pointer select-none"
+              className="flex items-center gap-1.5 sm:gap-2.5 cursor-pointer select-none min-w-0"
               onClick={() => onNavigate('dashboard')}
             >
-              <div className="w-[30px] h-[30px] shrink-0 bg-white text-[#1d58d9] rounded-full p-0.5 border border-[#1d58d9]/20 flex items-center justify-center">
+              <div className="w-[26px] h-[26px] sm:w-[30px] sm:h-[30px] shrink-0 bg-white text-[#1d58d9] rounded-full p-0.5 border border-[#1d58d9]/20 flex items-center justify-center">
                 <img 
                   src={SLSU_LOGO_URL} 
                   alt="SLSU Logo" 
@@ -708,31 +736,31 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                   }}
                 />
               </div>
-              <div className="flex flex-col">
-                <span className="font-extrabold text-sm text-[#1d58d9] tracking-tight font-sans">
+              <div className="flex flex-col min-w-0">
+                <span className="font-extrabold text-xs sm:text-sm text-[#1d58d9] tracking-tight font-sans truncate">
                   {role === 'employee' ? 'EMPLOYEE PORTAL' : 'PAYROLL'}
                 </span>
-                <span className="text-[10px] font-medium text-neutral-400">
+                <span className="text-[9px] sm:text-[10px] font-medium text-neutral-400 truncate">
                   SLSU Hinunangan
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {role === 'employee' && currentPage !== 'dashboard' && (
               <Button 
                 size="sm"
                 onClick={() => onNavigate('dashboard')}
-                className="h-8 bg-[#1d58d9] hover:bg-[#1444b0] text-white text-[11px] font-bold px-2.5 rounded-lg flex items-center gap-1 shadow-xs cursor-pointer active:scale-95 transition-all"
+                className="h-7 sm:h-8 bg-[#1d58d9] hover:bg-[#1444b0] text-white text-[10px] sm:text-[11px] font-bold px-2 sm:px-2.5 rounded-lg flex items-center gap-1 shadow-xs cursor-pointer active:scale-95 transition-all"
               >
-                <ArrowLeft className="w-3.5 h-3.5" /> Back to Portal
+                <ArrowLeft className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> <span className="hidden xs:inline">Back to</span> Portal
               </Button>
             )}
 
             <button 
               onClick={() => onNavigate('profile')}
-              className="w-9 h-9 rounded-full border border-[#1d58d9]/25 p-0.5 overflow-hidden bg-white flex items-center justify-center focus:outline-none active:scale-95 transition-transform"
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full border border-[#1d58d9]/25 p-0.5 overflow-hidden bg-white flex items-center justify-center focus:outline-none active:scale-95 transition-transform shrink-0"
               title="My Profile"
             >
               <img 
@@ -930,7 +958,9 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
 
                           const isActive = currentPage === item.id;
                           const isOvertimeItem = item.id === 'overtime';
-                          const showBadge = isOvertimeItem && pendingOvertimeCount > 0;
+                          const isLeavesItem = item.id === 'leaves';
+                          const badgeCount = isOvertimeItem ? pendingOvertimeCount : isLeavesItem ? pendingLeavesCount : 0;
+                          const showBadge = badgeCount > 0;
 
                           return (
                             <button
@@ -958,7 +988,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
 
                               {showBadge && (
                                 <span 
-                                  title={`${pendingOvertimeCount} Pending Authorization${pendingOvertimeCount > 1 ? 's' : ''}`}
+                                  title={`${badgeCount} Pending`}
                                   className={cn(
                                     "shrink-0 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-extrabold shadow-xs",
                                     isActive 
@@ -966,7 +996,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
                                       : "bg-amber-500 text-white"
                                   )}
                                 >
-                                  {pendingOvertimeCount > 99 ? '99+' : pendingOvertimeCount}
+                                  {badgeCount > 99 ? '99+' : badgeCount}
                                 </span>
                               )}
                             </button>
@@ -1007,7 +1037,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
         </AnimatePresence>
 
         {/* Main Content Area */}
-        <main className="flex-1 p-4 md:p-8 overflow-y-auto w-full min-h-0 bg-[#f4f6f9]">
+        <main className="flex-1 p-2.5 sm:p-4 md:p-8 overflow-y-auto overflow-x-hidden w-full min-h-0 bg-[#f4f6f9]">
           <motion.div
             key={currentPage}
             initial={{ opacity: 0, y: 10 }}
@@ -1016,29 +1046,29 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
             className="max-w-7xl w-full mx-auto"
           >
             {/* Breadcrumbs / Page Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 select-none font-sans gap-3">
-              <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3.5 sm:mb-6 select-none font-sans gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0">
                 {role === 'employee' && currentPage !== 'dashboard' && (
                   <Button
                     onClick={() => onNavigate('dashboard')}
                     variant="outline"
                     size="sm"
-                    className="mr-2 bg-white border-neutral-300 hover:bg-[#e2ebf8] text-[#1d58d9] hover:text-[#1444b0] text-xs font-bold px-3.5 py-1.5 h-9 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                    className="mr-1.5 bg-white border-neutral-300 hover:bg-[#e2ebf8] text-[#1d58d9] hover:text-[#1444b0] text-[11px] sm:text-xs font-bold px-2.5 sm:px-3.5 py-1 h-7 sm:h-9 rounded-xl shadow-xs flex items-center gap-1 cursor-pointer active:scale-95 transition-all"
                   >
-                    <ArrowLeft className="w-4 h-4" /> Back to Portal
+                    <ArrowLeft className="w-3.5 h-3.5" /> Back
                   </Button>
                 )}
-                <h2 className="text-xl font-extrabold text-neutral-800 tracking-tight capitalize">
+                <h2 className="text-base sm:text-xl font-extrabold text-neutral-800 tracking-tight capitalize truncate">
                   {getPageTitle(currentPage)}
                 </h2>
-                <div className="h-4 w-[1px] bg-neutral-300 mx-2 hidden sm:block" />
-                <div className="flex items-center gap-1.5 text-xs text-neutral-500 font-medium">
+                <div className="h-4 w-[1px] bg-neutral-300 mx-1.5 hidden sm:block" />
+                <div className="flex items-center gap-1 text-[11px] sm:text-xs text-neutral-500 font-medium truncate">
                   <Home 
-                    className="w-3.5 h-3.5 text-neutral-400 cursor-pointer hover:text-neutral-600 transition-colors" 
+                    className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-neutral-400 cursor-pointer hover:text-neutral-600 transition-colors shrink-0" 
                     onClick={() => onNavigate('dashboard')} 
                   />
                   <span className="text-neutral-400 font-bold select-none">&gt;</span>
-                  <span className="capitalize text-[#1d58d9] font-bold tracking-wide">
+                  <span className="capitalize text-[#1d58d9] font-bold tracking-wide truncate">
                     {getPageSublabel(currentPage)}
                   </span>
                 </div>
@@ -1047,7 +1077,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onNavigate, currentPage }) =>
               {role === 'employee' && currentPage !== 'dashboard' && (
                 <Button
                   onClick={() => onNavigate('dashboard')}
-                  className="bg-[#1d58d9] hover:bg-[#1444b0] text-white text-xs font-bold px-4 py-2 h-9 rounded-xl shadow-xs flex items-center gap-2 cursor-pointer w-fit active:scale-95 transition-all"
+                  className="hidden sm:flex bg-[#1d58d9] hover:bg-[#1444b0] text-white text-xs font-bold px-4 py-2 h-9 rounded-xl shadow-xs items-center gap-2 cursor-pointer w-fit active:scale-95 transition-all"
                 >
                   <ArrowLeft className="w-4 h-4" /> Back to Portal
                 </Button>

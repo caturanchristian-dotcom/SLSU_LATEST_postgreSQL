@@ -1005,56 +1005,64 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
             </div>
 
             {/* 3x2 Grid Cards inspired directly by SIS layout */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-6 pt-2 sm:pt-4">
               {[
                 {
                   id: 'account',
                   title: 'My Account',
                   description: 'View grades, check balance, online enrolment and more',
-                  icon: <User className="w-10 h-10 text-blue-500 stroke-[1.25]" />,
+                  icon: <User className="w-8 h-8 sm:w-10 sm:h-10 text-blue-500 stroke-[1.25]" />,
                   action: () => setSubview('account'),
                 },
                 {
                   id: 'dtr',
                   title: 'DTR',
                   description: 'Manage Daily Time Records and active timesheet status tracking',
-                  icon: <Scale className="w-10 h-10 text-blue-500 stroke-[1.25]" />,
+                  icon: <Scale className="w-8 h-8 sm:w-10 sm:h-10 text-blue-500 stroke-[1.25]" />,
                   badge: 'ACTIVE',
                   action: () => onNavigate && onNavigate('dtr'),
+                },
+                {
+                  id: 'leaves',
+                  title: 'Leave Applications',
+                  description: 'Apply for leaves, monitor approval status, and track credit balances',
+                  icon: <CalendarCheck className="w-8 h-8 sm:w-10 sm:h-10 text-blue-500 stroke-[1.25]" />,
+                  badge: 'LEAVES',
+                  action: () => onNavigate && onNavigate('leaves'),
                 },
                 {
                   id: 'schedules',
                   title: 'Schedules',
                   description: 'Check active shifts, assigned hours, calendar, and roster settings',
-                  icon: <Calendar className="w-10 h-10 text-blue-500 stroke-[1.25]" />,
+                  icon: <Calendar className="w-8 h-8 sm:w-10 sm:h-10 text-blue-500 stroke-[1.25]" />,
                   action: () => onNavigate && onNavigate('schedules'),
                 },
                 {
                   id: 'overtime',
                   title: 'Overtime Request',
                   description: 'Submit overtime hours, track supervisor approvals and payable units',
-                  icon: <Clock className="w-10 h-10 text-blue-500 stroke-[1.25]" />,
+                  icon: <Clock className="w-8 h-8 sm:w-10 sm:h-10 text-blue-500 stroke-[1.25]" />,
                   action: () => onNavigate && onNavigate('overtime'),
                 },
                 {
                   id: 'deductions',
                   title: 'Deductions & SSS',
                   description: 'Automated statutory matching status (SSS, PhilHealth, Pag-IBIG)',
-                  icon: <Building2 className="w-10 h-10 text-blue-500 stroke-[1.25]" />,
+                  icon: <Building2 className="w-8 h-8 sm:w-10 sm:h-10 text-blue-500 stroke-[1.25]" />,
                   action: () => setSubview('deductions'),
                 },
                 {
                   id: 'profile',
                   title: 'My Profile',
                   description: 'Manage your personnel records, secure credentials, and contact details',
-                  icon: <BadgeCheck className="w-10 h-10 text-blue-500 stroke-[1.25]" />,
+                  icon: <BadgeCheck className="w-8 h-8 sm:w-10 sm:h-10 text-blue-500 stroke-[1.25]" />,
                   action: () => onNavigate && onNavigate('profile'),
                 },
                 {
                   id: 'flowchart',
                   title: 'System Flowchart',
                   description: 'Interactive end-to-end workflow diagrams & architecture from login to payroll release',
-                  icon: <GitFork className="w-10 h-10 text-indigo-600 stroke-[1.25]" />,
+                  icon: <GitFork className="w-8 h-8 sm:w-10 sm:h-10 text-indigo-600 stroke-[1.25]" />,
                   badge: 'Workflow',
                   action: () => onNavigate && onNavigate('flowchart'),
                 },
@@ -1062,32 +1070,32 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
                   id: 'announcements',
                   title: 'Announcements',
                   description: 'Latest institutional announcements and system reports will be posted here',
-                  icon: <MessageSquare className="w-10 h-10 text-amber-500 stroke-[1.25]" />,
+                  icon: <MessageSquare className="w-8 h-8 sm:w-10 sm:h-10 text-amber-500 stroke-[1.25]" />,
                   action: () => setSubview('announcements'),
                 }
               ].map((card) => (
                 <Card 
                   key={card.id}
                   onClick={card.action}
-                  className="border border-neutral-100 hover:border-blue-200 shadow-sm hover:shadow-md cursor-pointer transition-all duration-200 bg-white p-8 flex flex-col items-center text-center justify-between group active:scale-[0.98] rounded-2xl"
+                  className="border border-neutral-100 hover:border-blue-200 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 bg-white p-4 sm:p-6 md:p-8 flex flex-col items-center text-center justify-between group active:scale-[0.98] rounded-2xl"
                 >
-                  <div className="flex flex-col items-center space-y-4">
-                    <div className="p-3 bg-blue-50/50 rounded-xl group-hover:scale-105 transition-transform duration-200">
+                  <div className="flex flex-col items-center space-y-2.5 sm:space-y-4">
+                    <div className="p-2.5 sm:p-3 bg-blue-50/50 rounded-xl group-hover:scale-105 transition-transform duration-200">
                       {card.icon}
                     </div>
                     
-                    <div className="flex items-center gap-1.5 justify-center">
-                      <h3 className="text-base font-bold text-[#355275] tracking-tight group-hover:text-[#1a55cc] transition-colors">
+                    <div className="flex items-center gap-1.5 justify-center flex-wrap">
+                      <h3 className="text-sm sm:text-base font-bold text-[#355275] tracking-tight group-hover:text-[#1a55cc] transition-colors">
                         {card.title}
                       </h3>
                       {card.badge && (
-                        <span className="bg-emerald-500 text-white font-mono text-[9px] font-extrabold px-2 py-0.5 rounded-md uppercase tracking-wider scale-90 select-none">
+                        <span className="bg-emerald-500 text-white font-mono text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider scale-90 select-none">
                           {card.badge}
                         </span>
                       )}
                     </div>
 
-                    <p className="text-xs text-neutral-400 font-medium leading-relaxed max-w-[240px]">
+                    <p className="text-[11px] sm:text-xs text-neutral-400 font-medium leading-relaxed max-w-[240px]">
                       {card.description}
                     </p>
                   </div>
@@ -2423,20 +2431,20 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate, initialSubview = null
       </div>
 
       {/* Institutional Infrastructure Verification Ribbon */}
-      <div className="p-4 rounded-2xl bg-white border border-neutral-200/80 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
-            <ShieldCheck className="w-4 h-4 stroke-[2.2]" />
+      <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-white border border-neutral-200/80 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 text-xs">
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.2]" />
           </div>
           <div>
-            <h4 className="font-bold text-neutral-900">Database & Security Architecture Active</h4>
-            <p className="text-[11px] text-neutral-500">
+            <h4 className="font-bold text-neutral-900 text-xs sm:text-sm">Database & Security Architecture Active</h4>
+            <p className="text-[10px] sm:text-[11px] text-neutral-500 leading-snug">
               PostgreSQL direct connection pool synchronized with Supabase Auth RBAC. AES-256 encrypted payroll registers.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 shrink-0 text-[11px] font-mono text-neutral-500">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0 text-[10px] sm:text-[11px] font-mono text-neutral-500">
           <span className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
             PostgreSQL: Operational

@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "async_hooks";
 import dotenv from "dotenv";
 import pg from "pg";
-import { migratePlaintextPasswords } from "../utils/password.ts";
+import { migratePlaintextPasswords } from "../utils/password.js";
 
 dotenv.config();
 
@@ -885,6 +885,58 @@ export const SCHEMA_TABLES = [
     "createdAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY("employeeId") REFERENCES employees(id) ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS leave_types (
+    id VARCHAR(191) PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    description TEXT,
+    "daysAllowed" DECIMAL(5, 2) DEFAULT 15.00,
+    "isPaid" INTEGER DEFAULT 1,
+    "requiresAttachment" INTEGER DEFAULT 0,
+    "applicableGender" VARCHAR(20) DEFAULT 'ALL',
+    status VARCHAR(50) DEFAULT 'active',
+    "createdAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS leave_balances (
+    id VARCHAR(191) PRIMARY KEY,
+    "employeeId" VARCHAR(191) NOT NULL,
+    "leaveTypeId" VARCHAR(191) NOT NULL,
+    year INTEGER NOT NULL,
+    "allocatedDays" DECIMAL(5, 2) DEFAULT 15.00,
+    "usedDays" DECIMAL(5, 2) DEFAULT 0.00,
+    "pendingDays" DECIMAL(5, 2) DEFAULT 0.00,
+    "remainingDays" DECIMAL(5, 2) DEFAULT 15.00,
+    "createdAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS leave_requests (
+    id VARCHAR(191) PRIMARY KEY,
+    "employeeId" VARCHAR(191) NOT NULL,
+    "leaveTypeId" VARCHAR(191),
+    "leaveType" VARCHAR(100) NOT NULL,
+    "startDate" DATE NOT NULL,
+    "endDate" DATE NOT NULL,
+    "daysCount" DECIMAL(5, 2) DEFAULT 1.00,
+    reason TEXT,
+    status VARCHAR(50) DEFAULT 'pending',
+    "rejectionReason" TEXT,
+    "reviewedBy" VARCHAR(191),
+    "reviewedAt" TIMESTAMPTZ,
+    "approvedBy" VARCHAR(191),
+    "approvedAt" TIMESTAMPTZ,
+    "rejectedBy" VARCHAR(191),
+    "rejectedAt" TIMESTAMPTZ,
+    "cancelledBy" VARCHAR(191),
+    "cancelledAt" TIMESTAMPTZ,
+    "attachmentUrl" TEXT,
+    "createdAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY("employeeId") REFERENCES employees(id) ON DELETE CASCADE ON UPDATE CASCADE
   )`
 ];
 
@@ -896,7 +948,7 @@ export const TABLE_NAMES = [
   "dtr_visiting_records", "holidays", "schedules", "leave_applications",
   "loans", "loan_payments", "compensation_plans", "employee_compensation",
   "payroll_settings", "audit_logs", "sms_logs", "integration_sync_logs",
-  "overtime_requests"
+  "overtime_requests", "leave_types", "leave_balances", "leave_requests"
 ];
 
 /**
@@ -910,12 +962,10 @@ export async function initDb() {
     client.release();
     console.log(`[PostgreSQL Database] Successfully connected to PostgreSQL / Supabase! (${res.rows[0]?.version?.substring(0, 40)}...)`);
 
-    // 1. Create all 28 schema tables
-    for (const ddl of SCHEMA_TABLES) {
-      await db.exec(ddl);
-    }
+    // 1. Create all 28 schema tables in parallel
+    await Promise.all(SCHEMA_TABLES.map(ddl => db.exec(ddl).catch(() => {})));
 
-    // 2. Perform canonical column sync and ensure no duplicate legacy columns exist
+    // 2. Perform canonical column sync in parallel
     const canonicalAlters = [
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(191)',
         'ALTER TABLE users ADD COLUMN IF NOT EXISTS password TEXT',
@@ -997,6 +1047,31 @@ export async function initDb() {
         'ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS "rejectionReason" TEXT',
         'ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS "reviewedBy" VARCHAR(191)',
         'ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS "reviewedAt" TIMESTAMPTZ',
+        'ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS "leaveTypeId" VARCHAR(191)',
+        'ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS "approvedBy" VARCHAR(191)',
+        'ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS "approvedAt" TIMESTAMPTZ',
+        'ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS "rejectedBy" VARCHAR(191)',
+        'ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS "rejectedAt" TIMESTAMPTZ',
+        'ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS "cancelledBy" VARCHAR(191)',
+        'ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS "cancelledAt" TIMESTAMPTZ',
+        'ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS "attachmentUrl" TEXT',
+        'ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP',
+
+        'ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS "leaveTypeId" VARCHAR(191)',
+        'ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS "attachmentUrl" TEXT',
+        'ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS "rejectionReason" TEXT',
+        'ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS "reviewedBy" VARCHAR(191)',
+        'ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS "reviewedAt" TIMESTAMPTZ',
+        'ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS "approvedBy" VARCHAR(191)',
+        'ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS "approvedAt" TIMESTAMPTZ',
+        'ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS "rejectedBy" VARCHAR(191)',
+        'ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS "rejectedAt" TIMESTAMPTZ',
+        'ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS "cancelledBy" VARCHAR(191)',
+        'ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS "cancelledAt" TIMESTAMPTZ',
+        'ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP',
+        'ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP',
+
+        'ALTER TABLE employees ADD COLUMN IF NOT EXISTS "departmentId" VARCHAR(191)',
 
         'ALTER TABLE loans ADD COLUMN IF NOT EXISTS "employeeId" VARCHAR(191)',
         "ALTER TABLE loans ADD COLUMN IF NOT EXISTS type VARCHAR(100) DEFAULT 'GSIS Loan'",
@@ -1070,11 +1145,7 @@ export async function initDb() {
         'ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP'
       ];
 
-      for (const alt of canonicalAlters) {
-        try {
-          await db.exec(alt);
-        } catch {}
-      }
+      await Promise.all(canonicalAlters.map(alt => db.exec(alt).catch(() => {})));
 
       // High-performance database indexes for fast DTR and attendance lookups
       const speedIndexes = [
@@ -1091,19 +1162,28 @@ export async function initDb() {
         'CREATE INDEX IF NOT EXISTS idx_employees_empid ON employees ("employeeId")',
         'CREATE INDEX IF NOT EXISTS idx_holidays_date ON holidays (date)',
         'CREATE INDEX IF NOT EXISTS idx_overtime_emp_date ON overtime_requests ("employeeId", "overtimeDate")',
-        'CREATE INDEX IF NOT EXISTS idx_overtime_status ON overtime_requests (status)'
+        'CREATE INDEX IF NOT EXISTS idx_overtime_status ON overtime_requests (status)',
+        'CREATE INDEX IF NOT EXISTS idx_leave_emp ON leave_applications ("employeeId")',
+        'CREATE INDEX IF NOT EXISTS idx_leave_status ON leave_applications (status)',
+        'CREATE INDEX IF NOT EXISTS idx_leave_dates ON leave_applications ("startDate", "endDate")',
+        'CREATE INDEX IF NOT EXISTS idx_leave_req_emp ON leave_requests ("employeeId")',
+        'CREATE INDEX IF NOT EXISTS idx_leave_req_status ON leave_requests (status)',
+        'CREATE INDEX IF NOT EXISTS idx_leave_bal_emp ON leave_balances ("employeeId", year)'
       ];
 
-      for (const idx of speedIndexes) {
-        try {
-          await db.exec(idx);
-        } catch {}
-      }
+      await Promise.all(speedIndexes.map(idx => db.exec(idx).catch(() => {})));
 
     console.log(`[Database] All ${TABLE_NAMES.length} tables and indexes verified successfully.`);
 
-    // Perform secure automatic password hashing migration for legacy plaintext passwords
-    await migratePlaintextPasswords(db);
+    // Run password migration and leave seeding in background so server opens instantly
+    setTimeout(async () => {
+      try {
+        await migratePlaintextPasswords(db);
+        await seedDefaultLeaveTypesAndBalances(db);
+      } catch (e: any) {
+        console.warn("[Database] Background setup notice:", e.message);
+      }
+    }, 50);
 
     // Trigger async background sync to Supabase Auth
     setTimeout(() => {
@@ -1120,6 +1200,102 @@ export async function initDb() {
     }, 1000);
   } catch (err: any) {
     console.error("[Database] Initialization error:", err.message);
+  }
+}
+
+/**
+ * Seeds standard default leave types and generates default leave balances for employees
+ */
+async function seedDefaultLeaveTypesAndBalances(database: any) {
+  try {
+    const existingTypes = await database.prepare("SELECT COUNT(*) as count FROM leave_types").get() as any;
+    const count = Number(existingTypes?.count || 0);
+    if (count === 0) {
+      const defaultLeaveTypes = [
+        { id: "lt-vl", name: "Vacation Leave", code: "VL", description: "Leave for vacation, travel, or personal rest", daysAllowed: 15, isPaid: 1, requiresAttachment: 0, applicableGender: "ALL" },
+        { id: "lt-sl", name: "Sick Leave", code: "SL", description: "Leave taken on account of illness or medical treatment", daysAllowed: 15, isPaid: 1, requiresAttachment: 1, applicableGender: "ALL" },
+        { id: "lt-fl", name: "Mandatory / Forced Leave", code: "FL", description: "Annual 5-day mandatory/forced vacation leave", daysAllowed: 5, isPaid: 1, requiresAttachment: 0, applicableGender: "ALL" },
+        { id: "lt-spl", name: "Special Privilege Leave", code: "SPL", description: "Special leave for personal milestones, celebrations, or family obligations", daysAllowed: 3, isPaid: 1, requiresAttachment: 0, applicableGender: "ALL" },
+        { id: "lt-ml", name: "Maternity Leave", code: "ML", description: "105 days paid maternity leave for female employees (RA 11210)", daysAllowed: 105, isPaid: 1, requiresAttachment: 1, applicableGender: "FEMALE" },
+        { id: "lt-pl", name: "Paternity Leave", code: "PL", description: "7 days paid paternity leave for married male employees (RA 8187)", daysAllowed: 7, isPaid: 1, requiresAttachment: 1, applicableGender: "MALE" },
+        { id: "lt-solo", name: "Solo Parent Leave", code: "SOLO", description: "7 days parental leave for solo parents (RA 8972)", daysAllowed: 7, isPaid: 1, requiresAttachment: 1, applicableGender: "ALL" },
+        { id: "lt-stl", name: "Study Leave", code: "STL", description: "Leave to pursue graduate/post-graduate education or board exams", daysAllowed: 30, isPaid: 1, requiresAttachment: 1, applicableGender: "ALL" },
+        { id: "lt-rl", name: "Rehabilitation Leave", code: "RL", description: "Leave for job-related physical injuries or medical recovery", daysAllowed: 180, isPaid: 1, requiresAttachment: 1, applicableGender: "ALL" },
+        { id: "lt-el", name: "Emergency / Calamity Leave", code: "EL", description: "Special emergency leave for natural calamities or disasters", daysAllowed: 5, isPaid: 1, requiresAttachment: 0, applicableGender: "ALL" },
+        { id: "lt-lwop", name: "Leave Without Pay", code: "LWOP", description: "Authorized absence without pay when leave credits are exhausted", daysAllowed: 30, isPaid: 0, requiresAttachment: 0, applicableGender: "ALL" }
+      ];
+
+      for (const lt of defaultLeaveTypes) {
+        await database.prepare(`
+          INSERT INTO leave_types (id, name, code, description, "daysAllowed", "isPaid", "requiresAttachment", "applicableGender", status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
+          ON CONFLICT (id) DO NOTHING
+        `).run(lt.id, lt.name, lt.code, lt.description, lt.daysAllowed, lt.isPaid, lt.requiresAttachment, lt.applicableGender);
+      }
+      console.log(`[Database] Seeded ${defaultLeaveTypes.length} standard default leave types.`);
+    }
+
+    // Ensure active employees have leave balance records for the current year
+    const currentYear = new Date().getFullYear();
+    const existingBalances = await database.prepare('SELECT "employeeId", "leaveTypeId" FROM leave_balances WHERE year = ?').all(currentYear) as any[];
+    const existingSet = new Set((existingBalances || []).map((b: any) => `${b.employeeId}_${b.leaveTypeId}`));
+
+    const employees = await database.prepare("SELECT id, gender FROM employees WHERE status = 'active' OR status IS NULL").all() as any[];
+    const leaveTypes = await database.prepare("SELECT * FROM leave_types WHERE status = 'active'").all() as any[];
+
+    if (employees && employees.length > 0 && leaveTypes && leaveTypes.length > 0) {
+      const inserts: Promise<any>[] = [];
+      for (const emp of employees) {
+        for (const lt of leaveTypes) {
+          const empGender = String(emp.gender || 'MALE').toUpperCase();
+          if (lt.applicableGender === 'FEMALE' && empGender !== 'FEMALE') continue;
+          if (lt.applicableGender === 'MALE' && empGender !== 'MALE') continue;
+
+          const key = `${emp.id}_${lt.id}`;
+          if (!existingSet.has(key)) {
+            const balId = `bal-${emp.id}-${lt.code}-${currentYear}`;
+            const allocated = Number(lt.daysAllowed || 15);
+            inserts.push(
+              database.prepare(`
+                INSERT INTO leave_balances (id, "employeeId", "leaveTypeId", year, "allocatedDays", "usedDays", "pendingDays", "remainingDays")
+                VALUES (?, ?, ?, ?, ?, 0.00, 0.00, ?)
+                ON CONFLICT (id) DO NOTHING
+              `).run(balId, emp.id, lt.id, currentYear, allocated, allocated).catch(() => {})
+            );
+          }
+        }
+      }
+      if (inserts.length > 0) {
+        await Promise.all(inserts);
+      }
+    }
+
+    // Sync any existing rows in leave_applications to leave_requests if leave_requests is empty
+    try {
+      const existingReqs = await database.prepare("SELECT COUNT(*) as count FROM leave_requests").get() as any;
+      if (Number(existingReqs?.count || 0) === 0) {
+        const existingApps = await database.prepare("SELECT * FROM leave_applications").all() as any[];
+        for (const app of existingApps) {
+          await database.prepare(`
+            INSERT INTO leave_requests (
+              id, "employeeId", "leaveTypeId", "leaveType", "startDate", "endDate", "daysCount",
+              reason, status, "rejectionReason", "reviewedBy", "reviewedAt", "attachmentUrl", "createdAt"
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (id) DO NOTHING
+          `).run(
+            app.id, app.employeeId || app.employee_id, app.leaveTypeId || null,
+            app.leaveType || app.leave_type || "Leave",
+            app.startDate || app.start_date, app.endDate || app.end_date,
+            app.daysCount || app.days_count || 1, app.reason || "", app.status || "pending",
+            app.rejectionReason || app.rejection_reason || null,
+            app.reviewedBy || app.reviewed_by || null, app.reviewedAt || app.reviewed_at || null,
+            app.attachmentUrl || app.attachment_url || null, app.createdAt || app.created_at || new Date().toISOString()
+          );
+        }
+      }
+    } catch {}
+  } catch (err: any) {
+    console.warn("[Database] Leave types/balances seeding notice:", err.message);
   }
 }
 

@@ -37,6 +37,8 @@ import { integrationsRouter } from "./routes/integrations.js";
 import { storageRouter } from "./routes/storage.js";
 // Import Overtime Requests router (requests, approvals, cancellations, payroll sync)
 import { overtimeRouter } from "./routes/overtime.js";
+// Import Leaves router (requests, balances, leave types, approvals, payroll/DTR sync)
+import { leavesRouter } from "./routes/leaves.js";
 
 // Initialize environment variables from .env into process.env
 dotenv.config();
@@ -185,6 +187,8 @@ export async function startServer() {
   app.use("/api", dtrRouter);
   // Mount Overtime Request routes under /api (e.g. /api/overtime-requests)
   app.use("/api", overtimeRouter);
+  // Mount Leave Management routes under /api (e.g. /api/leave-requests, /api/leave-types, /api/leave-balances)
+  app.use("/api", leavesRouter);
   // Mount Deductions routes under /api (e.g. /api/deductions)
   app.use("/api", deductionsRouter);
   // Mount Users routes under /api (e.g. /api/users)

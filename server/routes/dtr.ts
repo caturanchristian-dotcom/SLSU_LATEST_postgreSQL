@@ -80,7 +80,7 @@ dtrRouter.get("/dtr/bootstrap", async (req: any, res: any) => {
     const resolvedEmpId = employeeId ? await resolveEmployeeId(employeeId) : null;
 
     // Execute queries in parallel
-    const [employees, holidays, logs, statusRecord, schedules, approvedOvertime] = await Promise.all([
+    const [employees, holidays, logs, statusRecord, schedules, approvedOvertime, approvedLeaves] = await Promise.all([
       db.prepare(`
         SELECT id, "employeeId", "firstName", "lastName", email, category, "basicSalary", "salaryType", "phoneNumber", status, campus
         FROM employees
@@ -156,6 +156,29 @@ dtrRouter.get("/dtr/bootstrap", async (req: any, res: any) => {
         }
         query += ' ORDER BY ot."overtimeDate" ASC, ot."startTime" ASC';
         return await db.prepare(query).all(...params).catch(() => []);
+      })(),
+
+      // Approved Leave Requests for the period (Only status = 'approved')
+      (async () => {
+        let query = `
+          SELECT l.*, 
+                 COALESCE(lt.name, l."leaveType") as "leaveTypeName",
+                 COALESCE(lt.code, '') as "leaveTypeCode",
+                 COALESCE(lt."isPaid", 1) as "isPaid",
+                 e."firstName", e."lastName", e."employeeId" as "employeeNo"
+          FROM leave_applications l
+          LEFT JOIN leave_types lt ON (l."leaveTypeId" = lt.id OR LOWER(l."leaveType") = LOWER(lt.name) OR LOWER(l."leaveType") = LOWER(lt.code))
+          LEFT JOIN employees e ON l."employeeId" = e.id
+          WHERE l.status = 'approved'
+            AND l."startDate" <= ? AND l."endDate" >= ?
+        `;
+        const params: any[] = [endDay, startDay];
+        if (resolvedEmpId) {
+          query += ' AND (l."employeeId" = ? OR l."employeeId" = ? OR e."employeeId" = ?)';
+          params.push(resolvedEmpId, employeeId, employeeId);
+        }
+        query += ' ORDER BY l."startDate" ASC';
+        return await db.prepare(query).all(...params).catch(() => []);
       })()
     ]);
 
@@ -166,6 +189,7 @@ dtrRouter.get("/dtr/bootstrap", async (req: any, res: any) => {
       status: statusRecord,
       schedules,
       approvedOvertime: Array.isArray(approvedOvertime) ? approvedOvertime : [],
+      approvedLeaves: Array.isArray(approvedLeaves) ? approvedLeaves : [],
       period: {
         year: targetYear,
         month: targetMonth,

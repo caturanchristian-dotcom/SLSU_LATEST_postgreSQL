@@ -1680,7 +1680,7 @@ const DTR = () => {
   const renderDtrSheet = (copyIndex: number) => {
     const nameData = parsedName();
     return (
-      <div key={copyIndex} className="dtr-sheet-card w-full max-w-[580px] bg-white p-6 sm:p-8 border-2 border-black rounded-none text-neutral-900 shadow-md print:shadow-none flex flex-col justify-between print-border-thick print:p-6 print:w-full print:max-w-none print:h-full">
+      <div key={copyIndex} className="dtr-sheet-card w-full max-w-[580px] bg-white p-2.5 sm:p-6 md:p-8 border-2 border-black rounded-none text-neutral-900 shadow-md print:shadow-none flex flex-col justify-between print-border-thick print:p-6 print:w-full print:max-w-none print:h-full overflow-x-auto">
         <div>
           {/* Header text section (logos removed) */}
           <div className="flex items-center justify-center pb-2 border-b-2 border-black">
@@ -2398,7 +2398,7 @@ const DTR = () => {
       </Card>
 
       {/* CIVIL SERVICE FORM 48 PRINT LAYOUT SHEET CONTAINER */}
-      <div id="printable-dtr" className="bg-neutral-100/50 border border-neutral-200/50 p-4 lg:p-8 rounded-3xl shadow-inner bg-white flex flex-col items-center justify-center animate-in fade-in overflow-x-auto">
+      <div id="printable-dtr" className="bg-neutral-100/50 border border-neutral-200/50 p-2 sm:p-4 lg:p-8 rounded-2xl sm:rounded-3xl shadow-inner bg-white flex flex-col items-center justify-center animate-in fade-in overflow-x-auto touch-scroll max-w-full">
         <div className="flex flex-col gap-6 items-center w-full">
           {renderDtrSheet(1)}
         </div>

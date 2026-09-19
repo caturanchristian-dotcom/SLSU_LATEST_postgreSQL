@@ -1058,5 +1058,146 @@ export const api = {
       return handleResponse(res);
     },
   },
+  // Leave Management API
+  leaves: {
+    // List leave requests with optional filters
+    getRequests: async (params?: {
+      employeeId?: string;
+      departmentId?: string;
+      leaveTypeId?: string;
+      status?: string;
+      startDate?: string;
+      endDate?: string;
+      search?: string;
+      year?: number;
+    }) => {
+      const q = new URLSearchParams();
+      if (params?.employeeId) q.append('employeeId', params.employeeId);
+      if (params?.departmentId) q.append('departmentId', params.departmentId);
+      if (params?.leaveTypeId) q.append('leaveTypeId', params.leaveTypeId);
+      if (params?.status) q.append('status', params.status);
+      if (params?.startDate) q.append('startDate', params.startDate);
+      if (params?.endDate) q.append('endDate', params.endDate);
+      if (params?.search) q.append('search', params.search);
+      if (params?.year) q.append('year', String(params.year));
+      const res = await fetchWithAuth(`${API_BASE}/leave-requests?${q.toString()}`);
+      return handleResponse(res);
+    },
+    // Get single leave request
+    getRequest: async (id: string) => {
+      const res = await fetchWithAuth(`${API_BASE}/leave-requests/${id}`);
+      return handleResponse(res);
+    },
+    // Submit leave request
+    createRequest: async (data: {
+      employeeId?: string;
+      leaveTypeId?: string;
+      leaveType?: string;
+      startDate: string;
+      endDate: string;
+      reason: string;
+      attachmentUrl?: string;
+      daysCount?: number;
+    }) => {
+      const res = await fetchWithAuth(`${API_BASE}/leave-requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      return handleResponse(res);
+    },
+    // Approve leave request (Admin / Department Head)
+    approve: async (id: string, data?: { approverRemarks?: string }) => {
+      const res = await fetchWithAuth(`${API_BASE}/leave-requests/${id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data || {}),
+      });
+      return handleResponse(res);
+    },
+    // Reject leave request (Admin / Department Head)
+    reject: async (id: string, data: { rejectionReason: string }) => {
+      const res = await fetchWithAuth(`${API_BASE}/leave-requests/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      return handleResponse(res);
+    },
+    // Cancel leave request (Employee or Admin)
+    cancel: async (id: string, data?: { cancellationReason?: string }) => {
+      const res = await fetchWithAuth(`${API_BASE}/leave-requests/${id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data || {}),
+      });
+      return handleResponse(res);
+    },
+    // Delete leave request record (Admin)
+    delete: async (id: string) => {
+      const res = await fetchWithAuth(`${API_BASE}/leave-requests/${id}`, {
+        method: 'DELETE',
+      });
+      return handleResponse(res);
+    },
+    // Leave types
+    getTypes: async (status?: string) => {
+      const q = status ? `?status=${status}` : '';
+      const res = await fetchWithAuth(`${API_BASE}/leave-types${q}`);
+      return handleResponse(res);
+    },
+    createType: async (data: any) => {
+      const res = await fetchWithAuth(`${API_BASE}/leave-types`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      return handleResponse(res);
+    },
+    updateType: async (id: string, data: any) => {
+      const res = await fetchWithAuth(`${API_BASE}/leave-types/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      return handleResponse(res);
+    },
+    deleteType: async (id: string) => {
+      const res = await fetchWithAuth(`${API_BASE}/leave-types/${id}`, {
+        method: 'DELETE',
+      });
+      return handleResponse(res);
+    },
+    // Leave balances
+    getBalances: async (params?: { employeeId?: string; year?: number }) => {
+      const q = new URLSearchParams();
+      if (params?.employeeId) q.append('employeeId', params.employeeId);
+      if (params?.year) q.append('year', String(params.year));
+      const res = await fetchWithAuth(`${API_BASE}/leave-balances?${q.toString()}`);
+      return handleResponse(res);
+    },
+    updateBalance: async (id: string, data: any) => {
+      const res = await fetchWithAuth(`${API_BASE}/leave-balances/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      return handleResponse(res);
+    },
+    generateBalances: async (year?: number) => {
+      const res = await fetchWithAuth(`${API_BASE}/leave-balances/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year }),
+      });
+      return handleResponse(res);
+    },
+    // Summary & analytics
+    getSummary: async (year?: number) => {
+      const q = year ? `?year=${year}` : '';
+      const res = await fetchWithAuth(`${API_BASE}/leave-requests/summary${q}`);
+      return handleResponse(res);
+    },
+  },
 };
 
